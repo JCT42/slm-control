@@ -77,6 +77,10 @@ class SLMController:
         self.save_preview_button = Button(200, 360, 200, 40, "Save Pattern", self.font)
         self.save_camera_button = Button(650, 285, 200, 40, "Save Camera", self.font)
         
+        # Camera control
+        self.camera_paused = False
+        self.pause_camera_button = Button(650, 335, 200, 40, "Pause Camera", self.font)
+        
         # Initialize camera
         try:
             self.camera = cv2.VideoCapture(0)
@@ -200,14 +204,19 @@ class SLMController:
             pygame.display.update()
 
     def update_camera_preview(self):
-        """Update camera preview if camera is active"""
-        if self.camera_active:
+        """Update camera preview if camera is active and not paused"""
+        if self.camera_active and not self.camera_paused:
             ret, frame = self.camera.read()
             if ret:
                 frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
                 frame = cv2.resize(frame, (300, 225))
                 pygame_frame = pygame.surfarray.make_surface(frame.swapaxes(0, 1))
                 self.camera_surface.blit(pygame_frame, (0, 0))
+
+    def toggle_camera_pause(self):
+        """Toggle camera pause state"""
+        self.camera_paused = not self.camera_paused
+        self.pause_camera_button.text = "Resume Camera" if self.camera_paused else "Pause Camera"
 
     def save_preview_image(self):
         """Save the current pattern preview"""
@@ -252,6 +261,10 @@ class SLMController:
                 if self.save_camera_button.handle_event(event):
                     self.save_camera_image()
                 
+                # Handle camera pause button
+                if self.pause_camera_button.handle_event(event):
+                    self.toggle_camera_pause()
+                
                 if self.show_pattern_list:
                     for btn in self.pattern_buttons:
                         if btn.handle_event(event):
@@ -281,8 +294,11 @@ class SLMController:
             preview_label = self.font.render('Pattern Preview', True, (255, 255, 255))
             self.control_display.blit(preview_label, (200, 410))
             
-            camera_label = self.font.render('Camera View', True, (255, 255, 255))
-            self.control_display.blit(camera_label, (650, 335))
+            # Draw camera status and label
+            camera_status = "LIVE" if self.camera_active and not self.camera_paused else "PAUSED"
+            status_color = (0, 255, 0) if camera_status == "LIVE" else (255, 165, 0)
+            camera_label = self.font.render(f'Camera View ({camera_status})', True, status_color)
+            self.control_display.blit(camera_label, (650, 385))
             
             # Draw preview windows
             pygame.draw.rect(self.control_display, (64, 64, 64), self.preview_rect)
@@ -291,6 +307,7 @@ class SLMController:
             # Draw save buttons
             self.save_preview_button.draw(self.control_display)
             self.save_camera_button.draw(self.control_display)
+            self.pause_camera_button.draw(self.control_display)
             
             # Update and draw preview surfaces
             self.control_display.blit(self.preview_surface, self.preview_rect)
