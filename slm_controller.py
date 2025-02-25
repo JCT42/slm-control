@@ -343,7 +343,8 @@ class SLMController:
             if result.returncode == 0:
                 file_path = result.stdout.strip()
                 if file_path:
-                    pattern_name = os.path.basename(file_path)
+                    # Get pattern name without .png extension since display_pattern adds it
+                    pattern_name = os.path.splitext(os.path.basename(file_path))[0]
                     self.display_pattern(pattern_name)
                     print(f"Loaded pattern: {pattern_name}")
             else:
