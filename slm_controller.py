@@ -131,49 +131,52 @@ class SLMController:
         
     def create_default_patterns(self):
         """Create some default SLM patterns"""
+        # Create patterns in the correct orientation (832x624)
+        width, height = 832, 624  # Fixed dimensions for SLM
+        
         # Create blank pattern
-        blank = np.ones((self.height, self.width), dtype=np.uint8) * 128
+        blank = np.ones((height, width), dtype=np.uint8) * 128
         
         # Create binary grating
-        x = np.arange(self.width)
-        binary_grating = np.zeros((self.height, self.width), dtype=np.uint8)
+        x = np.arange(width)
+        binary_grating = np.zeros((height, width), dtype=np.uint8)
         period = 20  # pixels
         binary_grating[:, x % period < period/2] = 255
         
         # Create sinusoidal grating
-        x = np.arange(self.width)
-        y = np.arange(self.height)
-        X, Y = np.meshgrid(x, y)
+        x = np.arange(width)
+        y = np.arange(height)
+        X, Y = np.meshgrid(x, y)  # Use default indexing for image coordinates
         period = 40  # pixels
         sinusoidal_grating = np.sin(2 * np.pi * X / period)
         sinusoidal_grating = ((sinusoidal_grating + 1) * 127.5).astype(np.uint8)
         
         # Create blazed grating
-        x = np.arange(self.width)
-        blazed_grating = np.zeros((self.height, self.width), dtype=np.uint8)
+        x = np.arange(width)
+        blazed_grating = np.zeros((height, width), dtype=np.uint8)
         period = 40  # pixels
-        for i in range(self.height):
-            blazed_grating[i] = (x % period) * 255 / period
+        for j in range(width):
+            blazed_grating[:, j] = (j % period) * 255 / period
         
         # Create checkerboard
-        checkerboard = np.zeros((self.height, self.width), dtype=np.uint8)
+        checkerboard = np.zeros((height, width), dtype=np.uint8)
         square_size = 32  # pixels
-        for i in range(0, self.height, square_size):
-            for j in range(0, self.width, square_size):
+        for i in range(0, height, square_size):
+            for j in range(0, width, square_size):
                 if (i//square_size + j//square_size) % 2 == 0:
                     checkerboard[i:i+square_size, j:j+square_size] = 255
         
         # Create circular aperture
-        Y, X = np.ogrid[:self.height, :self.width]
-        center = (self.height//2, self.width//2)
-        radius = min(self.height, self.width)//4
+        Y, X = np.ogrid[:height, :width]
+        center = (height//2, width//2)
+        radius = min(height, width)//4
         dist_from_center = np.sqrt((X - center[1])**2 + (Y - center[0])**2)
-        circular_aperture = np.zeros((self.height, self.width), dtype=np.uint8)
+        circular_aperture = np.zeros((height, width), dtype=np.uint8)
         circular_aperture[dist_from_center <= radius] = 255
         
         # Create Fresnel lens pattern
-        Y, X = np.ogrid[:self.height, :self.width]
-        center = (self.height//2, self.width//2)
+        Y, X = np.ogrid[:height, :width]
+        center = (height//2, width//2)
         dist_from_center = np.sqrt((X - center[1])**2 + (Y - center[0])**2)
         focal_length = 500  # mm
         wavelength = 0.000633  # mm (633nm)
@@ -204,28 +207,32 @@ class SLMController:
         if pattern_path.exists():
             # Load pattern in grayscale mode
             pattern = cv2.imread(str(pattern_path), cv2.IMREAD_GRAYSCALE)
-            self.current_pattern = pattern_name
+            print(f"Original pattern shape: {pattern.shape}")
             
-            # Ensure pattern is 8-bit grayscale
+            # Ensure pattern matches SLM dimensions
+            if pattern.shape != (self.height, self.width):
+                pattern = cv2.resize(pattern, (self.width, self.height))
+            print(f"Resized pattern shape: {pattern.shape}")
+            
+            self.current_pattern = pattern_name
             pattern = pattern.astype(np.uint8)
             
             # Create grayscale surface for SLM
-            height, width = pattern.shape
-            slm_surface = pygame.Surface((width, height), depth=8)  # 8-bit surface
+            slm_surface = pygame.Surface((self.width, self.height), depth=8)  # 8-bit surface
             # Create a grayscale palette
             palette = [(i, i, i) for i in range(256)]
             slm_surface.set_palette(palette)
             # Update surface pixels
-            pygame.surfarray.pixels2d(slm_surface)[:] = pattern
+            pygame.surfarray.pixels2d(slm_surface)[:] = pattern.T  # Transpose for pygame's format
             
             # Display on SLM window
             self.slm_window.fill((128, 128, 128))
             self.slm_window.blit(slm_surface, (0, 0))
             
             # Create RGB preview (for display only)
-            preview_surface = pygame.Surface((width, height))
+            preview_surface = pygame.Surface((self.width, self.height))
             preview_array = np.dstack((pattern, pattern, pattern))  # Convert to RGB
-            pygame.surfarray.pixels3d(preview_surface)[:] = preview_array
+            pygame.surfarray.pixels3d(preview_surface)[:] = np.transpose(preview_array, (1, 0, 2))  # Transpose for pygame's format
             
             # Scale and display preview
             preview_pattern = pygame.transform.scale(preview_surface, (self.preview_surface.get_width(), self.preview_surface.get_height()))
@@ -233,6 +240,7 @@ class SLMController:
             
             pygame.display.update()
         else:
+            print(f"Pattern {pattern_name} not found, creating default patterns...")
             # Generate and save the pattern first
             self.create_default_patterns()
             # Then try to display it again
