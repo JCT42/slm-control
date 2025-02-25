@@ -85,7 +85,6 @@ class SLMController:
         self.patterns_dir.mkdir(exist_ok=True)
         
         # Pattern management
-        self.show_pattern_list = False
         self.current_pattern = None
         
         # Calculate positions (centered horizontally)
@@ -108,6 +107,11 @@ class SLMController:
         button_width = 150
         button_height = 40
         
+        # Create buttons
+        # Top row buttons
+        self.load_button = Button(10, 10, button_width, button_height, "Load Pattern", self.font)
+        self.generate_button = Button(button_width + 20, 10, button_width, button_height, "Generate Patterns", self.font)
+        
         # Save buttons
         self.save_preview_button = Button(pattern_x, preview_height + 60, button_width, button_height, "Save Pattern", self.font)
         self.save_camera_button = Button(camera_x, camera_height + 60, button_width, button_height, "Save Camera", self.font)
@@ -116,18 +120,6 @@ class SLMController:
         self.camera_paused = False
         self.pause_camera_button = Button(camera_x + button_width + 20, camera_height + 60, button_width, button_height, "Pause Camera", self.font)
         
-        # Pattern selection
-        self.pattern_button = Button(10, 50, button_width, button_height, "Select Pattern", self.font)
-        
-        # Create pattern buttons
-        self.pattern_buttons = []
-        patterns = ['blank', 'binary_grating', 'sinusoidal_grating', 'blazed_grating', 'checkerboard', 'circular_aperture', 'lens']
-        y = 100  # Starting y position for pattern buttons
-        for pattern in patterns:
-            btn = Button(10, y, button_width, button_height, pattern, self.font)
-            self.pattern_buttons.append(btn)
-            y += button_height + 5  # Space between buttons
-            
         # Calibrate button (bottom left)
         calibrate_x = 20
         calibrate_y = self.screen_height - button_height - 20
@@ -145,7 +137,7 @@ class SLMController:
         except:
             print("Warning: Could not initialize camera")
             self.camera_active = False
-        
+            
     def load_calibration(self):
         """Load calibration data if available"""
         try:
@@ -304,73 +296,124 @@ class SLMController:
         # Create patterns in the correct orientation (832x624)
         width, height = 832, 624  # Fixed dimensions for SLM
         
-        # Create blank pattern
-        blank = np.ones((height, width), dtype=np.uint8) * 128
+        patterns = {}
         
-        # Create binary grating
+        # Basic patterns
+        patterns['blank'] = np.ones((height, width), dtype=np.uint8) * 128
+        
+        # Gratings
         x = np.arange(width)
+        y = np.arange(height)
+        X, Y = np.meshgrid(x, y)
+        
+        # Binary grating (vertical)
         binary_grating = np.zeros((height, width), dtype=np.uint8)
         period = 20  # pixels
         binary_grating[:, x % period < period/2] = 255
+        patterns['binary_grating_vertical'] = binary_grating
         
-        # Create sinusoidal grating
-        x = np.arange(width)
-        y = np.arange(height)
-        X, Y = np.meshgrid(x, y)  # Use default indexing for image coordinates
-        period = 40  # pixels
-        sinusoidal_grating = np.sin(2 * np.pi * X / period)
-        sinusoidal_grating = ((sinusoidal_grating + 1) * 127.5).astype(np.uint8)
+        # Binary grating (horizontal)
+        binary_grating_h = np.zeros((height, width), dtype=np.uint8)
+        binary_grating_h[y % period < period/2, :] = 255
+        patterns['binary_grating_horizontal'] = binary_grating_h
         
-        # Create blazed grating
-        x = np.arange(width)
-        blazed_grating = np.zeros((height, width), dtype=np.uint8)
+        # Binary grating (diagonal)
+        binary_grating_d = np.zeros((height, width), dtype=np.uint8)
+        binary_grating_d[(X + Y) % period < period/2] = 255
+        patterns['binary_grating_diagonal'] = binary_grating_d
+        
+        # Sinusoidal gratings
         period = 40  # pixels
+        # Vertical
+        sinusoidal = np.sin(2 * np.pi * X / period)
+        patterns['sinusoidal_grating_vertical'] = ((sinusoidal + 1) * 127.5).astype(np.uint8)
+        # Horizontal
+        sinusoidal = np.sin(2 * np.pi * Y / period)
+        patterns['sinusoidal_grating_horizontal'] = ((sinusoidal + 1) * 127.5).astype(np.uint8)
+        # Diagonal
+        sinusoidal = np.sin(2 * np.pi * (X + Y) / period)
+        patterns['sinusoidal_grating_diagonal'] = ((sinusoidal + 1) * 127.5).astype(np.uint8)
+        
+        # Blazed gratings
+        period = 40  # pixels
+        # Vertical
+        blazed = np.zeros((height, width), dtype=np.uint8)
         for j in range(width):
-            blazed_grating[:, j] = (j % period) * 255 / period
+            blazed[:, j] = (j % period) * 255 / period
+        patterns['blazed_grating_vertical'] = blazed
+        # Horizontal
+        blazed = np.zeros((height, width), dtype=np.uint8)
+        for i in range(height):
+            blazed[i, :] = (i % period) * 255 / period
+        patterns['blazed_grating_horizontal'] = blazed
         
-        # Create checkerboard
-        checkerboard = np.zeros((height, width), dtype=np.uint8)
-        square_size = 32  # pixels
-        for i in range(0, height, square_size):
-            for j in range(0, width, square_size):
-                if (i//square_size + j//square_size) % 2 == 0:
-                    checkerboard[i:i+square_size, j:j+square_size] = 255
+        # Checkerboard patterns
+        for square_size in [16, 32, 64]:
+            checkerboard = np.zeros((height, width), dtype=np.uint8)
+            for i in range(0, height, square_size):
+                for j in range(0, width, square_size):
+                    if (i//square_size + j//square_size) % 2 == 0:
+                        checkerboard[i:i+square_size, j:j+square_size] = 255
+            patterns[f'checkerboard_{square_size}px'] = checkerboard
         
-        # Create circular aperture
+        # Circular patterns
+        center_y, center_x = height//2, width//2
         Y, X = np.ogrid[:height, :width]
-        center = (height//2, width//2)
-        radius = min(height, width)//4
-        dist_from_center = np.sqrt((X - center[1])**2 + (Y - center[0])**2)
-        circular_aperture = np.zeros((height, width), dtype=np.uint8)
-        circular_aperture[dist_from_center <= radius] = 255
         
-        # Create Fresnel lens pattern
-        Y, X = np.ogrid[:height, :width]
-        center = (height//2, width//2)
-        dist_from_center = np.sqrt((X - center[1])**2 + (Y - center[0])**2)
-        focal_length = 500  # mm
+        # Circular aperture
+        for radius in [50, 100, 200]:
+            dist_from_center = np.sqrt((X - center_x)**2 + (Y - center_y)**2)
+            circle = np.zeros((height, width), dtype=np.uint8)
+            circle[dist_from_center <= radius] = 255
+            patterns[f'circle_r{radius}'] = circle
+        
+        # Ring pattern
+        for radius in [100, 200]:
+            ring_width = radius // 5
+            dist_from_center = np.sqrt((X - center_x)**2 + (Y - center_y)**2)
+            ring = np.zeros((height, width), dtype=np.uint8)
+            ring[(dist_from_center >= radius - ring_width) & (dist_from_center <= radius + ring_width)] = 255
+            patterns[f'ring_r{radius}'] = ring
+        
+        # Fresnel lens patterns
+        focal_lengths = [200, 500, 1000]  # mm
         wavelength = 0.000633  # mm (633nm)
-        lens = np.exp(1j * np.pi * dist_from_center**2 / (wavelength * focal_length))
-        lens = ((np.angle(lens) + np.pi) * 255 / (2 * np.pi)).astype(np.uint8)
+        for f in focal_lengths:
+            dist_from_center = np.sqrt((X - center_x)**2 + (Y - center_y)**2)
+            lens = np.exp(1j * np.pi * dist_from_center**2 / (wavelength * f))
+            patterns[f'fresnel_lens_f{f}mm'] = ((np.angle(lens) + np.pi) * 255 / (2 * np.pi)).astype(np.uint8)
         
-        # Save all patterns
-        patterns = {
-            'blank': blank,
-            'binary_grating': binary_grating,
-            'sinusoidal_grating': sinusoidal_grating,
-            'blazed_grating': blazed_grating,
-            'checkerboard': checkerboard,
-            'circular_aperture': circular_aperture,
-            'lens': lens
-        }
+        # Vortex patterns (spiral phase plates)
+        for charge in [1, 2, 3]:
+            angle = np.arctan2(Y - center_y, X - center_x)
+            vortex = ((angle * charge / (2 * np.pi) + 0.5) * 255).astype(np.uint8)
+            patterns[f'vortex_l{charge}'] = vortex
         
         # Ensure patterns directory exists
         self.patterns_dir.mkdir(exist_ok=True)
         
-        # Save patterns as grayscale PNGs
+        # Save all patterns
         for name, pattern in patterns.items():
             Image.fromarray(pattern, mode='L').save(self.patterns_dir / f'{name}.png')
-
+            
+    def load_pattern(self):
+        """Load a pattern using zenity file dialog"""
+        try:
+            # Use zenity file dialog
+            cmd = ['zenity', '--file-selection', 
+                  '--title=Select Pattern', 
+                  '--file-filter=*.png',
+                  f'--filename={self.patterns_dir}/']
+            
+            result = subprocess.run(cmd, capture_output=True, text=True)
+            if result.returncode == 0:
+                pattern_path = result.stdout.strip()
+                # Extract pattern name from path
+                pattern_name = Path(pattern_path).stem
+                self.display_pattern(pattern_name)
+        except Exception as e:
+            print(f"Error loading pattern: {e}")
+            
     def update_camera_preview(self):
         """Update camera preview if camera is active and not paused"""
         if self.camera_active and not self.camera_paused:
@@ -386,7 +429,7 @@ class SLMController:
         self.camera_paused = not self.camera_paused
         self.pause_camera_button.text = "Resume Camera" if self.camera_paused else "Pause Camera"
 
-    def save_preview_image(self):
+    def save_pattern(self):
         """Save the current pattern preview with file dialog"""
         if self.current_pattern:
             try:
@@ -418,7 +461,7 @@ class SLMController:
             except Exception as e:
                 print(f"Error saving pattern: {e}")
 
-    def save_camera_image(self):
+    def save_camera(self):
         """Save the current camera image with file dialog"""
         if self.camera_active:
             try:
@@ -457,7 +500,7 @@ class SLMController:
         
         print("Starting SLM Control Interface")
         print("Press ESC to exit")
-        print(f"Available patterns: ")
+        print("Available patterns will be loaded from the patterns directory")
         
         while running:
             for event in pygame.event.get():
@@ -466,90 +509,45 @@ class SLMController:
                 elif event.type == pygame.KEYDOWN:
                     if event.key == pygame.K_ESCAPE:
                         running = False
-                    elif event.key == pygame.K_F11:  # Toggle fullscreen
+                    elif event.key == pygame.K_F11:
                         pygame.display.toggle_fullscreen()
                 
-                # Handle pattern selection
-                if self.pattern_button.handle_event(event):
-                    self.show_pattern_list = not self.show_pattern_list
-                
-                # Handle pattern list buttons
-                if self.show_pattern_list:
-                    mouse_pos = pygame.mouse.get_pos()
-                    for btn in self.pattern_buttons:
-                        # Update hover state
-                        btn.handle_event(pygame.event.Event(pygame.MOUSEMOTION, {'pos': mouse_pos}))
-                        # Handle click
-                        if btn.handle_event(event):
-                            self.display_pattern(btn.text)
-                            self.show_pattern_list = False
-                
-                # Handle save buttons
-                if self.save_preview_button.handle_event(event):
-                    self.save_preview_image()
-                if self.save_camera_button.handle_event(event):
-                    self.save_camera_image()
-                
-                # Handle camera pause button
-                if self.pause_camera_button.handle_event(event):
+                # Handle button clicks
+                if self.load_button.handle_event(event):
+                    self.load_pattern()
+                elif self.generate_button.handle_event(event):
+                    self.create_default_patterns()
+                    print("Generated new patterns in patterns directory")
+                elif self.save_preview_button.handle_event(event):
+                    self.save_pattern()
+                elif self.save_camera_button.handle_event(event):
+                    self.save_camera()
+                elif self.pause_camera_button.handle_event(event):
                     self.toggle_camera_pause()
-                
-                # Handle calibrate button
-                if self.calibrate_button.handle_event(event):
+                elif self.calibrate_button.handle_event(event):
                     self.start_calibration()
             
             # Clear control display
             self.control_display.fill((0, 0, 0))
             
-            # Draw UI
-            title = self.title_font.render('SLM Control Interface', True, (255, 255, 255))
-            title_rect = title.get_rect(centerx=self.screen_width//2, y=10)
-            self.control_display.blit(title, title_rect)
-            
-            # Draw pattern selection button
-            self.pattern_button.draw(self.control_display)
-            
-            # Draw pattern list if shown
-            if hasattr(self, 'show_pattern_list') and self.show_pattern_list:
-                for btn in self.pattern_buttons:
-                    btn.draw(self.control_display)
-            
-            # Draw current pattern name
-            if hasattr(self, 'current_pattern') and self.current_pattern:
-                pattern_text = self.font.render(f'Current: {self.current_pattern}', True, (255, 255, 255))
-                text_rect = pattern_text.get_rect(centerx=self.preview_rect.centerx, y=20)
-                self.control_display.blit(pattern_text, text_rect)
-            
-            # Draw preview labels
-            preview_label = self.font.render('Pattern Preview', True, (255, 255, 255))
-            label_rect = preview_label.get_rect(centerx=self.preview_rect.centerx, bottom=self.preview_rect.top - 5)
-            self.control_display.blit(preview_label, label_rect)
-            
-            # Draw camera status and label
-            camera_status = "LIVE" if self.camera_active and not self.camera_paused else "PAUSED"
-            status_color = (0, 255, 0) if camera_status == "LIVE" else (255, 165, 0)
-            camera_label = self.font.render(f'Camera View ({camera_status})', True, status_color)
-            label_rect = camera_label.get_rect(centerx=self.camera_rect.centerx, bottom=self.camera_rect.top - 5)
-            self.control_display.blit(camera_label, label_rect)
-            
-            # Draw preview windows
-            pygame.draw.rect(self.control_display, (64, 64, 64), self.preview_rect)
-            pygame.draw.rect(self.control_display, (64, 64, 64), self.camera_rect)
-            
-            # Draw save buttons
+            # Draw buttons
+            self.load_button.draw(self.control_display)
+            self.generate_button.draw(self.control_display)
             self.save_preview_button.draw(self.control_display)
             self.save_camera_button.draw(self.control_display)
             self.pause_camera_button.draw(self.control_display)
-            
-            # Draw calibrate button
             self.calibrate_button.draw(self.control_display)
+            
+            # Draw current pattern name
+            if self.current_pattern:
+                pattern_text = self.font.render(f'Current Pattern: {self.current_pattern}', True, (255, 255, 255))
+                text_rect = pattern_text.get_rect(centerx=self.preview_rect.centerx, y=20)
+                self.control_display.blit(pattern_text, text_rect)
             
             # Update and draw preview surfaces
             self.control_display.blit(self.preview_surface, self.preview_rect)
-            
-            # Update camera preview
-            self.update_camera_preview()
-            self.control_display.blit(self.camera_surface, self.camera_rect)
+            if self.camera_active:
+                self.control_display.blit(self.camera_surface, self.camera_rect)
             
             pygame.display.flip()
             clock.tick(60)
