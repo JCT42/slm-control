@@ -371,29 +371,30 @@ class SLMController:
         """Save the current pattern preview with file dialog"""
         if self.current_pattern:
             try:
+                # Get timestamp for default filename
                 timestamp = time.strftime("%Y%m%d-%H%M%S")
-                default_filename = f'pattern_{timestamp}.png'
+                default_filename = f'pattern_{self.current_pattern}_{timestamp}.png'
                 
-                # Use tkinter file dialog for Windows
-                import tkinter as tk
-                from tkinter import filedialog
-                root = tk.Tk()
-                root.withdraw()  # Hide the main window
+                # Create a simple file dialog using zenity
+                cmd = [
+                    'zenity', '--file-selection',
+                    '--save',
+                    '--filename=' + str(Path.home() / default_filename),
+                    '--file-filter=*.png',
+                    '--title=Save Pattern Image'
+                ]
                 
-                filename = filedialog.asksaveasfilename(
-                    initialfile=default_filename,
-                    defaultextension=".png",
-                    filetypes=[("PNG files", "*.png")],
-                    title="Save Pattern"
-                )
-                
-                if filename:
+                try:
+                    filename = subprocess.check_output(cmd, text=True).strip()
+                    if not filename.endswith('.png'):
+                        filename += '.png'
+                    
                     # Convert surface to PIL Image and save
                     surface_string = pygame.image.tostring(self.preview_surface, 'RGB')
                     pil_image = Image.frombytes('RGB', self.preview_surface.get_size(), surface_string)
                     pil_image.save(filename)
-                    print(f"Saved pattern to {filename}")
-                else:
+                    print(f"Saved pattern preview to {filename}")
+                except subprocess.CalledProcessError:
                     print("Save cancelled")
             except Exception as e:
                 print(f"Error saving pattern: {e}")
@@ -402,29 +403,30 @@ class SLMController:
         """Save the current camera image with file dialog"""
         if self.camera_active:
             try:
+                # Get timestamp for default filename
                 timestamp = time.strftime("%Y%m%d-%H%M%S")
                 default_filename = f'camera_{timestamp}.png'
                 
-                # Use tkinter file dialog for Windows
-                import tkinter as tk
-                from tkinter import filedialog
-                root = tk.Tk()
-                root.withdraw()  # Hide the main window
+                # Create a simple file dialog using zenity
+                cmd = [
+                    'zenity', '--file-selection',
+                    '--save',
+                    '--filename=' + str(Path.home() / default_filename),
+                    '--file-filter=*.png',
+                    '--title=Save Camera Image'
+                ]
                 
-                filename = filedialog.asksaveasfilename(
-                    initialfile=default_filename,
-                    defaultextension=".png",
-                    filetypes=[("PNG files", "*.png")],
-                    title="Save Camera Image"
-                )
-                
-                if filename:
+                try:
+                    filename = subprocess.check_output(cmd, text=True).strip()
+                    if not filename.endswith('.png'):
+                        filename += '.png'
+                    
                     # Convert surface to PIL Image and save
                     surface_string = pygame.image.tostring(self.camera_surface, 'RGB')
                     pil_image = Image.frombytes('RGB', self.camera_surface.get_size(), surface_string)
                     pil_image.save(filename)
                     print(f"Saved camera image to {filename}")
-                else:
+                except subprocess.CalledProcessError:
                     print("Save cancelled")
             except Exception as e:
                 print(f"Error saving camera image: {e}")
