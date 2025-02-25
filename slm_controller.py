@@ -58,43 +58,52 @@ class SLMController:
         pygame.init()
         pygame.font.init()
         
-        # Get monitor info
-        info = pygame.display.Info()
-        self.screen_width = info.current_w
-        self.screen_height = info.current_h
+        # Get the screen size
+        screen_info = pygame.display.Info()
+        self.screen_width = screen_info.current_w
+        self.screen_height = screen_info.current_h
         
-        # Calculate preview sizes (40% and 30% of screen height)
-        preview_height = int(self.screen_height * 0.4)
+        # Create the main window (maximized)
+        self.control_display = pygame.display.set_mode((self.screen_width, self.screen_height), pygame.RESIZABLE)
+        pygame.display.toggle_fullscreen()  # Start in fullscreen
+        pygame.display.set_caption("SLM Control Interface")
+        
+        # Calculate preview surface size (maintaining aspect ratio)
+        preview_height = int(self.screen_height * 0.4)  # 40% of screen height
         preview_width = int(preview_height * self.width / self.height)
-        camera_height = int(self.screen_height * 0.3)
-        camera_width = int(camera_height * 4 / 3)  # 4:3 aspect ratio
-        
-        # Single monitor mode - create main window with more space for preview
-        self.control_display = pygame.display.set_mode((self.screen_width, self.screen_height))
-        pygame.display.set_caption('SLM Control Interface')
+        self.preview_surface = pygame.Surface((preview_width, preview_height))
         
         # Create SLM window
-        self.slm_window = pygame.display.set_mode((self.width, self.height), pygame.RESIZABLE | pygame.NOFRAME, display=0)
-        pygame.display.set_caption('SLM Output')
+        self.slm_window = pygame.display.set_mode((self.width, self.height), pygame.NOFRAME | pygame.FULLSCREEN, display=1)
         
-        # Move SLM window to the right of the control window
-        os.environ['SDL_VIDEO_WINDOW_POS'] = f'{self.screen_width + 10},0'
+        # Initialize camera
+        self.camera_active = False
+        self.camera_paused = False
+        try:
+            self.camera = cv2.VideoCapture(0)
+            if self.camera.isOpened():
+                self.camera_active = True
+                self.camera_thread = threading.Thread(target=self.update_camera_preview, daemon=True)
+                self.camera_thread.start()
+        except:
+            print("Warning: Could not initialize camera")
+            self.camera_active = False
         
         # Create output directories
         self.output_dir = Path('output')
         self.output_dir.mkdir(exist_ok=True)
         
         # Calculate positions (centered horizontally)
-        pattern_x = (self.screen_width - preview_width - camera_width - 100) // 3
-        camera_x = pattern_x * 2 + preview_width
+        pattern_x = (self.screen_width - preview_width - 100) // 3
         
         # Preview surface
-        self.preview_surface = pygame.Surface((preview_width, preview_height))
         self.preview_rect = pygame.Rect(pattern_x, 50, preview_width, preview_height)
         
         # Camera preview surface
+        camera_height = int(self.screen_height * 0.3)
+        camera_width = int(camera_height * 4 / 3)  # 4:3 aspect ratio
         self.camera_surface = pygame.Surface((camera_width, camera_height))
-        self.camera_rect = pygame.Rect(camera_x, 50, camera_width, camera_height)
+        self.camera_rect = pygame.Rect(self.screen_width - camera_width - 20, 50, camera_width, camera_height)
         
         # Font sizes based on screen height
         self.title_font = pygame.font.SysFont(None, int(self.screen_height * 0.05))
@@ -106,11 +115,10 @@ class SLMController:
         
         # Save buttons
         self.save_preview_button = Button(pattern_x, preview_height + 60, button_width, button_height, "Save Pattern", self.font)
-        self.save_camera_button = Button(camera_x, camera_height + 60, button_width, button_height, "Save Camera", self.font)
+        self.save_camera_button = Button(self.screen_width - button_width - 20, camera_height + 60, button_width, button_height, "Save Camera", self.font)
         
         # Camera control
-        self.camera_paused = False
-        self.pause_camera_button = Button(camera_x + button_width + 20, camera_height + 60, button_width, button_height, "Pause Camera", self.font)
+        self.pause_camera_button = Button(self.screen_width - button_width - 20, camera_height + 120, button_width, button_height, "Pause Camera", self.font)
         
         # Pattern selection
         self.pattern_button = Button(10, 50, button_width, button_height, "Select Pattern", self.font)
@@ -129,13 +137,10 @@ class SLMController:
             self.pattern_buttons.append(btn)
             y += button_height + 5  # Space between buttons
         
-        # Initialize camera
-        try:
-            self.camera = cv2.VideoCapture(0)
-            self.camera_active = True
-        except:
-            print("Warning: Could not initialize camera")
-            self.camera_active = False
+        # Calibrate button
+        calibrate_x = 20
+        calibrate_y = self.screen_height - button_height - 20
+        self.calibrate_button = Button(calibrate_x, calibrate_y, button_width, button_height, 'Calibrate', self.font, (100, 150, 100))  # Green tint
         
     def load_calibration(self):
         """Load calibration data if available"""
@@ -484,6 +489,10 @@ class SLMController:
                 # Handle camera pause button
                 if self.pause_camera_button.handle_event(event):
                     self.toggle_camera_pause()
+                
+                # Handle calibrate button
+                if self.calibrate_button.handle_event(event):
+                    self.start_calibration()
             
             # Clear control display
             self.control_display.fill((0, 0, 0))
@@ -527,6 +536,9 @@ class SLMController:
             self.save_preview_button.draw(self.control_display)
             self.save_camera_button.draw(self.control_display)
             self.pause_camera_button.draw(self.control_display)
+            
+            # Draw calibrate button
+            self.calibrate_button.draw(self.control_display)
             
             # Update and draw preview surfaces
             self.control_display.blit(self.preview_surface, self.preview_rect)
