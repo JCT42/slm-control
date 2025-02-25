@@ -3,12 +3,18 @@ from scipy import fftpack
 import cv2
 from pathlib import Path
 import matplotlib.pyplot as plt
+import tkinter as tk
+from tkinter import filedialog
 
 class HologramGenerator:
     def __init__(self, slm_width=1920, slm_height=1080):
         """Initialize the hologram generator with SLM dimensions"""
         self.width = slm_width
         self.height = slm_height
+        
+        # Create hidden root window for file dialogs
+        self.root = tk.Tk()
+        self.root.withdraw()
         
     def load_target_image(self, image_path):
         """Load and preprocess the target image"""
@@ -100,17 +106,48 @@ class HologramGenerator:
         
         plt.tight_layout()
         plt.show()
+        
+    def select_input_image(self):
+        """Open file dialog to select input image"""
+        file_path = filedialog.askopenfilename(
+            title="Select Input Image",
+            filetypes=[
+                ("Image files", "*.png;*.jpg;*.jpeg;*.bmp"),
+                ("All files", "*.*")
+            ]
+        )
+        return file_path if file_path else None
+        
+    def select_output_path(self, default_name="hologram.png"):
+        """Open file dialog to select where to save the hologram"""
+        file_path = filedialog.asksaveasfilename(
+            title="Save Hologram As",
+            defaultextension=".png",
+            initialfile=default_name,
+            filetypes=[("PNG files", "*.png")]
+        )
+        return file_path if file_path else None
 
 if __name__ == "__main__":
-    # Example usage
+    # Create generator
     generator = HologramGenerator()
     
-    # Replace with your image path
-    image_path = "input_image.png"
-    output_path = "hologram.png"
-    
-    # Generate hologram
-    hologram = generator.generate_hologram(image_path, output_path)
-    
-    # Preview result
-    generator.preview_result(hologram)
+    # Select input image
+    image_path = generator.select_input_image()
+    if image_path:
+        # Select output location
+        output_path = generator.select_output_path()
+        if output_path:
+            try:
+                # Generate hologram
+                hologram = generator.generate_hologram(image_path, output_path)
+                
+                # Preview result
+                generator.preview_result(hologram)
+                
+            except Exception as e:
+                print(f"Error generating hologram: {e}")
+        else:
+            print("Save cancelled")
+    else:
+        print("No image selected")
