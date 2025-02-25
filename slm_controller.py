@@ -329,29 +329,84 @@ class SLMController:
             print(f"Generated pattern: {name}")
             
     def load_pattern(self):
-        """Load a pattern using tkinter file dialog"""
+        """Load a pattern using pcmanfm file dialog"""
         try:
-            # Use tkinter file dialog for Windows
-            import tkinter as tk
-            from tkinter import filedialog
-            root = tk.Tk()
-            root.withdraw()  # Hide the main window
+            # Use pcmanfm file dialog
+            cmd = ['pcmanfm', str(self.patterns_dir)]
+            subprocess.Popen(cmd)
             
-            filename = filedialog.askopenfilename(
-                initialdir=str(self.patterns_dir),
-                title="Select Pattern",
-                filetypes=[("PNG files", "*.png")]
-            )
-            
-            if filename:
-                pattern_name = os.path.basename(filename)
+            # Wait for user to select file
+            pattern_name = input("Enter the pattern filename (or press Enter to cancel): ")
+            if pattern_name:
+                if not pattern_name.endswith('.png'):
+                    pattern_name += '.png'
                 self.display_pattern(pattern_name)
                 print(f"Loaded pattern: {pattern_name}")
             else:
                 print("Load cancelled")
         except Exception as e:
             print(f"Error loading pattern: {e}")
-            
+
+    def save_pattern(self):
+        """Save the current pattern preview with pcmanfm file dialog"""
+        if self.current_pattern:
+            try:
+                # Get timestamp for default filename
+                timestamp = time.strftime("%Y%m%d-%H%M%S")
+                default_filename = f'pattern_{self.current_pattern}_{timestamp}.png'
+                
+                # Open file manager to output directory
+                cmd = ['pcmanfm', str(self.output_dir)]
+                subprocess.Popen(cmd)
+                
+                # Get filename from user
+                print(f"Default filename: {default_filename}")
+                filename = input("Enter the filename to save (or press Enter to use default): ")
+                if not filename:
+                    filename = str(self.output_dir / default_filename)
+                elif not filename.endswith('.png'):
+                    filename = str(self.output_dir / (filename + '.png'))
+                else:
+                    filename = str(self.output_dir / filename)
+                
+                # Convert surface to PIL Image and save
+                surface_string = pygame.image.tostring(self.preview_surface, 'RGB')
+                pil_image = Image.frombytes('RGB', self.preview_surface.get_size(), surface_string)
+                pil_image.save(filename)
+                print(f"Saved pattern preview to {filename}")
+            except Exception as e:
+                print(f"Error saving pattern: {e}")
+
+    def save_camera(self):
+        """Save the current camera image with pcmanfm file dialog"""
+        if self.camera_active:
+            try:
+                # Get timestamp for default filename
+                timestamp = time.strftime("%Y%m%d-%H%M%S")
+                default_filename = f'camera_{timestamp}.png'
+                
+                # Open file manager to output directory
+                cmd = ['pcmanfm', str(self.output_dir)]
+                subprocess.Popen(cmd)
+                
+                # Get filename from user
+                print(f"Default filename: {default_filename}")
+                filename = input("Enter the filename to save (or press Enter to use default): ")
+                if not filename:
+                    filename = str(self.output_dir / default_filename)
+                elif not filename.endswith('.png'):
+                    filename = str(self.output_dir / (filename + '.png'))
+                else:
+                    filename = str(self.output_dir / filename)
+                
+                # Convert surface to PIL Image and save
+                surface_string = pygame.image.tostring(self.camera_surface, 'RGB')
+                pil_image = Image.frombytes('RGB', self.camera_surface.get_size(), surface_string)
+                pil_image.save(filename)
+                print(f"Saved camera image to {filename}")
+            except Exception as e:
+                print(f"Error saving camera image: {e}")
+
     def update_camera_preview(self):
         """Update camera preview if camera is active and not paused"""
         if self.camera_active and not self.camera_paused:
@@ -366,70 +421,6 @@ class SLMController:
         """Toggle camera pause state"""
         self.camera_paused = not self.camera_paused
         self.pause_camera_button.text = "Resume Camera" if self.camera_paused else "Pause Camera"
-
-    def save_pattern(self):
-        """Save the current pattern preview with file dialog"""
-        if self.current_pattern:
-            try:
-                # Get timestamp for default filename
-                timestamp = time.strftime("%Y%m%d-%H%M%S")
-                default_filename = f'pattern_{self.current_pattern}_{timestamp}.png'
-                
-                # Create a simple file dialog using zenity
-                cmd = [
-                    'zenity', '--file-selection',
-                    '--save',
-                    '--filename=' + str(Path.home() / default_filename),
-                    '--file-filter=*.png',
-                    '--title=Save Pattern Image'
-                ]
-                
-                try:
-                    filename = subprocess.check_output(cmd, text=True).strip()
-                    if not filename.endswith('.png'):
-                        filename += '.png'
-                    
-                    # Convert surface to PIL Image and save
-                    surface_string = pygame.image.tostring(self.preview_surface, 'RGB')
-                    pil_image = Image.frombytes('RGB', self.preview_surface.get_size(), surface_string)
-                    pil_image.save(filename)
-                    print(f"Saved pattern preview to {filename}")
-                except subprocess.CalledProcessError:
-                    print("Save cancelled")
-            except Exception as e:
-                print(f"Error saving pattern: {e}")
-
-    def save_camera(self):
-        """Save the current camera image with file dialog"""
-        if self.camera_active:
-            try:
-                # Get timestamp for default filename
-                timestamp = time.strftime("%Y%m%d-%H%M%S")
-                default_filename = f'camera_{timestamp}.png'
-                
-                # Create a simple file dialog using zenity
-                cmd = [
-                    'zenity', '--file-selection',
-                    '--save',
-                    '--filename=' + str(Path.home() / default_filename),
-                    '--file-filter=*.png',
-                    '--title=Save Camera Image'
-                ]
-                
-                try:
-                    filename = subprocess.check_output(cmd, text=True).strip()
-                    if not filename.endswith('.png'):
-                        filename += '.png'
-                    
-                    # Convert surface to PIL Image and save
-                    surface_string = pygame.image.tostring(self.camera_surface, 'RGB')
-                    pil_image = Image.frombytes('RGB', self.camera_surface.get_size(), surface_string)
-                    pil_image.save(filename)
-                    print(f"Saved camera image to {filename}")
-                except subprocess.CalledProcessError:
-                    print("Save cancelled")
-            except Exception as e:
-                print(f"Error saving camera image: {e}")
 
     def run(self):
         """Main application loop"""
