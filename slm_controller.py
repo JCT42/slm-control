@@ -49,8 +49,19 @@ class SLMController:
         pygame.init()
         pygame.font.init()
         
+        # Get monitor info
+        info = pygame.display.Info()
+        self.screen_width = info.current_w
+        self.screen_height = info.current_h
+        
+        # Calculate preview sizes (40% and 30% of screen height)
+        preview_height = int(self.screen_height * 0.4)
+        preview_width = int(preview_height * self.width / self.height)
+        camera_height = int(self.screen_height * 0.3)
+        camera_width = int(camera_height * 4 / 3)  # 4:3 aspect ratio
+        
         # Single monitor mode - create main window with more space for preview
-        self.control_display = pygame.display.set_mode((900, 800))
+        self.control_display = pygame.display.set_mode((self.screen_width, self.screen_height))
         pygame.display.set_caption('SLM Control Interface')
         
         # Create SLM window
@@ -58,28 +69,56 @@ class SLMController:
         pygame.display.set_caption('SLM Output')
         
         # Move SLM window to the right of the control window
-        os.environ['SDL_VIDEO_WINDOW_POS'] = '910,0'
+        os.environ['SDL_VIDEO_WINDOW_POS'] = f'{self.screen_width + 10},0'
         
         # Create output directories
         self.output_dir = Path('output')
         self.output_dir.mkdir(exist_ok=True)
         
+        # Calculate positions (centered horizontally)
+        pattern_x = (self.screen_width - preview_width - camera_width - 100) // 3
+        camera_x = pattern_x * 2 + preview_width
+        
         # Preview surface
-        self.preview_surface = pygame.Surface((350, 263))  # Maintain aspect ratio
-        self.preview_rect = pygame.Rect(200, 50, 350, 263)
+        self.preview_surface = pygame.Surface((preview_width, preview_height))
+        self.preview_rect = pygame.Rect(pattern_x, 50, preview_width, preview_height)
         
         # Camera preview surface
-        self.camera_surface = pygame.Surface((300, 225))
-        self.camera_rect = pygame.Rect(550, 50, 300, 225)
+        self.camera_surface = pygame.Surface((camera_width, camera_height))
+        self.camera_rect = pygame.Rect(camera_x, 50, camera_width, camera_height)
+        
+        # Font sizes based on screen height
+        self.title_font = pygame.font.SysFont(None, int(self.screen_height * 0.05))
+        self.font = pygame.font.SysFont(None, int(self.screen_height * 0.03))
+        
+        # Button sizes and positions
+        button_width = int(self.screen_width * 0.15)
+        button_height = int(self.screen_height * 0.05)
         
         # Save buttons
-        self.font = pygame.font.SysFont(None, 36)
-        self.save_preview_button = Button(200, 320, 200, 40, "Save Pattern", self.font)
-        self.save_camera_button = Button(550, 285, 200, 40, "Save Camera", self.font)
+        self.save_preview_button = Button(pattern_x, preview_height + 60, button_width, button_height, "Save Pattern", self.font)
+        self.save_camera_button = Button(camera_x, camera_height + 60, button_width, button_height, "Save Camera", self.font)
         
         # Camera control
         self.camera_paused = False
-        self.pause_camera_button = Button(550, 335, 200, 40, "Pause Camera", self.font)
+        self.pause_camera_button = Button(camera_x + button_width + 20, camera_height + 60, button_width, button_height, "Pause Camera", self.font)
+        
+        # Pattern selection
+        self.pattern_button = Button(10, 50, button_width, button_height, "Select Pattern", self.font)
+        self.show_pattern_list = False
+        self.patterns = ['blank', 'binary_grating', 'sinusoidal_grating', 'blazed_grating', 'checkerboard', 'circular_aperture', 'lens']
+        self.patterns_dir = Path('patterns')
+        self.patterns_dir.mkdir(exist_ok=True)
+        self.current_pattern = None
+        
+        # Create pattern buttons
+        self.pattern_buttons = []
+        button_height = int(self.screen_height * 0.04)
+        y = 100  # Starting y position for pattern list
+        for pattern in self.patterns:
+            btn = Button(10, y, int(self.screen_width * 0.15), button_height, pattern, self.font, color=(100, 100, 100))
+            self.pattern_buttons.append(btn)
+            y += button_height + 5  # Space between buttons
         
         # Initialize camera
         try:
@@ -89,24 +128,6 @@ class SLMController:
             print("Warning: Could not initialize camera")
             self.camera_active = False
         
-        # Load patterns
-        self.patterns_dir = Path('patterns')
-        self.patterns_dir.mkdir(exist_ok=True)
-        self.patterns = ['blank', 'binary_grating', 'sinusoidal_grating', 'blazed_grating', 'checkerboard', 'circular_aperture', 'lens']
-        self.current_pattern = None
-        
-        # Create pattern buttons
-        self.pattern_buttons = []
-        y = 100  # Starting y position for pattern list
-        for pattern in self.patterns:
-            btn = Button(10, y, 180, 30, pattern, self.font, color=(100, 100, 100))
-            self.pattern_buttons.append(btn)
-            y += 35  # Space between buttons
-        
-        # UI elements
-        self.pattern_button = Button(10, 50, 200, 40, "Select Pattern", self.font)
-        self.show_pattern_list = False
-
     def create_default_patterns(self):
         """Create some default SLM patterns"""
         # Create blank pattern
@@ -187,7 +208,7 @@ class SLMController:
             self.slm_window.blit(pygame_pattern, (0, 0))
             
             # Display preview
-            preview_pattern = pygame.transform.scale(pygame_pattern, (350, 263))
+            preview_pattern = pygame.transform.scale(pygame_pattern, (self.preview_surface.get_width(), self.preview_surface.get_height()))
             self.preview_surface.blit(preview_pattern, (0, 0))
             
             pygame.display.update()
@@ -203,7 +224,7 @@ class SLMController:
             ret, frame = self.camera.read()
             if ret:
                 frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-                frame = cv2.resize(frame, (300, 225))
+                frame = cv2.resize(frame, (self.camera_surface.get_width(), self.camera_surface.get_height()))
                 pygame_frame = pygame.surfarray.make_surface(frame.swapaxes(0, 1))
                 self.camera_surface.blit(pygame_frame, (0, 0))
 
@@ -300,6 +321,8 @@ class SLMController:
                 elif event.type == pygame.KEYDOWN:
                     if event.key == pygame.K_ESCAPE:
                         running = False
+                    elif event.key == pygame.K_F11:  # Toggle fullscreen
+                        pygame.display.toggle_fullscreen()
                 
                 # Handle pattern selection
                 if self.pattern_button.handle_event(event):
@@ -330,8 +353,9 @@ class SLMController:
             self.control_display.fill((0, 0, 0))
             
             # Draw UI
-            title = self.font.render('SLM Control Interface', True, (255, 255, 255))
-            self.control_display.blit(title, (10, 10))
+            title = self.title_font.render('SLM Control Interface', True, (255, 255, 255))
+            title_rect = title.get_rect(centerx=self.screen_width//2, y=10)
+            self.control_display.blit(title, title_rect)
             
             # Draw pattern selection button
             self.pattern_button.draw(self.control_display)
@@ -344,17 +368,20 @@ class SLMController:
             # Draw current pattern name
             if self.current_pattern:
                 pattern_text = self.font.render(f'Current: {self.current_pattern}', True, (255, 255, 255))
-                self.control_display.blit(pattern_text, (200, 20))
+                text_rect = pattern_text.get_rect(centerx=self.preview_rect.centerx, y=20)
+                self.control_display.blit(pattern_text, text_rect)
             
             # Draw preview labels
             preview_label = self.font.render('Pattern Preview', True, (255, 255, 255))
-            self.control_display.blit(preview_label, (200, 410))
+            label_rect = preview_label.get_rect(centerx=self.preview_rect.centerx, bottom=self.preview_rect.top - 5)
+            self.control_display.blit(preview_label, label_rect)
             
             # Draw camera status and label
             camera_status = "LIVE" if self.camera_active and not self.camera_paused else "PAUSED"
             status_color = (0, 255, 0) if camera_status == "LIVE" else (255, 165, 0)
             camera_label = self.font.render(f'Camera View ({camera_status})', True, status_color)
-            self.control_display.blit(camera_label, (550, 385))
+            label_rect = camera_label.get_rect(centerx=self.camera_rect.centerx, bottom=self.camera_rect.top - 5)
+            self.control_display.blit(camera_label, label_rect)
             
             # Draw preview windows
             pygame.draw.rect(self.control_display, (64, 64, 64), self.preview_rect)
