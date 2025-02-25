@@ -111,8 +111,8 @@ class SLMController:
         # Create circular aperture
         center = (self.slm_resolution[0]//2, self.slm_resolution[1]//2)
         radius = min(self.slm_resolution) // 4
-        y, x = np.ogrid[-center[1]:self.slm_resolution[1]-center[1], -center[0]:self.slm_resolution[0]-center[0]]
-        mask = x*x + y*y <= radius*radius
+        y, x = np.ogrid[:self.slm_resolution[1], :self.slm_resolution[0]]
+        mask = ((x - center[0])**2 + (y - center[1])**2) <= radius**2
         patterns['circular_aperture'][mask] = 255
         
         # Create Fresnel lens pattern
