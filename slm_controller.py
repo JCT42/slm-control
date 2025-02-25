@@ -218,25 +218,35 @@ class SLMController:
             import tkinter as tk
             from tkinter import filedialog
             
-            # Create and hide the tkinter root window
+            # Create root window
             root = tk.Tk()
-            root.withdraw()
+            root.attributes('-topmost', True)  # Make dialog stay on top
+            root.withdraw()  # Hide the root window
             
             # Get timestamp for default filename
             timestamp = time.strftime("%Y%m%d-%H%M%S")
             default_filename = f'pattern_{self.current_pattern}_{timestamp}.png'
             
-            # Show save file dialog
-            filename = filedialog.asksaveasfilename(
-                initialdir=str(self.output_dir),
-                initialfile=default_filename,
-                defaultextension=".png",
-                filetypes=[("PNG files", "*.png"), ("All files", "*.*")]
-            )
-            
-            if filename:  # If user didn't cancel
-                pygame.image.save(self.preview_surface, filename)
-                print(f"Saved pattern preview to {filename}")
+            try:
+                # Show save file dialog
+                filename = filedialog.asksaveasfilename(
+                    parent=root,
+                    initialdir=str(self.output_dir),
+                    initialfile=default_filename,
+                    defaultextension=".png",
+                    filetypes=[("PNG files", "*.png"), ("All files", "*.*")]
+                )
+                
+                if filename:  # If user didn't cancel
+                    # Convert surface to PIL Image and save
+                    surface_string = pygame.image.tostring(self.preview_surface, 'RGB')
+                    pil_image = Image.frombytes('RGB', self.preview_surface.get_size(), surface_string)
+                    pil_image.save(filename)
+                    print(f"Saved pattern preview to {filename}")
+            except Exception as e:
+                print(f"Error saving pattern: {e}")
+            finally:
+                root.destroy()  # Clean up tkinter window
 
     def save_camera_image(self):
         """Save the current camera image with file dialog"""
@@ -244,25 +254,35 @@ class SLMController:
             import tkinter as tk
             from tkinter import filedialog
             
-            # Create and hide the tkinter root window
+            # Create root window
             root = tk.Tk()
-            root.withdraw()
+            root.attributes('-topmost', True)  # Make dialog stay on top
+            root.withdraw()  # Hide the root window
             
             # Get timestamp for default filename
             timestamp = time.strftime("%Y%m%d-%H%M%S")
             default_filename = f'camera_{timestamp}.png'
             
-            # Show save file dialog
-            filename = filedialog.asksaveasfilename(
-                initialdir=str(self.output_dir),
-                initialfile=default_filename,
-                defaultextension=".png",
-                filetypes=[("PNG files", "*.png"), ("All files", "*.*")]
-            )
-            
-            if filename:  # If user didn't cancel
-                pygame.image.save(self.camera_surface, filename)
-                print(f"Saved camera image to {filename}")
+            try:
+                # Show save file dialog
+                filename = filedialog.asksaveasfilename(
+                    parent=root,
+                    initialdir=str(self.output_dir),
+                    initialfile=default_filename,
+                    defaultextension=".png",
+                    filetypes=[("PNG files", "*.png"), ("All files", "*.*")]
+                )
+                
+                if filename:  # If user didn't cancel
+                    # Convert surface to PIL Image and save
+                    surface_string = pygame.image.tostring(self.camera_surface, 'RGB')
+                    pil_image = Image.frombytes('RGB', self.camera_surface.get_size(), surface_string)
+                    pil_image.save(filename)
+                    print(f"Saved camera image to {filename}")
+            except Exception as e:
+                print(f"Error saving camera image: {e}")
+            finally:
+                root.destroy()  # Clean up tkinter window
 
     def run(self):
         """Main application loop"""
