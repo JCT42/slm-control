@@ -7,6 +7,8 @@ import threading
 from pathlib import Path
 import time
 import subprocess
+import tkinter as tk
+from tkinter import filedialog
 
 class Button:
     def __init__(self, x, y, width, height, text, font, color=(128, 128, 128)):
@@ -329,20 +331,28 @@ class SLMController:
             print(f"Generated pattern: {name}")
             
     def load_pattern(self):
-        """Load a pattern using file dialog"""
+        """Load a pattern using tkinter file dialog"""
         try:
-            # Use xdg-open for file selection
-            cmd = ['xdg-open', '--select-file', str(self.patterns_dir)]
-            result = subprocess.run(cmd, capture_output=True, text=True)
+            # Create and hide root window
+            root = tk.Tk()
+            root.withdraw()
             
-            if result.returncode == 0:
-                selected_file = result.stdout.strip()
-                if selected_file:
-                    pattern_name = os.path.basename(selected_file)
-                    self.display_pattern(pattern_name)
-                    print(f"Loaded pattern: {pattern_name}")
+            # Open file dialog
+            file_path = filedialog.askopenfilename(
+                initialdir=str(self.patterns_dir),
+                title="Select Pattern",
+                filetypes=(("PNG files", "*.png"), ("All files", "*.*"))
+            )
+            
+            if file_path:
+                pattern_name = os.path.basename(file_path)
+                self.display_pattern(pattern_name)
+                print(f"Loaded pattern: {pattern_name}")
             else:
                 print("Load cancelled")
+                
+            # Clean up root window
+            root.destroy()
         except Exception as e:
             print(f"Error loading pattern: {e}")
 
