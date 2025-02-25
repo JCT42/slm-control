@@ -102,22 +102,49 @@ class SLMController:
     def run(self):
         """Main application loop"""
         running = True
+        # Set up some basic colors
+        BLACK = (0, 0, 0)
+        WHITE = (255, 255, 255)
+        GRAY = (128, 128, 128)
+        
+        # Create a font
+        pygame.font.init()
+        font = pygame.font.SysFont(None, 36)
+        
         while running:
             for event in pygame.event.get():
                 if event.type == pygame.QUIT:
                     running = False
-                elif event.type == pygame.MOUSEBUTTONDOWN:
-                    # Handle pattern selection
-                    pass
-
-            # Update control display
-            self.control_display.fill((0, 0, 0))
+                elif event.type == pygame.KEYDOWN:
+                    if event.key == pygame.K_ESCAPE:
+                        running = False
             
-            # Draw pattern selection interface
-            # TODO: Add pattern selection buttons and preview
+            # Clear the control display
+            self.control_display.fill(BLACK)
             
+            # Draw some text and UI elements
+            text = font.render('SLM Control Interface', True, WHITE)
+            self.control_display.blit(text, (10, 10))
+            
+            # Draw a pattern selection area
+            pygame.draw.rect(self.control_display, GRAY, (10, 50, 200, 200))
+            pattern_text = font.render('Pattern Area', True, WHITE)
+            self.control_display.blit(pattern_text, (20, 60))
+            
+            # Draw a camera preview area
+            pygame.draw.rect(self.control_display, GRAY, (220, 50, 320, 240))
+            camera_text = font.render('Camera Preview', True, WHITE)
+            self.control_display.blit(camera_text, (230, 60))
+            
+            # Update the display
             pygame.display.flip()
-
+            
+            # Print debug info once
+            print("Display Info:")
+            print(f"Control Display: {pygame.display.Info()}")
+            print(f"Window size: {self.control_display.get_size()}")
+            print(f"Available modes: {pygame.display.list_modes()}")
+            
         self.cleanup()
 
     def cleanup(self):
