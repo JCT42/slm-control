@@ -4,3 +4,5 @@ Pillow==10.1.0
 pygame==2.5.2
 scikit-image>=0.18.0
 tk==0.1.0
+scipy>=1.11.0
+matplotlib>=3.7.0
