@@ -331,13 +331,16 @@ class SLMController:
     def load_pattern(self):
         """Load a pattern using pcmanfm file dialog"""
         try:
-            # Use pcmanfm --chooser to select a file
-            cmd = ['pcmanfm', '--chooser', str(self.patterns_dir)]
-            result = subprocess.run(cmd, capture_output=True, text=True)
+            # Open pcmanfm in patterns directory
+            cmd = ['pcmanfm', str(self.patterns_dir)]
+            subprocess.Popen(cmd)
             
-            if result.returncode == 0 and result.stdout.strip():
-                selected_file = result.stdout.strip()
-                pattern_name = os.path.basename(selected_file)
+            # Wait for user to select file
+            pattern_path = input("After selecting the file in pcmanfm, paste the full path here: ")
+            if pattern_path:
+                pattern_name = os.path.basename(pattern_path)
+                if not pattern_name.endswith('.png'):
+                    pattern_name += '.png'
                 self.display_pattern(pattern_name)
                 print(f"Loaded pattern: {pattern_name}")
             else:
