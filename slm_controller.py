@@ -50,7 +50,7 @@ class SLMController:
         pygame.font.init()
         
         # Single monitor mode - create main window with more space for preview
-        self.control_display = pygame.display.set_mode((1000, 800))
+        self.control_display = pygame.display.set_mode((900, 800))
         pygame.display.set_caption('SLM Control Interface')
         
         # Create SLM window
@@ -58,28 +58,28 @@ class SLMController:
         pygame.display.set_caption('SLM Output')
         
         # Move SLM window to the right of the control window
-        os.environ['SDL_VIDEO_WINDOW_POS'] = '1010,0'
+        os.environ['SDL_VIDEO_WINDOW_POS'] = '910,0'
         
         # Create output directories
         self.output_dir = Path('output')
         self.output_dir.mkdir(exist_ok=True)
         
         # Preview surface
-        self.preview_surface = pygame.Surface((400, 300))
-        self.preview_rect = pygame.Rect(200, 50, 400, 300)
+        self.preview_surface = pygame.Surface((350, 263))  # Maintain aspect ratio
+        self.preview_rect = pygame.Rect(200, 50, 350, 263)
         
         # Camera preview surface
         self.camera_surface = pygame.Surface((300, 225))
-        self.camera_rect = pygame.Rect(650, 50, 300, 225)
+        self.camera_rect = pygame.Rect(550, 50, 300, 225)
         
         # Save buttons
         self.font = pygame.font.SysFont(None, 36)
-        self.save_preview_button = Button(200, 360, 200, 40, "Save Pattern", self.font)
-        self.save_camera_button = Button(650, 285, 200, 40, "Save Camera", self.font)
+        self.save_preview_button = Button(200, 320, 200, 40, "Save Pattern", self.font)
+        self.save_camera_button = Button(550, 285, 200, 40, "Save Camera", self.font)
         
         # Camera control
         self.camera_paused = False
-        self.pause_camera_button = Button(650, 335, 200, 40, "Pause Camera", self.font)
+        self.pause_camera_button = Button(550, 335, 200, 40, "Pause Camera", self.font)
         
         # Initialize camera
         try:
@@ -187,7 +187,7 @@ class SLMController:
             self.slm_window.blit(pygame_pattern, (0, 0))
             
             # Display preview
-            preview_pattern = pygame.transform.scale(pygame_pattern, (400, 300))
+            preview_pattern = pygame.transform.scale(pygame_pattern, (350, 263))
             self.preview_surface.blit(preview_pattern, (0, 0))
             
             pygame.display.update()
@@ -213,20 +213,56 @@ class SLMController:
         self.pause_camera_button.text = "Resume Camera" if self.camera_paused else "Pause Camera"
 
     def save_preview_image(self):
-        """Save the current pattern preview"""
+        """Save the current pattern preview with file dialog"""
         if self.current_pattern:
+            import tkinter as tk
+            from tkinter import filedialog
+            
+            # Create and hide the tkinter root window
+            root = tk.Tk()
+            root.withdraw()
+            
+            # Get timestamp for default filename
             timestamp = time.strftime("%Y%m%d-%H%M%S")
-            filename = self.output_dir / f'pattern_{self.current_pattern}_{timestamp}.png'
-            pygame.image.save(self.preview_surface, str(filename))
-            print(f"Saved pattern preview to {filename}")
+            default_filename = f'pattern_{self.current_pattern}_{timestamp}.png'
+            
+            # Show save file dialog
+            filename = filedialog.asksaveasfilename(
+                initialdir=str(self.output_dir),
+                initialfile=default_filename,
+                defaultextension=".png",
+                filetypes=[("PNG files", "*.png"), ("All files", "*.*")]
+            )
+            
+            if filename:  # If user didn't cancel
+                pygame.image.save(self.preview_surface, filename)
+                print(f"Saved pattern preview to {filename}")
 
     def save_camera_image(self):
-        """Save the current camera image"""
+        """Save the current camera image with file dialog"""
         if self.camera_active:
+            import tkinter as tk
+            from tkinter import filedialog
+            
+            # Create and hide the tkinter root window
+            root = tk.Tk()
+            root.withdraw()
+            
+            # Get timestamp for default filename
             timestamp = time.strftime("%Y%m%d-%H%M%S")
-            filename = self.output_dir / f'camera_{timestamp}.png'
-            pygame.image.save(self.camera_surface, str(filename))
-            print(f"Saved camera image to {filename}")
+            default_filename = f'camera_{timestamp}.png'
+            
+            # Show save file dialog
+            filename = filedialog.asksaveasfilename(
+                initialdir=str(self.output_dir),
+                initialfile=default_filename,
+                defaultextension=".png",
+                filetypes=[("PNG files", "*.png"), ("All files", "*.*")]
+            )
+            
+            if filename:  # If user didn't cancel
+                pygame.image.save(self.camera_surface, filename)
+                print(f"Saved camera image to {filename}")
 
     def run(self):
         """Main application loop"""
@@ -298,7 +334,7 @@ class SLMController:
             camera_status = "LIVE" if self.camera_active and not self.camera_paused else "PAUSED"
             status_color = (0, 255, 0) if camera_status == "LIVE" else (255, 165, 0)
             camera_label = self.font.render(f'Camera View ({camera_status})', True, status_color)
-            self.control_display.blit(camera_label, (650, 385))
+            self.control_display.blit(camera_label, (550, 385))
             
             # Draw preview windows
             pygame.draw.rect(self.control_display, (64, 64, 64), self.preview_rect)
