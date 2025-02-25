@@ -91,21 +91,24 @@ class SLMController:
         
         # Load patterns
         self.patterns_dir = Path('patterns')
-        self.patterns = []
+        self.patterns_dir.mkdir(exist_ok=True)
+        self.patterns = ['blank', 'binary_grating', 'sinusoidal_grating', 'blazed_grating', 'checkerboard', 'circular_aperture', 'lens']
         self.current_pattern = None
-        self.create_default_patterns()
-        self.load_patterns()
+        
+        # Create pattern buttons
+        self.pattern_buttons = []
+        y = 100  # Starting y position for pattern list
+        for pattern in self.patterns:
+            btn = Button(10, y, 180, 30, pattern, self.font, color=(100, 100, 100))
+            self.pattern_buttons.append(btn)
+            y += 35  # Space between buttons
         
         # UI elements
         self.pattern_button = Button(10, 50, 200, 40, "Select Pattern", self.font)
         self.show_pattern_list = False
-        self.pattern_buttons = []
-        self.update_pattern_buttons()
 
     def create_default_patterns(self):
         """Create some default SLM patterns"""
-        self.patterns_dir.mkdir(exist_ok=True)
-        
         # Create blank pattern
         blank = np.ones((self.height, self.width), dtype=np.uint8) * 128
         
@@ -171,20 +174,6 @@ class SLMController:
         for name, pattern in patterns.items():
             Image.fromarray(pattern).save(self.patterns_dir / f'{name}.png')
 
-    def load_patterns(self):
-        """Load all patterns from the patterns directory"""
-        self.patterns = []
-        for pattern_file in self.patterns_dir.glob('*.png'):
-            self.patterns.append(pattern_file.stem)
-        self.patterns.sort()
-
-    def update_pattern_buttons(self):
-        """Create buttons for each pattern"""
-        self.pattern_buttons = []
-        for i, pattern in enumerate(self.patterns):
-            btn = Button(10, 100 + i*45, 200, 40, pattern, self.font)
-            self.pattern_buttons.append(btn)
-
     def display_pattern(self, pattern_name):
         """Display a pattern on the SLM and preview"""
         pattern_path = self.patterns_dir / f'{pattern_name}.png'
@@ -202,6 +191,11 @@ class SLMController:
             self.preview_surface.blit(preview_pattern, (0, 0))
             
             pygame.display.update()
+        else:
+            # Generate and save the pattern first
+            self.create_default_patterns()
+            # Then try to display it again
+            self.display_pattern(pattern_name)
 
     def update_camera_preview(self):
         """Update camera preview if camera is active and not paused"""
@@ -255,6 +249,17 @@ class SLMController:
                 if self.pattern_button.handle_event(event):
                     self.show_pattern_list = not self.show_pattern_list
                 
+                # Handle pattern list buttons
+                if self.show_pattern_list:
+                    mouse_pos = pygame.mouse.get_pos()
+                    for btn in self.pattern_buttons:
+                        # Update hover state
+                        btn.handle_event(pygame.event.Event(pygame.MOUSEMOTION, {'pos': mouse_pos}))
+                        # Handle click
+                        if btn.handle_event(event):
+                            self.display_pattern(btn.text)
+                            self.show_pattern_list = False
+                
                 # Handle save buttons
                 if self.save_preview_button.handle_event(event):
                     self.save_preview_image()
@@ -264,12 +269,6 @@ class SLMController:
                 # Handle camera pause button
                 if self.pause_camera_button.handle_event(event):
                     self.toggle_camera_pause()
-                
-                if self.show_pattern_list:
-                    for btn in self.pattern_buttons:
-                        if btn.handle_event(event):
-                            self.display_pattern(btn.text)
-                            self.show_pattern_list = False
             
             # Clear control display
             self.control_display.fill((0, 0, 0))
@@ -278,11 +277,12 @@ class SLMController:
             title = self.font.render('SLM Control Interface', True, (255, 255, 255))
             self.control_display.blit(title, (10, 10))
             
-            # Draw pattern selection button and list
+            # Draw pattern selection button
             self.pattern_button.draw(self.control_display)
+            
+            # Draw pattern list if shown
             if self.show_pattern_list:
                 for btn in self.pattern_buttons:
-                    btn.handle_event(pygame.event.Event(pygame.MOUSEMOTION, {'pos': pygame.mouse.get_pos()}))
                     btn.draw(self.control_display)
             
             # Draw current pattern name
