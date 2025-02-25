@@ -46,6 +46,14 @@ class SLMController:
         self.contrast_ratio = 200
         self.active_area = (26.6, 20.0)  # mm
         
+        # Calibration parameters
+        self.calibration_dir = Path('calibration')
+        self.calibration_dir.mkdir(exist_ok=True)
+        self.lut_file = self.calibration_dir / 'gamma_lut.npy'
+        self.flatness_file = self.calibration_dir / 'flatness_correction.npy'
+        self.is_calibrated = False
+        self.load_calibration()
+        
         # Initialize pygame
         pygame.init()
         pygame.font.init()
@@ -129,6 +137,159 @@ class SLMController:
             print("Warning: Could not initialize camera")
             self.camera_active = False
         
+    def load_calibration(self):
+        """Load calibration data if available"""
+        try:
+            if self.lut_file.exists() and self.flatness_file.exists():
+                self.gamma_lut = np.load(str(self.lut_file))
+                self.flatness_correction = np.load(str(self.flatness_file))
+                self.is_calibrated = True
+                print("Calibration data loaded successfully")
+            else:
+                self.gamma_lut = np.arange(256, dtype=np.uint8)  # Linear LUT
+                self.flatness_correction = np.ones((self.height, self.width), dtype=np.float32)
+                print("No calibration data found, using default values")
+        except Exception as e:
+            print(f"Error loading calibration: {e}")
+            self.gamma_lut = np.arange(256, dtype=np.uint8)
+            self.flatness_correction = np.ones((self.height, self.width), dtype=np.float32)
+            
+    def apply_calibration(self, pattern):
+        """Apply gamma and flatness corrections to pattern"""
+        if not self.is_calibrated:
+            return pattern
+            
+        # Apply gamma correction
+        corrected = self.gamma_lut[pattern]
+        
+        # Apply flatness correction
+        corrected = (corrected.astype(np.float32) * self.flatness_correction).clip(0, 255).astype(np.uint8)
+        return corrected
+        
+    def calibrate_gamma(self):
+        """Calibrate the gamma curve using interferometric measurements"""
+        print("Starting gamma calibration...")
+        # Number of voltage levels to measure
+        n_levels = 32
+        voltage_levels = np.linspace(0, 255, n_levels, dtype=np.uint8)
+        measured_phase = np.zeros(n_levels)
+        
+        for i, level in enumerate(voltage_levels):
+            # Display uniform pattern
+            pattern = np.full((self.height, self.width), level, dtype=np.uint8)
+            self.display_pattern_raw(pattern)
+            
+            # Wait for user to measure phase
+            input(f"Measuring phase for voltage level {level}. Press Enter after recording the measurement...")
+            phase = float(input("Enter the measured phase shift (in radians): "))
+            measured_phase[i] = phase
+            
+        # Fit the phase response curve
+        target_phase = np.linspace(0, 2*np.pi, 256)
+        self.gamma_lut = np.interp(target_phase, measured_phase, voltage_levels).astype(np.uint8)
+        
+        # Save calibration
+        np.save(str(self.lut_file), self.gamma_lut)
+        print("Gamma calibration completed and saved")
+        
+    def calibrate_flatness(self):
+        """Calibrate for surface non-uniformity using interferometric measurements"""
+        print("Starting flatness calibration...")
+        
+        # Display uniform pattern
+        level = 128
+        pattern = np.full((self.height, self.width), level, dtype=np.uint8)
+        self.display_pattern_raw(pattern)
+        
+        # Wait for user to capture interferogram
+        input("Capture interferogram of uniform pattern. Press Enter when ready...")
+        
+        # In a real implementation, you would:
+        # 1. Capture interferogram using camera
+        # 2. Process interferogram to extract phase map
+        # 3. Calculate correction map
+        
+        # For now, we'll use a simple gradient correction as placeholder
+        x = np.linspace(-1, 1, self.width)
+        y = np.linspace(-1, 1, self.height)
+        X, Y = np.meshgrid(x, y)
+        r = np.sqrt(X**2 + Y**2)
+        self.flatness_correction = 1 / (1 + 0.1*r)  # Simple radial correction
+        
+        # Save calibration
+        np.save(str(self.flatness_file), self.flatness_correction)
+        print("Flatness calibration completed and saved")
+        
+    def start_calibration(self):
+        """Start the full calibration procedure"""
+        print("\nStarting SLM calibration procedure...")
+        print("This will require interferometric measurements.")
+        print("Make sure you have set up:")
+        print("1. Interferometer")
+        print("2. Camera for capturing interferograms")
+        print("3. Laser at your operating wavelength")
+        
+        if input("\nAre you ready to proceed? (y/n): ").lower() == 'y':
+            self.calibrate_gamma()
+            self.calibrate_flatness()
+            self.is_calibrated = True
+            print("\nCalibration completed!")
+        else:
+            print("Calibration cancelled")
+            
+    def display_pattern_raw(self, pattern):
+        """Display pattern without applying calibration"""
+        pattern = pattern.astype(np.uint8)
+        slm_surface = pygame.Surface((self.width, self.height), depth=8)
+        palette = [(i, i, i) for i in range(256)]
+        slm_surface.set_palette(palette)
+        pygame.surfarray.pixels2d(slm_surface)[:] = pattern.T
+        self.slm_window.fill((128, 128, 128))
+        self.slm_window.blit(slm_surface, (0, 0))
+        pygame.display.update()
+        
+    def display_pattern(self, pattern_name):
+        """Display a pattern on the SLM and preview"""
+        pattern_path = self.patterns_dir / f'{pattern_name}.png'
+        if pattern_path.exists():
+            # Load pattern in grayscale mode
+            pattern = cv2.imread(str(pattern_path), cv2.IMREAD_GRAYSCALE)
+            
+            # Ensure pattern matches SLM dimensions
+            if pattern.shape != (self.height, self.width):
+                pattern = cv2.resize(pattern, (self.width, self.height))
+            
+            self.current_pattern = pattern_name
+            pattern = pattern.astype(np.uint8)
+            
+            # Apply calibration if available
+            pattern = self.apply_calibration(pattern)
+            
+            # Create grayscale surface for SLM
+            slm_surface = pygame.Surface((self.width, self.height), depth=8)
+            palette = [(i, i, i) for i in range(256)]
+            slm_surface.set_palette(palette)
+            pygame.surfarray.pixels2d(slm_surface)[:] = pattern.T
+            
+            # Display on SLM window
+            self.slm_window.fill((128, 128, 128))
+            self.slm_window.blit(slm_surface, (0, 0))
+            
+            # Create RGB preview (for display only)
+            preview_surface = pygame.Surface((self.width, self.height))
+            preview_array = np.dstack((pattern, pattern, pattern))
+            pygame.surfarray.pixels3d(preview_surface)[:] = np.transpose(preview_array, (1, 0, 2))
+            
+            # Scale and display preview
+            preview_pattern = pygame.transform.scale(preview_surface, (self.preview_surface.get_width(), self.preview_surface.get_height()))
+            self.preview_surface.blit(preview_pattern, (0, 0))
+            
+            pygame.display.update()
+        else:
+            print(f"Pattern {pattern_name} not found, creating default patterns...")
+            self.create_default_patterns()
+            self.display_pattern(pattern_name)
+            
     def create_default_patterns(self):
         """Create some default SLM patterns"""
         # Create patterns in the correct orientation (832x624)
@@ -200,51 +361,6 @@ class SLMController:
         # Save patterns as grayscale PNGs
         for name, pattern in patterns.items():
             Image.fromarray(pattern, mode='L').save(self.patterns_dir / f'{name}.png')
-
-    def display_pattern(self, pattern_name):
-        """Display a pattern on the SLM and preview"""
-        pattern_path = self.patterns_dir / f'{pattern_name}.png'
-        if pattern_path.exists():
-            # Load pattern in grayscale mode
-            pattern = cv2.imread(str(pattern_path), cv2.IMREAD_GRAYSCALE)
-            print(f"Original pattern shape: {pattern.shape}")
-            
-            # Ensure pattern matches SLM dimensions
-            if pattern.shape != (self.height, self.width):
-                pattern = cv2.resize(pattern, (self.width, self.height))
-            print(f"Resized pattern shape: {pattern.shape}")
-            
-            self.current_pattern = pattern_name
-            pattern = pattern.astype(np.uint8)
-            
-            # Create grayscale surface for SLM
-            slm_surface = pygame.Surface((self.width, self.height), depth=8)  # 8-bit surface
-            # Create a grayscale palette
-            palette = [(i, i, i) for i in range(256)]
-            slm_surface.set_palette(palette)
-            # Update surface pixels
-            pygame.surfarray.pixels2d(slm_surface)[:] = pattern.T  # Transpose for pygame's format
-            
-            # Display on SLM window
-            self.slm_window.fill((128, 128, 128))
-            self.slm_window.blit(slm_surface, (0, 0))
-            
-            # Create RGB preview (for display only)
-            preview_surface = pygame.Surface((self.width, self.height))
-            preview_array = np.dstack((pattern, pattern, pattern))  # Convert to RGB
-            pygame.surfarray.pixels3d(preview_surface)[:] = np.transpose(preview_array, (1, 0, 2))  # Transpose for pygame's format
-            
-            # Scale and display preview
-            preview_pattern = pygame.transform.scale(preview_surface, (self.preview_surface.get_width(), self.preview_surface.get_height()))
-            self.preview_surface.blit(preview_pattern, (0, 0))
-            
-            pygame.display.update()
-        else:
-            print(f"Pattern {pattern_name} not found, creating default patterns...")
-            # Generate and save the pattern first
-            self.create_default_patterns()
-            # Then try to display it again
-            self.display_pattern(pattern_name)
 
     def update_camera_preview(self):
         """Update camera preview if camera is active and not paused"""
