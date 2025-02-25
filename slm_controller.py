@@ -353,64 +353,72 @@ class SLMController:
             print(f"Error loading pattern: {e}")
 
     def save_pattern(self):
-        """Save the current pattern preview with pcmanfm file dialog"""
+        """Save current pattern using zenity file dialog"""
         if self.current_pattern:
             try:
-                # Get timestamp for default filename
-                timestamp = time.strftime("%Y%m%d-%H%M%S")
-                default_filename = f'pattern_{self.current_pattern}_{timestamp}.png'
+                # Generate default filename with timestamp
+                timestamp = time.strftime("%Y%m%d_%H%M%S")
+                default_name = f"pattern_{timestamp}.png"
                 
-                # Open file manager to output directory
-                cmd = ['pcmanfm', str(self.output_dir)]
-                subprocess.Popen(cmd)
+                # Use zenity file save dialog
+                cmd = ['zenity', '--file-selection', '--save',
+                       '--filename=' + str(self.output_dir / default_name),
+                       '--file-filter=*.png',
+                       '--title=Save Pattern',
+                       '--confirm-overwrite']
+                result = subprocess.run(cmd, capture_output=True, text=True)
                 
-                # Get filename from user
-                print(f"Default filename: {default_filename}")
-                filename = input("Enter the filename to save (or press Enter to use default): ")
-                if not filename:
-                    filename = str(self.output_dir / default_filename)
-                elif not filename.endswith('.png'):
-                    filename = str(self.output_dir / (filename + '.png'))
+                if result.returncode == 0:
+                    save_path = result.stdout.strip()
+                    if save_path:
+                        # Ensure .png extension
+                        if not save_path.lower().endswith('.png'):
+                            save_path += '.png'
+                        # Save the pattern
+                        cv2.imwrite(save_path, self.current_pattern)
+                        print(f"Pattern saved to: {save_path}")
                 else:
-                    filename = str(self.output_dir / filename)
-                
-                # Convert surface to PIL Image and save
-                surface_string = pygame.image.tostring(self.preview_surface, 'RGB')
-                pil_image = Image.frombytes('RGB', self.preview_surface.get_size(), surface_string)
-                pil_image.save(filename)
-                print(f"Saved pattern preview to {filename}")
+                    print("Save cancelled")
             except Exception as e:
                 print(f"Error saving pattern: {e}")
+        else:
+            print("No pattern to save")
 
     def save_camera(self):
-        """Save the current camera image with pcmanfm file dialog"""
-        if self.camera_active:
+        """Save camera image using zenity file dialog"""
+        if self.camera_surface is not None:
             try:
-                # Get timestamp for default filename
-                timestamp = time.strftime("%Y%m%d-%H%M%S")
-                default_filename = f'camera_{timestamp}.png'
+                # Generate default filename with timestamp
+                timestamp = time.strftime("%Y%m%d_%H%M%S")
+                default_name = f"camera_{timestamp}.png"
                 
-                # Open file manager to output directory
-                cmd = ['pcmanfm', str(self.output_dir)]
-                subprocess.Popen(cmd)
+                # Use zenity file save dialog
+                cmd = ['zenity', '--file-selection', '--save',
+                       '--filename=' + str(self.output_dir / default_name),
+                       '--file-filter=*.png',
+                       '--title=Save Camera Image',
+                       '--confirm-overwrite']
+                result = subprocess.run(cmd, capture_output=True, text=True)
                 
-                # Get filename from user
-                print(f"Default filename: {default_filename}")
-                filename = input("Enter the filename to save (or press Enter to use default): ")
-                if not filename:
-                    filename = str(self.output_dir / default_filename)
-                elif not filename.endswith('.png'):
-                    filename = str(self.output_dir / (filename + '.png'))
+                if result.returncode == 0:
+                    save_path = result.stdout.strip()
+                    if save_path:
+                        # Ensure .png extension
+                        if not save_path.lower().endswith('.png'):
+                            save_path += '.png'
+                        # Get the camera surface data
+                        camera_array = pygame.surfarray.array3d(self.camera_surface)
+                        # Convert from RGB to BGR for OpenCV
+                        camera_array = cv2.cvtColor(camera_array, cv2.COLOR_RGB2BGR)
+                        # Save the image
+                        cv2.imwrite(save_path, camera_array)
+                        print(f"Camera image saved to: {save_path}")
                 else:
-                    filename = str(self.output_dir / filename)
-                
-                # Convert surface to PIL Image and save
-                surface_string = pygame.image.tostring(self.camera_surface, 'RGB')
-                pil_image = Image.frombytes('RGB', self.camera_surface.get_size(), surface_string)
-                pil_image.save(filename)
-                print(f"Saved camera image to {filename}")
+                    print("Save cancelled")
             except Exception as e:
                 print(f"Error saving camera image: {e}")
+        else:
+            print("No camera image to save")
 
     def update_camera_preview(self):
         """Update camera preview if camera is active and not paused"""
