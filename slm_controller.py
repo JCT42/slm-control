@@ -63,18 +63,34 @@ class SLMController:
         self.screen_width = screen_info.current_w
         self.screen_height = screen_info.current_h
         
-        # Create the main window (maximized)
-        self.control_display = pygame.display.set_mode((self.screen_width, self.screen_height), pygame.RESIZABLE)
-        pygame.display.toggle_fullscreen()  # Start in fullscreen
-        pygame.display.set_caption("SLM Control Interface")
+        # Create windows based on available displays
+        num_displays = len(pygame.display.get_desktop_sizes())
+        print(f"Number of displays detected: {num_displays}")
+        
+        if num_displays > 1:
+            # Dual monitor setup
+            # Control window on primary display
+            self.control_display = pygame.display.set_mode((self.screen_width, self.screen_height), pygame.RESIZABLE)
+            pygame.display.toggle_fullscreen()
+            pygame.display.set_caption("SLM Control Interface")
+            
+            # SLM window on secondary display
+            self.slm_window = pygame.display.set_mode((self.width, self.height), pygame.NOFRAME | pygame.FULLSCREEN, display=1)
+        else:
+            # Single monitor setup - create both windows on the same display
+            # Control window takes most of the screen
+            self.control_display = pygame.display.set_mode((self.screen_width, self.screen_height), pygame.RESIZABLE)
+            pygame.display.toggle_fullscreen()
+            pygame.display.set_caption("SLM Control Interface")
+            
+            # SLM window as a smaller window
+            os.environ['SDL_VIDEO_WINDOW_POS'] = f'{self.screen_width - self.width - 50},50'
+            self.slm_window = pygame.display.set_mode((self.width, self.height), pygame.NOFRAME, display=0)
         
         # Calculate preview surface size (maintaining aspect ratio)
         preview_height = int(self.screen_height * 0.4)  # 40% of screen height
         preview_width = int(preview_height * self.width / self.height)
         self.preview_surface = pygame.Surface((preview_width, preview_height))
-        
-        # Create SLM window
-        self.slm_window = pygame.display.set_mode((self.width, self.height), pygame.NOFRAME | pygame.FULLSCREEN, display=1)
         
         # Initialize camera
         self.camera_active = False
