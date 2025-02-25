@@ -329,20 +329,18 @@ class SLMController:
             print(f"Generated pattern: {name}")
             
     def load_pattern(self):
-        """Load a pattern using pcmanfm file dialog"""
+        """Load a pattern using file dialog"""
         try:
-            # Open pcmanfm in patterns directory
-            cmd = ['pcmanfm', str(self.patterns_dir)]
-            subprocess.Popen(cmd)
+            # Use xdg-open for file selection
+            cmd = ['xdg-open', '--select-file', str(self.patterns_dir)]
+            result = subprocess.run(cmd, capture_output=True, text=True)
             
-            # Wait for user to select file
-            pattern_path = input("After selecting the file in pcmanfm, paste the full path here: ")
-            if pattern_path:
-                pattern_name = os.path.basename(pattern_path)
-                if not pattern_name.endswith('.png'):
-                    pattern_name += '.png'
-                self.display_pattern(pattern_name)
-                print(f"Loaded pattern: {pattern_name}")
+            if result.returncode == 0:
+                selected_file = result.stdout.strip()
+                if selected_file:
+                    pattern_name = os.path.basename(selected_file)
+                    self.display_pattern(pattern_name)
+                    print(f"Loaded pattern: {pattern_name}")
             else:
                 print("Load cancelled")
         except Exception as e:
