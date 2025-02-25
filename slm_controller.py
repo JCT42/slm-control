@@ -331,28 +331,23 @@ class SLMController:
             print(f"Generated pattern: {name}")
             
     def load_pattern(self):
-        """Load a pattern using tkinter file dialog"""
+        """Load a pattern using zenity file dialog"""
         try:
-            # Create and hide root window
-            root = tk.Tk()
-            root.withdraw()
+            # Use zenity file dialog
+            cmd = ['zenity', '--file-selection', 
+                   '--filename=' + str(self.patterns_dir) + '/',
+                   '--file-filter=*.png',
+                   '--title=Select Pattern']
+            result = subprocess.run(cmd, capture_output=True, text=True)
             
-            # Open file dialog
-            file_path = filedialog.askopenfilename(
-                initialdir=str(self.patterns_dir),
-                title="Select Pattern",
-                filetypes=(("PNG files", "*.png"), ("All files", "*.*"))
-            )
-            
-            if file_path:
-                pattern_name = os.path.basename(file_path)
-                self.display_pattern(pattern_name)
-                print(f"Loaded pattern: {pattern_name}")
+            if result.returncode == 0:
+                file_path = result.stdout.strip()
+                if file_path:
+                    pattern_name = os.path.basename(file_path)
+                    self.display_pattern(pattern_name)
+                    print(f"Loaded pattern: {pattern_name}")
             else:
                 print("Load cancelled")
-                
-            # Clean up root window
-            root.destroy()
         except Exception as e:
             print(f"Error loading pattern: {e}")
 
