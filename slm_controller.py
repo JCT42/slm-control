@@ -48,8 +48,8 @@ class SLMController:
         pygame.init()
         pygame.font.init()
         
-        # Single monitor mode - create two windows side by side
-        self.control_display = pygame.display.set_mode((800, 600))
+        # Single monitor mode - create main window with more space for preview
+        self.control_display = pygame.display.set_mode((1200, 800))
         pygame.display.set_caption('SLM Control Interface')
         
         # Create SLM window
@@ -57,7 +57,15 @@ class SLMController:
         pygame.display.set_caption('SLM Output')
         
         # Move SLM window to the right of the control window
-        os.environ['SDL_VIDEO_WINDOW_POS'] = '810,0'
+        os.environ['SDL_VIDEO_WINDOW_POS'] = '1210,0'
+        
+        # Preview surface
+        self.preview_surface = pygame.Surface((400, 300))
+        self.preview_rect = pygame.Rect(250, 50, 400, 300)
+        
+        # Camera preview surface
+        self.camera_surface = pygame.Surface((400, 300))
+        self.camera_rect = pygame.Rect(700, 50, 400, 300)
         
         # Initialize camera
         try:
@@ -165,15 +173,32 @@ class SLMController:
             self.pattern_buttons.append(btn)
 
     def display_pattern(self, pattern_name):
-        """Display a pattern on the SLM"""
+        """Display a pattern on the SLM and preview"""
         pattern_path = self.patterns_dir / f'{pattern_name}.png'
         if pattern_path.exists():
             pattern = cv2.imread(str(pattern_path), cv2.IMREAD_GRAYSCALE)
             self.current_pattern = pattern_name
+            
+            # Display on SLM window
             self.slm_window.fill((128, 128, 128))
             pygame_pattern = pygame.surfarray.make_surface(pattern)
             self.slm_window.blit(pygame_pattern, (0, 0))
+            
+            # Display preview
+            preview_pattern = pygame.transform.scale(pygame_pattern, (400, 300))
+            self.preview_surface.blit(preview_pattern, (0, 0))
+            
             pygame.display.update()
+
+    def update_camera_preview(self):
+        """Update camera preview if camera is active"""
+        if self.camera_active:
+            ret, frame = self.camera.read()
+            if ret:
+                frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                frame = cv2.resize(frame, (400, 300))
+                pygame_frame = pygame.surfarray.make_surface(frame.swapaxes(0, 1))
+                self.camera_surface.blit(pygame_frame, (0, 0))
 
     def run(self):
         """Main application loop"""
@@ -219,7 +244,25 @@ class SLMController:
             # Draw current pattern name
             if self.current_pattern:
                 pattern_text = self.font.render(f'Current: {self.current_pattern}', True, (255, 255, 255))
-                self.control_display.blit(pattern_text, (220, 50))
+                self.control_display.blit(pattern_text, (250, 20))
+            
+            # Draw preview labels
+            preview_label = self.font.render('Pattern Preview', True, (255, 255, 255))
+            self.control_display.blit(preview_label, (250, 360))
+            
+            camera_label = self.font.render('Camera View', True, (255, 255, 255))
+            self.control_display.blit(camera_label, (700, 360))
+            
+            # Draw preview windows
+            pygame.draw.rect(self.control_display, (64, 64, 64), self.preview_rect)
+            pygame.draw.rect(self.control_display, (64, 64, 64), self.camera_rect)
+            
+            # Update and draw preview surfaces
+            self.control_display.blit(self.preview_surface, self.preview_rect)
+            
+            # Update camera preview
+            self.update_camera_preview()
+            self.control_display.blit(self.camera_surface, self.camera_rect)
             
             pygame.display.flip()
             clock.tick(60)
