@@ -108,9 +108,9 @@ class SLMController:
         button_height = 40
         
         # Create buttons
-        # Top row buttons
-        self.load_button = Button(10, 10, button_width, button_height, "Load Pattern", self.font)
-        self.generate_button = Button(button_width + 20, 10, button_width, button_height, "Generate Patterns", self.font)
+        # Pattern selection
+        self.load_button = Button(10, 50, button_width, button_height, "Load Pattern", self.font)
+        self.generate_button = Button(10, 100, button_width, button_height, "Generate Patterns", self.font)
         
         # Save buttons
         self.save_preview_button = Button(pattern_x, preview_height + 60, button_width, button_height, "Save Pattern", self.font)
@@ -292,109 +292,38 @@ class SLMController:
             self.display_pattern(pattern_name)
             
     def create_default_patterns(self):
-        """Create some default SLM patterns"""
-        # Create patterns in the correct orientation (832x624)
-        width, height = 832, 624  # Fixed dimensions for SLM
+        """Create a set of default patterns in the patterns directory"""
+        patterns = {
+            'blank': np.zeros(self.slm_resolution),
+            'binary_grating_vertical': create_binary_grating(self.slm_resolution, period=32, orientation='vertical'),
+            'binary_grating_horizontal': create_binary_grating(self.slm_resolution, period=32, orientation='horizontal'),
+            'binary_grating_diagonal': create_binary_grating(self.slm_resolution, period=32, orientation='diagonal'),
+            'sinusoidal_grating_vertical': create_sinusoidal_grating(self.slm_resolution, period=32, orientation='vertical'),
+            'sinusoidal_grating_horizontal': create_sinusoidal_grating(self.slm_resolution, period=32, orientation='horizontal'),
+            'sinusoidal_grating_diagonal': create_sinusoidal_grating(self.slm_resolution, period=32, orientation='diagonal'),
+            'blazed_grating_vertical': create_blazed_grating(self.slm_resolution, period=32, orientation='vertical'),
+            'blazed_grating_horizontal': create_blazed_grating(self.slm_resolution, period=32, orientation='horizontal'),
+            'checkerboard_16px': create_checkerboard(self.slm_resolution, square_size=16),
+            'checkerboard_32px': create_checkerboard(self.slm_resolution, square_size=32),
+            'checkerboard_64px': create_checkerboard(self.slm_resolution, square_size=64),
+            'circle_r50': create_circle(self.slm_resolution, radius=50),
+            'circle_r100': create_circle(self.slm_resolution, radius=100),
+            'circle_r200': create_circle(self.slm_resolution, radius=200),
+            'ring_r100': create_ring(self.slm_resolution, radius=100, width=10),
+            'ring_r200': create_ring(self.slm_resolution, radius=200, width=20),
+            'fresnel_lens_f200mm': create_fresnel_lens(self.slm_resolution, focal_length=200),
+            'fresnel_lens_f500mm': create_fresnel_lens(self.slm_resolution, focal_length=500),
+            'fresnel_lens_f1000mm': create_fresnel_lens(self.slm_resolution, focal_length=1000),
+            'vortex_l1': create_vortex(self.slm_resolution, charge=1),
+            'vortex_l2': create_vortex(self.slm_resolution, charge=2),
+            'vortex_l3': create_vortex(self.slm_resolution, charge=3)
+        }
         
-        patterns = {}
-        
-        # Basic patterns
-        patterns['blank'] = np.ones((height, width), dtype=np.uint8) * 128
-        
-        # Gratings
-        x = np.arange(width)
-        y = np.arange(height)
-        X, Y = np.meshgrid(x, y)
-        
-        # Binary grating (vertical)
-        binary_grating = np.zeros((height, width), dtype=np.uint8)
-        period = 20  # pixels
-        binary_grating[:, x % period < period/2] = 255
-        patterns['binary_grating_vertical'] = binary_grating
-        
-        # Binary grating (horizontal)
-        binary_grating_h = np.zeros((height, width), dtype=np.uint8)
-        binary_grating_h[y % period < period/2, :] = 255
-        patterns['binary_grating_horizontal'] = binary_grating_h
-        
-        # Binary grating (diagonal)
-        binary_grating_d = np.zeros((height, width), dtype=np.uint8)
-        binary_grating_d[(X + Y) % period < period/2] = 255
-        patterns['binary_grating_diagonal'] = binary_grating_d
-        
-        # Sinusoidal gratings
-        period = 40  # pixels
-        # Vertical
-        sinusoidal = np.sin(2 * np.pi * X / period)
-        patterns['sinusoidal_grating_vertical'] = ((sinusoidal + 1) * 127.5).astype(np.uint8)
-        # Horizontal
-        sinusoidal = np.sin(2 * np.pi * Y / period)
-        patterns['sinusoidal_grating_horizontal'] = ((sinusoidal + 1) * 127.5).astype(np.uint8)
-        # Diagonal
-        sinusoidal = np.sin(2 * np.pi * (X + Y) / period)
-        patterns['sinusoidal_grating_diagonal'] = ((sinusoidal + 1) * 127.5).astype(np.uint8)
-        
-        # Blazed gratings
-        period = 40  # pixels
-        # Vertical
-        blazed = np.zeros((height, width), dtype=np.uint8)
-        for j in range(width):
-            blazed[:, j] = (j % period) * 255 / period
-        patterns['blazed_grating_vertical'] = blazed
-        # Horizontal
-        blazed = np.zeros((height, width), dtype=np.uint8)
-        for i in range(height):
-            blazed[i, :] = (i % period) * 255 / period
-        patterns['blazed_grating_horizontal'] = blazed
-        
-        # Checkerboard patterns
-        for square_size in [16, 32, 64]:
-            checkerboard = np.zeros((height, width), dtype=np.uint8)
-            for i in range(0, height, square_size):
-                for j in range(0, width, square_size):
-                    if (i//square_size + j//square_size) % 2 == 0:
-                        checkerboard[i:i+square_size, j:j+square_size] = 255
-            patterns[f'checkerboard_{square_size}px'] = checkerboard
-        
-        # Circular patterns
-        center_y, center_x = height//2, width//2
-        Y, X = np.ogrid[:height, :width]
-        
-        # Circular aperture
-        for radius in [50, 100, 200]:
-            dist_from_center = np.sqrt((X - center_x)**2 + (Y - center_y)**2)
-            circle = np.zeros((height, width), dtype=np.uint8)
-            circle[dist_from_center <= radius] = 255
-            patterns[f'circle_r{radius}'] = circle
-        
-        # Ring pattern
-        for radius in [100, 200]:
-            ring_width = radius // 5
-            dist_from_center = np.sqrt((X - center_x)**2 + (Y - center_y)**2)
-            ring = np.zeros((height, width), dtype=np.uint8)
-            ring[(dist_from_center >= radius - ring_width) & (dist_from_center <= radius + ring_width)] = 255
-            patterns[f'ring_r{radius}'] = ring
-        
-        # Fresnel lens patterns
-        focal_lengths = [200, 500, 1000]  # mm
-        wavelength = 0.000633  # mm (633nm)
-        for f in focal_lengths:
-            dist_from_center = np.sqrt((X - center_x)**2 + (Y - center_y)**2)
-            lens = np.exp(1j * np.pi * dist_from_center**2 / (wavelength * f))
-            patterns[f'fresnel_lens_f{f}mm'] = ((np.angle(lens) + np.pi) * 255 / (2 * np.pi)).astype(np.uint8)
-        
-        # Vortex patterns (spiral phase plates)
-        for charge in [1, 2, 3]:
-            angle = np.arctan2(Y - center_y, X - center_x)
-            vortex = ((angle * charge / (2 * np.pi) + 0.5) * 255).astype(np.uint8)
-            patterns[f'vortex_l{charge}'] = vortex
-        
-        # Ensure patterns directory exists
-        self.patterns_dir.mkdir(exist_ok=True)
-        
-        # Save all patterns
+        # Save patterns
         for name, pattern in patterns.items():
-            Image.fromarray(pattern, mode='L').save(self.patterns_dir / f'{name}.png')
+            filepath = self.patterns_dir / f"{name}.png"
+            cv2.imwrite(str(filepath), pattern)
+            print(f"Generated pattern: {name}")
             
     def load_pattern(self):
         """Load a pattern using zenity file dialog"""
@@ -559,6 +488,95 @@ class SLMController:
         if self.camera_active:
             self.cap.release()
         pygame.quit()
+
+def create_binary_grating(resolution, period, orientation):
+    height, width = resolution
+    if orientation == 'vertical':
+        pattern = np.zeros((height, width), dtype=np.uint8)
+        pattern[:, ::period] = 255
+    elif orientation == 'horizontal':
+        pattern = np.zeros((height, width), dtype=np.uint8)
+        pattern[::period, :] = 255
+    elif orientation == 'diagonal':
+        pattern = np.zeros((height, width), dtype=np.uint8)
+        for i in range(height):
+            for j in range(width):
+                if (i + j) % period < period // 2:
+                    pattern[i, j] = 255
+    return pattern
+
+def create_sinusoidal_grating(resolution, period, orientation):
+    height, width = resolution
+    if orientation == 'vertical':
+        x = np.linspace(0, 2 * np.pi, width)
+        pattern = (np.sin(x) + 1) * 127.5
+        pattern = np.tile(pattern, (height, 1))
+    elif orientation == 'horizontal':
+        y = np.linspace(0, 2 * np.pi, height)
+        pattern = (np.sin(y) + 1) * 127.5
+        pattern = np.tile(pattern[:, np.newaxis], (1, width))
+    elif orientation == 'diagonal':
+        x = np.linspace(0, 2 * np.pi, width)
+        y = np.linspace(0, 2 * np.pi, height)
+        X, Y = np.meshgrid(x, y)
+        pattern = (np.sin(X + Y) + 1) * 127.5
+    return pattern.astype(np.uint8)
+
+def create_blazed_grating(resolution, period, orientation):
+    height, width = resolution
+    if orientation == 'vertical':
+        pattern = np.zeros((height, width), dtype=np.uint8)
+        for j in range(width):
+            pattern[:, j] = (j % period) * 255 // period
+    elif orientation == 'horizontal':
+        pattern = np.zeros((height, width), dtype=np.uint8)
+        for i in range(height):
+            pattern[i, :] = (i % period) * 255 // period
+    return pattern
+
+def create_checkerboard(resolution, square_size):
+    height, width = resolution
+    pattern = np.zeros((height, width), dtype=np.uint8)
+    for i in range(0, height, square_size):
+        for j in range(0, width, square_size):
+            if (i // square_size + j // square_size) % 2 == 0:
+                pattern[i:i+square_size, j:j+square_size] = 255
+    return pattern
+
+def create_circle(resolution, radius):
+    height, width = resolution
+    center_y, center_x = height // 2, width // 2
+    Y, X = np.ogrid[:height, :width]
+    dist_from_center = np.sqrt((X - center_x)**2 + (Y - center_y)**2)
+    pattern = np.zeros((height, width), dtype=np.uint8)
+    pattern[dist_from_center <= radius] = 255
+    return pattern
+
+def create_ring(resolution, radius, width):
+    height, width = resolution
+    center_y, center_x = height // 2, width // 2
+    Y, X = np.ogrid[:height, :width]
+    dist_from_center = np.sqrt((X - center_x)**2 + (Y - center_y)**2)
+    pattern = np.zeros((height, width), dtype=np.uint8)
+    pattern[(dist_from_center >= radius - width) & (dist_from_center <= radius + width)] = 255
+    return pattern
+
+def create_fresnel_lens(resolution, focal_length):
+    height, width = resolution
+    center_y, center_x = height // 2, width // 2
+    Y, X = np.ogrid[:height, :width]
+    dist_from_center = np.sqrt((X - center_x)**2 + (Y - center_y)**2)
+    wavelength = 0.000633  # mm (633nm)
+    pattern = np.exp(1j * np.pi * dist_from_center**2 / (wavelength * focal_length))
+    return ((np.angle(pattern) + np.pi) * 255 / (2 * np.pi)).astype(np.uint8)
+
+def create_vortex(resolution, charge):
+    height, width = resolution
+    center_y, center_x = height // 2, width // 2
+    Y, X = np.ogrid[:height, :width]
+    angle = np.arctan2(Y - center_y, X - center_x)
+    pattern = ((angle * charge / (2 * np.pi) + 0.5) * 255).astype(np.uint8)
+    return pattern
 
 if __name__ == "__main__":
     controller = SLMController()
