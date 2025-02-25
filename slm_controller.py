@@ -84,6 +84,10 @@ class SLMController:
         self.output_dir.mkdir(exist_ok=True)
         self.patterns_dir.mkdir(exist_ok=True)
         
+        # Pattern management
+        self.show_pattern_list = False
+        self.current_pattern = None
+        
         # Calculate positions (centered horizontally)
         pattern_x = (self.screen_width - preview_width - camera_width - 100) // 3
         camera_x = pattern_x * 2 + preview_width
