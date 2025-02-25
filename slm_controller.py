@@ -19,12 +19,23 @@ class SLMController:
         os.environ['SDL_VIDEODRIVER'] = 'x11'  # For Raspberry Pi
         pygame.init()
         
+        # Get available displays
+        num_displays = pygame.display.get_num_displays()
+        print(f"Number of displays detected: {num_displays}")
+        
         # Control display (HDMI0)
         self.control_display = pygame.display.set_mode((1024, 768))
         pygame.display.set_caption('SLM Control Interface')
         
         # SLM display (HDMI1)
-        self.slm_display = pygame.display.set_mode(self.slm_resolution, pygame.FULLSCREEN | pygame.HWSURFACE, display=1)
+        try:
+            # Try to create window on second display
+            os.environ['DISPLAY'] = ':0.1'  # Try second X display
+            self.slm_display = pygame.display.set_mode(self.slm_resolution, pygame.FULLSCREEN)
+        except pygame.error as e:
+            print(f"Could not initialize second display: {e}")
+            print("Running in single display mode - SLM output will be shown in a window")
+            self.slm_display = pygame.display.set_mode(self.slm_resolution, pygame.RESIZABLE)
         
         # Initialize camera
         self.camera = cv2.VideoCapture(0)
