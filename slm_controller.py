@@ -91,7 +91,10 @@ class SLMController:
                 np.ones((self.slm_resolution[1], 8))
             ).astype(np.uint8),
             
-            'sinusoidal_grating': (127.5 * (1 + np.sin(np.linspace(0, 8*np.pi, self.slm_resolution[0])))).astype(np.uint8),
+            'sinusoidal_grating': np.tile(
+                (127.5 * (1 + np.sin(np.linspace(0, 8*np.pi, self.slm_resolution[0])))).astype(np.uint8),
+                (self.slm_resolution[1], 1)
+            ),
             
             'blazed_grating': np.tile(
                 np.linspace(0, 255, 32, dtype=np.uint8),
@@ -102,31 +105,29 @@ class SLMController:
                 [[0, 255] * (self.slm_resolution[0] // 32), [255, 0] * (self.slm_resolution[0] // 32)] * (self.slm_resolution[1] // 32),
                 np.ones((16, 16))
             ).astype(np.uint8),
-            
-            'circular_aperture': np.zeros(self.slm_resolution, dtype=np.uint8),
-            
-            'lens': np.zeros(self.slm_resolution, dtype=np.uint8)
         }
         
         # Create circular aperture
-        center = (self.slm_resolution[0]//2, self.slm_resolution[1]//2)
-        radius = min(self.slm_resolution) // 4
-        y, x = np.ogrid[:self.slm_resolution[1], :self.slm_resolution[0]]
-        mask = ((x - center[0])**2 + (y - center[1])**2) <= radius**2
-        patterns['circular_aperture'][mask] = 255
+        circle = np.zeros(self.slm_resolution, dtype=np.uint8)
+        center_x, center_y = self.slm_resolution[0] // 2, self.slm_resolution[1] // 2
+        radius = min(center_x, center_y) // 2
+        
+        for y in range(self.slm_resolution[1]):
+            for x in range(self.slm_resolution[0]):
+                if ((x - center_x) ** 2 + (y - center_y) ** 2) <= radius ** 2:
+                    circle[y, x] = 255
+        patterns['circular_aperture'] = circle
         
         # Create Fresnel lens pattern
-        y, x = np.mgrid[-self.slm_resolution[1]//2:self.slm_resolution[1]//2, 
-                       -self.slm_resolution[0]//2:self.slm_resolution[0]//2]
-        r2 = x*x + y*y
-        patterns['lens'] = ((128 * (1 + np.cos(r2 / 1000))) % 256).astype(np.uint8)
+        lens = np.zeros(self.slm_resolution, dtype=np.uint8)
+        for y in range(self.slm_resolution[1]):
+            for x in range(self.slm_resolution[0]):
+                r2 = ((x - center_x) ** 2 + (y - center_y) ** 2) / 1000.0
+                lens[y, x] = int(128 * (1 + np.cos(r2))) % 256
+        patterns['lens'] = lens
         
         # Save all patterns
         for name, pattern in patterns.items():
-            if pattern.shape != self.slm_resolution:
-                pattern = np.tile(pattern, (self.slm_resolution[1]//pattern.shape[0] + 1,
-                                         self.slm_resolution[0]//pattern.shape[1] + 1))
-                pattern = pattern[:self.slm_resolution[1], :self.slm_resolution[0]]
             Image.fromarray(pattern).save(self.patterns_dir / f'{name}.png')
 
     def load_patterns(self):
