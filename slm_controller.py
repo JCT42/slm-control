@@ -36,7 +36,9 @@ class Button:
 class SLMController:
     def __init__(self):
         # SLM Parameters for SONY LCX016AL-6
-        self.slm_resolution = (832, 624)
+        self.width = 832  # width in pixels
+        self.height = 624  # height in pixels
+        self.slm_resolution = (self.width, self.height)
         self.pixel_pitch = 32  # μm
         self.refresh_rate = 60  # Hz
         self.contrast_ratio = 200
@@ -51,7 +53,7 @@ class SLMController:
         pygame.display.set_caption('SLM Control Interface')
         
         # Create SLM window
-        self.slm_window = pygame.display.set_mode(self.slm_resolution, pygame.RESIZABLE | pygame.NOFRAME, display=0)
+        self.slm_window = pygame.display.set_mode((self.width, self.height), pygame.RESIZABLE | pygame.NOFRAME, display=0)
         pygame.display.set_caption('SLM Output')
         
         # Move SLM window to the right of the control window
@@ -83,50 +85,68 @@ class SLMController:
         """Create some default SLM patterns"""
         self.patterns_dir.mkdir(exist_ok=True)
         
-        patterns = {
-            'blank': np.ones(self.slm_resolution, dtype=np.uint8) * 128,
-            
-            'binary_grating': np.kron(
-                [[0, 255] * (self.slm_resolution[0] // 16)],
-                np.ones((self.slm_resolution[1], 8))
-            ).astype(np.uint8),
-            
-            'sinusoidal_grating': np.tile(
-                (127.5 * (1 + np.sin(np.linspace(0, 8*np.pi, self.slm_resolution[0])))).astype(np.uint8),
-                (self.slm_resolution[1], 1)
-            ),
-            
-            'blazed_grating': np.tile(
-                np.linspace(0, 255, 32, dtype=np.uint8),
-                (self.slm_resolution[1], self.slm_resolution[0] // 32)
-            ),
-            
-            'checkerboard': np.kron(
-                [[0, 255] * (self.slm_resolution[0] // 32), [255, 0] * (self.slm_resolution[0] // 32)] * (self.slm_resolution[1] // 32),
-                np.ones((16, 16))
-            ).astype(np.uint8),
-        }
+        # Create blank pattern
+        blank = np.ones((self.height, self.width), dtype=np.uint8) * 128
+        
+        # Create binary grating
+        binary = np.zeros((self.height, self.width), dtype=np.uint8)
+        period = 16  # pixels
+        for x in range(self.width):
+            if (x // period) % 2 == 0:
+                binary[:, x] = 255
+        
+        # Create sinusoidal grating
+        x = np.linspace(0, 8*np.pi, self.width)
+        sinusoidal = np.zeros((self.height, self.width), dtype=np.uint8)
+        for y in range(self.height):
+            sinusoidal[y, :] = (127.5 * (1 + np.sin(x))).astype(np.uint8)
+        
+        # Create blazed grating
+        blazed = np.zeros((self.height, self.width), dtype=np.uint8)
+        ramp = np.linspace(0, 255, 32, dtype=np.uint8)
+        for x in range(0, self.width, 32):
+            end = min(x + 32, self.width)
+            blazed[:, x:end] = ramp[:end-x, np.newaxis].T
+        
+        # Create checkerboard
+        checkerboard = np.zeros((self.height, self.width), dtype=np.uint8)
+        square_size = 16
+        for y in range(0, self.height, square_size*2):
+            for x in range(0, self.width, square_size*2):
+                if y + square_size <= self.height and x + square_size <= self.width:
+                    checkerboard[y:y+square_size, x:x+square_size] = 255
+                if y + square_size <= self.height and x + square_size*2 <= self.width:
+                    checkerboard[y:y+square_size, x+square_size:x+square_size*2] = 0
+                if y + square_size*2 <= self.height and x + square_size <= self.width:
+                    checkerboard[y+square_size:y+square_size*2, x:x+square_size] = 0
+                if y + square_size*2 <= self.height and x + square_size*2 <= self.width:
+                    checkerboard[y+square_size:y+square_size*2, x+square_size:x+square_size*2] = 255
         
         # Create circular aperture
-        circle = np.zeros(self.slm_resolution, dtype=np.uint8)
-        center_x, center_y = self.slm_resolution[0] // 2, self.slm_resolution[1] // 2
+        circle = np.zeros((self.height, self.width), dtype=np.uint8)
+        center_x, center_y = self.width // 2, self.height // 2
         radius = min(center_x, center_y) // 2
-        
-        for y in range(self.slm_resolution[1]):
-            for x in range(self.slm_resolution[0]):
-                if ((x - center_x) ** 2 + (y - center_y) ** 2) <= radius ** 2:
-                    circle[y, x] = 255
-        patterns['circular_aperture'] = circle
+        y, x = np.ogrid[0:self.height, 0:self.width]
+        mask = ((x - center_x)**2 + (y - center_y)**2) <= radius**2
+        circle[mask] = 255
         
         # Create Fresnel lens pattern
-        lens = np.zeros(self.slm_resolution, dtype=np.uint8)
-        for y in range(self.slm_resolution[1]):
-            for x in range(self.slm_resolution[0]):
-                r2 = ((x - center_x) ** 2 + (y - center_y) ** 2) / 1000.0
-                lens[y, x] = int(128 * (1 + np.cos(r2))) % 256
-        patterns['lens'] = lens
+        lens = np.zeros((self.height, self.width), dtype=np.uint8)
+        y, x = np.ogrid[0:self.height, 0:self.width]
+        r2 = ((x - center_x)**2 + (y - center_y)**2) / 1000.0
+        lens = ((128 * (1 + np.cos(r2))) % 256).astype(np.uint8)
         
         # Save all patterns
+        patterns = {
+            'blank': blank,
+            'binary_grating': binary,
+            'sinusoidal_grating': sinusoidal,
+            'blazed_grating': blazed,
+            'checkerboard': checkerboard,
+            'circular_aperture': circle,
+            'lens': lens
+        }
+        
         for name, pattern in patterns.items():
             Image.fromarray(pattern).save(self.patterns_dir / f'{name}.png')
 
