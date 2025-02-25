@@ -6,6 +6,7 @@ from PIL import Image
 import threading
 from pathlib import Path
 import time
+import subprocess
 
 class Button:
     def __init__(self, x, y, width, height, text, font, color=(128, 128, 128)):
@@ -236,74 +237,66 @@ class SLMController:
     def save_preview_image(self):
         """Save the current pattern preview with file dialog"""
         if self.current_pattern:
-            import tkinter as tk
-            from tkinter import filedialog
-            
-            # Create root window
-            root = tk.Tk()
-            root.attributes('-topmost', True)  # Make dialog stay on top
-            root.withdraw()  # Hide the root window
-            
-            # Get timestamp for default filename
-            timestamp = time.strftime("%Y%m%d-%H%M%S")
-            default_filename = f'pattern_{self.current_pattern}_{timestamp}.png'
-            
             try:
-                # Show save file dialog
-                filename = filedialog.asksaveasfilename(
-                    parent=root,
-                    initialdir=str(self.output_dir),
-                    initialfile=default_filename,
-                    defaultextension=".png",
-                    filetypes=[("PNG files", "*.png"), ("All files", "*.*")]
-                )
+                # Get timestamp for default filename
+                timestamp = time.strftime("%Y%m%d-%H%M%S")
+                default_filename = f'pattern_{self.current_pattern}_{timestamp}.png'
                 
-                if filename:  # If user didn't cancel
+                # Create a simple file dialog using zenity
+                cmd = [
+                    'zenity', '--file-selection',
+                    '--save',
+                    '--filename=' + str(Path.home() / default_filename),
+                    '--file-filter=*.png',
+                    '--title=Save Pattern Image'
+                ]
+                
+                try:
+                    filename = subprocess.check_output(cmd, text=True).strip()
+                    if not filename.endswith('.png'):
+                        filename += '.png'
+                    
                     # Convert surface to PIL Image and save
                     surface_string = pygame.image.tostring(self.preview_surface, 'RGB')
                     pil_image = Image.frombytes('RGB', self.preview_surface.get_size(), surface_string)
                     pil_image.save(filename)
                     print(f"Saved pattern preview to {filename}")
+                except subprocess.CalledProcessError:
+                    print("Save cancelled")
             except Exception as e:
                 print(f"Error saving pattern: {e}")
-            finally:
-                root.destroy()  # Clean up tkinter window
 
     def save_camera_image(self):
         """Save the current camera image with file dialog"""
         if self.camera_active:
-            import tkinter as tk
-            from tkinter import filedialog
-            
-            # Create root window
-            root = tk.Tk()
-            root.attributes('-topmost', True)  # Make dialog stay on top
-            root.withdraw()  # Hide the root window
-            
-            # Get timestamp for default filename
-            timestamp = time.strftime("%Y%m%d-%H%M%S")
-            default_filename = f'camera_{timestamp}.png'
-            
             try:
-                # Show save file dialog
-                filename = filedialog.asksaveasfilename(
-                    parent=root,
-                    initialdir=str(self.output_dir),
-                    initialfile=default_filename,
-                    defaultextension=".png",
-                    filetypes=[("PNG files", "*.png"), ("All files", "*.*")]
-                )
+                # Get timestamp for default filename
+                timestamp = time.strftime("%Y%m%d-%H%M%S")
+                default_filename = f'camera_{timestamp}.png'
                 
-                if filename:  # If user didn't cancel
+                # Create a simple file dialog using zenity
+                cmd = [
+                    'zenity', '--file-selection',
+                    '--save',
+                    '--filename=' + str(Path.home() / default_filename),
+                    '--file-filter=*.png',
+                    '--title=Save Camera Image'
+                ]
+                
+                try:
+                    filename = subprocess.check_output(cmd, text=True).strip()
+                    if not filename.endswith('.png'):
+                        filename += '.png'
+                    
                     # Convert surface to PIL Image and save
                     surface_string = pygame.image.tostring(self.camera_surface, 'RGB')
                     pil_image = Image.frombytes('RGB', self.camera_surface.get_size(), surface_string)
                     pil_image.save(filename)
                     print(f"Saved camera image to {filename}")
+                except subprocess.CalledProcessError:
+                    print("Save cancelled")
             except Exception as e:
                 print(f"Error saving camera image: {e}")
-            finally:
-                root.destroy()  # Clean up tkinter window
 
     def run(self):
         """Main application loop"""
