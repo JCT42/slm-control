@@ -15,31 +15,28 @@ class SLMController:
         self.contrast_ratio = 200  # typical 200:1
         self.active_area = (26.6, 20.0)  # mm x mm (1.3")
         
-        # Initialize displays
-        os.environ['SDL_VIDEODRIVER'] = 'x11'  # For Raspberry Pi
+        # Initialize pygame
         pygame.init()
+        pygame.font.init()
         
-        # Get available displays
-        num_displays = pygame.display.get_num_displays()
-        print(f"Number of displays detected: {num_displays}")
-        
-        # Control display (HDMI0)
-        self.control_display = pygame.display.set_mode((1024, 768))
+        # Single monitor mode - create two windows side by side
+        self.control_display = pygame.display.set_mode((800, 600))
         pygame.display.set_caption('SLM Control Interface')
         
-        # SLM display (HDMI1)
-        try:
-            # Try to create window on second display
-            os.environ['DISPLAY'] = ':0.1'  # Try second X display
-            self.slm_display = pygame.display.set_mode(self.slm_resolution, pygame.FULLSCREEN)
-        except pygame.error as e:
-            print(f"Could not initialize second display: {e}")
-            print("Running in single display mode - SLM output will be shown in a window")
-            self.slm_display = pygame.display.set_mode(self.slm_resolution, pygame.RESIZABLE)
+        # Create SLM window
+        self.slm_window = pygame.display.set_mode(self.slm_resolution, pygame.RESIZABLE | pygame.NOFRAME, display=0)
+        pygame.display.set_caption('SLM Output')
+        
+        # Move SLM window to the right of the control window
+        os.environ['SDL_VIDEO_WINDOW_POS'] = '810,0'
         
         # Initialize camera
-        self.camera = cv2.VideoCapture(0)
-        self.camera_active = True
+        try:
+            self.camera = cv2.VideoCapture(0)
+            self.camera_active = True
+        except:
+            print("Warning: Could not initialize camera")
+            self.camera_active = False
         
         # Load patterns
         self.patterns_dir = Path('patterns')
@@ -96,7 +93,7 @@ class SLMController:
         
         pattern = cv2.resize(pattern, self.slm_resolution)
         pygame_pattern = pygame.surfarray.make_surface(pattern)
-        self.slm_display.blit(pygame_pattern, (0, 0))
+        self.slm_window.blit(pygame_pattern, (0, 0))
         pygame.display.update()
 
     def run(self):
@@ -108,8 +105,11 @@ class SLMController:
         GRAY = (128, 128, 128)
         
         # Create a font
-        pygame.font.init()
         font = pygame.font.SysFont(None, 36)
+        
+        print("Starting SLM Control Interface")
+        print("Press ESC to exit")
+        print("Both windows should appear side by side")
         
         while running:
             for event in pygame.event.get():
@@ -119,8 +119,9 @@ class SLMController:
                     if event.key == pygame.K_ESCAPE:
                         running = False
             
-            # Clear the control display
+            # Clear both displays
             self.control_display.fill(BLACK)
+            self.slm_window.fill(GRAY)  # Gray for visibility
             
             # Draw some text and UI elements
             text = font.render('SLM Control Interface', True, WHITE)
@@ -136,14 +137,13 @@ class SLMController:
             camera_text = font.render('Camera Preview', True, WHITE)
             self.control_display.blit(camera_text, (230, 60))
             
-            # Update the display
-            pygame.display.flip()
+            # Draw some text on SLM window
+            slm_text = font.render('SLM Output Window', True, BLACK)
+            self.slm_window.blit(slm_text, (10, 10))
             
-            # Print debug info once
-            print("Display Info:")
-            print(f"Control Display: {pygame.display.Info()}")
-            print(f"Window size: {self.control_display.get_size()}")
-            print(f"Available modes: {pygame.display.list_modes()}")
+            # Update both displays
+            pygame.display.flip()
+            pygame.display.update()
             
         self.cleanup()
 
