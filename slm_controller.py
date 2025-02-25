@@ -5,6 +5,7 @@ import os
 from PIL import Image
 import threading
 from pathlib import Path
+import time
 
 class Button:
     def __init__(self, x, y, width, height, text, font, color=(128, 128, 128)):
@@ -49,7 +50,7 @@ class SLMController:
         pygame.font.init()
         
         # Single monitor mode - create main window with more space for preview
-        self.control_display = pygame.display.set_mode((1200, 800))
+        self.control_display = pygame.display.set_mode((1000, 800))
         pygame.display.set_caption('SLM Control Interface')
         
         # Create SLM window
@@ -57,15 +58,24 @@ class SLMController:
         pygame.display.set_caption('SLM Output')
         
         # Move SLM window to the right of the control window
-        os.environ['SDL_VIDEO_WINDOW_POS'] = '1210,0'
+        os.environ['SDL_VIDEO_WINDOW_POS'] = '1010,0'
+        
+        # Create output directories
+        self.output_dir = Path('output')
+        self.output_dir.mkdir(exist_ok=True)
         
         # Preview surface
         self.preview_surface = pygame.Surface((400, 300))
-        self.preview_rect = pygame.Rect(250, 50, 400, 300)
+        self.preview_rect = pygame.Rect(200, 50, 400, 300)
         
         # Camera preview surface
-        self.camera_surface = pygame.Surface((400, 300))
-        self.camera_rect = pygame.Rect(700, 50, 400, 300)
+        self.camera_surface = pygame.Surface((300, 225))
+        self.camera_rect = pygame.Rect(650, 50, 300, 225)
+        
+        # Save buttons
+        self.font = pygame.font.SysFont(None, 36)
+        self.save_preview_button = Button(200, 360, 200, 40, "Save Pattern", self.font)
+        self.save_camera_button = Button(650, 285, 200, 40, "Save Camera", self.font)
         
         # Initialize camera
         try:
@@ -83,7 +93,6 @@ class SLMController:
         self.load_patterns()
         
         # UI elements
-        self.font = pygame.font.SysFont(None, 36)
         self.pattern_button = Button(10, 50, 200, 40, "Select Pattern", self.font)
         self.show_pattern_list = False
         self.pattern_buttons = []
@@ -196,9 +205,25 @@ class SLMController:
             ret, frame = self.camera.read()
             if ret:
                 frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-                frame = cv2.resize(frame, (400, 300))
+                frame = cv2.resize(frame, (300, 225))
                 pygame_frame = pygame.surfarray.make_surface(frame.swapaxes(0, 1))
                 self.camera_surface.blit(pygame_frame, (0, 0))
+
+    def save_preview_image(self):
+        """Save the current pattern preview"""
+        if self.current_pattern:
+            timestamp = time.strftime("%Y%m%d-%H%M%S")
+            filename = self.output_dir / f'pattern_{self.current_pattern}_{timestamp}.png'
+            pygame.image.save(self.preview_surface, str(filename))
+            print(f"Saved pattern preview to {filename}")
+
+    def save_camera_image(self):
+        """Save the current camera image"""
+        if self.camera_active:
+            timestamp = time.strftime("%Y%m%d-%H%M%S")
+            filename = self.output_dir / f'camera_{timestamp}.png'
+            pygame.image.save(self.camera_surface, str(filename))
+            print(f"Saved camera image to {filename}")
 
     def run(self):
         """Main application loop"""
@@ -220,6 +245,12 @@ class SLMController:
                 # Handle pattern selection
                 if self.pattern_button.handle_event(event):
                     self.show_pattern_list = not self.show_pattern_list
+                
+                # Handle save buttons
+                if self.save_preview_button.handle_event(event):
+                    self.save_preview_image()
+                if self.save_camera_button.handle_event(event):
+                    self.save_camera_image()
                 
                 if self.show_pattern_list:
                     for btn in self.pattern_buttons:
@@ -244,18 +275,22 @@ class SLMController:
             # Draw current pattern name
             if self.current_pattern:
                 pattern_text = self.font.render(f'Current: {self.current_pattern}', True, (255, 255, 255))
-                self.control_display.blit(pattern_text, (250, 20))
+                self.control_display.blit(pattern_text, (200, 20))
             
             # Draw preview labels
             preview_label = self.font.render('Pattern Preview', True, (255, 255, 255))
-            self.control_display.blit(preview_label, (250, 360))
+            self.control_display.blit(preview_label, (200, 410))
             
             camera_label = self.font.render('Camera View', True, (255, 255, 255))
-            self.control_display.blit(camera_label, (700, 360))
+            self.control_display.blit(camera_label, (650, 335))
             
             # Draw preview windows
             pygame.draw.rect(self.control_display, (64, 64, 64), self.preview_rect)
             pygame.draw.rect(self.control_display, (64, 64, 64), self.camera_rect)
+            
+            # Draw save buttons
+            self.save_preview_button.draw(self.control_display)
+            self.save_camera_button.draw(self.control_display)
             
             # Update and draw preview surfaces
             self.control_display.blit(self.preview_surface, self.preview_rect)
