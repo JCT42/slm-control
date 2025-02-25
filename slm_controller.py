@@ -103,14 +103,14 @@ class SLMController:
         self.title_font = pygame.font.SysFont(None, int(self.screen_height * 0.05))
         self.font = pygame.font.SysFont(None, int(self.screen_height * 0.03))
         
-        # Button dimensions
-        button_width = 150
-        button_height = 40
-        button_margin = 20  # margin from edges
+        # Button dimensions - make them slightly smaller and increase margins
+        button_width = 120
+        button_height = 35
+        button_margin = 30  # increased margin from edges
         
         # Create buttons
-        # Pattern selection - ensure it's not too close to the right edge
-        self.load_button = Button(button_margin, 50, button_width, button_height, "Load Pattern", self.font)
+        # Pattern selection - moved further right and down
+        self.load_button = Button(button_margin * 2, button_margin * 2, button_width, button_height, "Load Pattern", self.font)
         
         # Save buttons - use pattern_x for horizontal alignment
         self.save_preview_button = Button(pattern_x, preview_height + 60, button_width, button_height, "Save Pattern", self.font)
@@ -120,9 +120,9 @@ class SLMController:
         self.camera_paused = False
         self.pause_camera_button = Button(camera_x + button_width + 20, camera_height + 60, button_width, button_height, "Pause Camera", self.font)
         
-        # Calibrate button (bottom left with margin)
-        calibrate_x = button_margin
-        calibrate_y = self.screen_height - button_height - button_margin
+        # Calibrate button (bottom left with increased margin)
+        calibrate_x = button_margin * 2
+        calibrate_y = self.screen_height - button_height - button_margin * 2
         self.calibrate_button = Button(calibrate_x, calibrate_y, button_width, button_height, 'Calibrate', self.font, (100, 150, 100))
         
         # Initialize camera
@@ -178,7 +178,6 @@ class SLMController:
         for i, level in enumerate(voltage_levels):
             # Display uniform pattern
             pattern = np.full((self.height, self.width), level, dtype=np.uint8)
-            self.display_pattern_raw(pattern)
             
             # Wait for user to measure phase
             input(f"Measuring phase for voltage level {level}. Press Enter after recording the measurement...")
