@@ -106,12 +106,13 @@ class SLMController:
         # Button dimensions
         button_width = 150
         button_height = 40
+        button_margin = 20  # margin from edges
         
         # Create buttons
-        # Pattern selection
-        self.load_button = Button(10, 50, button_width, button_height, "Load Pattern", self.font)
+        # Pattern selection - ensure it's not too close to the right edge
+        self.load_button = Button(button_margin, 50, button_width, button_height, "Load Pattern", self.font)
         
-        # Save buttons
+        # Save buttons - use pattern_x for horizontal alignment
         self.save_preview_button = Button(pattern_x, preview_height + 60, button_width, button_height, "Save Pattern", self.font)
         self.save_camera_button = Button(camera_x, camera_height + 60, button_width, button_height, "Save Camera", self.font)
         
@@ -119,9 +120,9 @@ class SLMController:
         self.camera_paused = False
         self.pause_camera_button = Button(camera_x + button_width + 20, camera_height + 60, button_width, button_height, "Pause Camera", self.font)
         
-        # Calibrate button (bottom left)
-        calibrate_x = 20
-        calibrate_y = self.screen_height - button_height - 20
+        # Calibrate button (bottom left with margin)
+        calibrate_x = button_margin
+        calibrate_y = self.screen_height - button_height - button_margin
         self.calibrate_button = Button(calibrate_x, calibrate_y, button_width, button_height, 'Calibrate', self.font, (100, 150, 100))
         
         # Initialize camera
