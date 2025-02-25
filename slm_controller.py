@@ -110,7 +110,6 @@ class SLMController:
         # Create buttons
         # Pattern selection
         self.load_button = Button(10, 50, button_width, button_height, "Load Pattern", self.font)
-        self.generate_button = Button(10, 100, button_width, button_height, "Generate Patterns", self.font)
         
         # Save buttons
         self.save_preview_button = Button(pattern_x, preview_height + 60, button_width, button_height, "Save Pattern", self.font)
@@ -444,9 +443,6 @@ class SLMController:
                 # Handle button clicks
                 if self.load_button.handle_event(event):
                     self.load_pattern()
-                elif self.generate_button.handle_event(event):
-                    self.create_default_patterns()
-                    print("Generated new patterns in patterns directory")
                 elif self.save_preview_button.handle_event(event):
                     self.save_pattern()
                 elif self.save_camera_button.handle_event(event):
@@ -461,7 +457,6 @@ class SLMController:
             
             # Draw buttons
             self.load_button.draw(self.control_display)
-            self.generate_button.draw(self.control_display)
             self.save_preview_button.draw(self.control_display)
             self.save_camera_button.draw(self.control_display)
             self.pause_camera_button.draw(self.control_display)
