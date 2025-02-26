@@ -185,15 +185,32 @@ class PatternGenerator:
         
     def create_preview(self):
         """Create preview area"""
+        # Create preview frame with fixed height
+        preview_height = 400  # pixels
+        
         # Create figure with three subplots
-        self.fig, (self.ax1, self.ax2, self.ax3) = plt.subplots(1, 3, figsize=(15, 5))
+        self.fig = plt.figure(figsize=(15, 5))
+        self.fig.set_dpi(100)  # Ensure consistent sizing
+        
+        # Create subplots with proper spacing
+        gs = self.fig.add_gridspec(1, 3, hspace=0, wspace=0.3)
+        self.ax1 = self.fig.add_subplot(gs[0, 0])
+        self.ax2 = self.fig.add_subplot(gs[0, 1])
+        self.ax3 = self.fig.add_subplot(gs[0, 2])
+        
+        # Create canvas with fixed size
         self.canvas = FigureCanvasTkAgg(self.fig, master=self.preview_frame)
         self.canvas.draw()
-        self.canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+        
+        # Pack canvas with fixed height
+        canvas_widget = self.canvas.get_tk_widget()
+        canvas_widget.configure(height=preview_height)
+        canvas_widget.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
         
         # Add toolbar
         toolbar = NavigationToolbar2Tk(self.canvas, self.preview_frame)
         toolbar.update()
+        toolbar.pack(side=tk.BOTTOM, fill=tk.X)
         
         # Set titles
         self.ax1.set_title('Target Image')
@@ -204,7 +221,7 @@ class PatternGenerator:
         for ax in [self.ax1, self.ax2, self.ax3]:
             ax.set_xticks([])
             ax.set_yticks([])
-            
+        
         # Add SLM specifications below the preview
         specs_text = """SLM Specifications (Sony LCX016AL-6):
 • Resolution: 832 x 624 pixels
@@ -330,69 +347,51 @@ class PatternGenerator:
         self.root.quit()
         
     def load_image(self):
-        """Load and preprocess target image"""
+        """Load and display target image"""
         try:
-            # Use zenity file dialog
-            cmd = ['zenity', '--file-selection', 
-                   '--file-filter=*.png *.jpg *.jpeg *.bmp',
-                   '--title=Select Target Image']
-            result = subprocess.run(cmd, capture_output=True, text=True)
+            filename = filedialog.askopenfilename(
+                title="Select Image",
+                filetypes=[("Image files", "*.png *.jpg *.jpeg *.bmp *.tif")]
+            )
             
-            if result.returncode != 0:
-                self.status_var.set("Image loading cancelled")
-                return
+            if filename:
+                # Load and resize image
+                target = cv2.imread(filename, cv2.IMREAD_GRAYSCALE)
+                if target is None:
+                    raise ValueError("Could not load image")
                 
-            file_path = result.stdout.strip()
-            if not file_path:
-                return
+                # Resize to SLM dimensions
+                target = cv2.resize(target, (self.width, self.height))
                 
-            # Read image and convert to grayscale
-            image = cv2.imread(file_path)
-            if image is None:
-                raise ValueError(f"Could not load image: {file_path}")
+                # Pad the target for FFT
+                self.padded_target = np.zeros((self.padded_height, self.padded_width))
+                start_x = (self.padded_width - self.width) // 2
+                end_x = start_x + self.width
+                start_y = (self.padded_height - self.height) // 2
+                end_y = start_y + self.height
+                self.padded_target[start_y:end_y, start_x:end_x] = target
                 
-            if len(image.shape) == 3:
-                image = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+                # Display target
+                self.ax1.clear()
+                self.ax1.imshow(target, cmap='gray')
+                self.ax1.set_title('Target Image')
+                self.ax1.set_xticks([])
+                self.ax1.set_yticks([])
                 
-            # Resize to match SLM resolution
-            scale_x = self.width / image.shape[1]
-            scale_y = self.height / image.shape[0]
-            scale = min(scale_x, scale_y)
-            
-            new_width = int(image.shape[1] * scale)
-            new_height = int(image.shape[0] * scale)
-            
-            image = cv2.resize(image, (new_width, new_height), interpolation=cv2.INTER_LANCZOS4)
-            
-            # Create black canvas of SLM size
-            canvas = np.zeros((self.height, self.width), dtype=np.uint8)
-            
-            # Center the image
-            x_offset = (self.width - new_width) // 2
-            y_offset = (self.height - new_height) // 2
-            canvas[y_offset:y_offset+new_height, x_offset:x_offset+new_width] = image
-            
-            # Normalize and store
-            self.target_image = canvas.astype(float) / 255.0
-            
-            # Create padded version
-            self.padded_target = np.zeros((self.padded_height, self.padded_width))
-            start_x = (self.padded_width - self.width) // 2
-            end_x = start_x + self.width
-            start_y = (self.padded_height - self.height) // 2
-            end_y = start_y + self.height
-            self.padded_target[start_y:end_y, start_x:end_x] = self.target_image
-            
-            # Update preview
-            self.ax1.clear()
-            self.ax1.imshow(self.target_image, cmap='gray')
-            self.ax1.set_title('Target Image')
-            self.ax1.set_xticks([])
-            self.ax1.set_yticks([])
-            self.canvas.draw()
-            
-            self.status_var.set("Image loaded successfully")
-            
+                # Clear other plots
+                self.ax2.clear()
+                self.ax2.set_title('Generated Pattern')
+                self.ax2.set_xticks([])
+                self.ax2.set_yticks([])
+                
+                self.ax3.clear()
+                self.ax3.set_title('Simulated Reconstruction')
+                self.ax3.set_xticks([])
+                self.ax3.set_yticks([])
+                
+                self.canvas.draw()
+                self.status_var.set("Image loaded successfully")
+                
         except Exception as e:
             self.status_var.set(f"Error loading image: {str(e)}")
             
