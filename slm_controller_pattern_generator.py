@@ -13,11 +13,145 @@ from pathlib import Path
 import time
 import subprocess
 import tkinter as tk
-from tkinter import filedialog
+from tkinter import filedialog, ttk
 from tqdm import tqdm
 import matplotlib.pyplot as plt
+from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 
-from slm_controller import SLMController, Button
+class SLMController:
+    def __init__(self):
+        # Initialize far-field simulation parameters
+        self.wavelength = 532e-9  # 532nm green laser
+        self.padding_factor = 2
+        self.padded_width = self.width * self.padding_factor
+        self.padded_height = self.height * self.padding_factor
+        
+        # Calculate important parameters
+        self.k = 2 * np.pi / self.wavelength  # Wave number
+        self.dx = self.pixel_pitch * 1e-6  # Convert to meters
+        self.df_x = 1 / (self.padded_width * self.dx)  # Frequency step size x
+        self.df_y = 1 / (self.padded_height * self.dx)  # Frequency step size y
+        
+        # Create coordinate grids
+        self.x = np.linspace(-self.padded_width//2, self.padded_width//2-1, self.padded_width) * self.dx
+        self.y = np.linspace(-self.padded_height//2, self.padded_height//2-1, self.padded_height) * self.dx
+        self.X, self.Y = np.meshgrid(self.x, self.y)
+        
+        # Additional buttons for pattern generation
+        button_width = 150
+        button_height = 35
+        button_margin = 30
+        button_spacing = 10
+        
+        # Add pattern generation button below load button
+        generate_y = self.load_button.rect.bottom + button_spacing
+        self.generate_button = Button(
+            self.load_button.rect.left,
+            generate_y,
+            button_width,
+            button_height,
+            "Generate Pattern",
+            self.font,
+            (100, 150, 100)
+        )
+
+class PatternGeneratorWindow:
+    def __init__(self, parent_controller):
+        self.controller = parent_controller
+        self.window = tk.Toplevel()
+        self.window.title("Pattern Generator Settings")
+        self.window.geometry("800x600")
+        
+        # Create frames
+        self.param_frame = ttk.LabelFrame(self.window, text="Parameters", padding="10")
+        self.param_frame.pack(fill="x", padx=10, pady=5)
+        
+        self.preview_frame = ttk.LabelFrame(self.window, text="Preview", padding="10")
+        self.preview_frame.pack(fill="both", expand=True, padx=10, pady=5)
+        
+        # Parameter controls
+        self.create_parameter_controls()
+        
+        # Preview
+        self.fig, (self.ax1, self.ax2) = plt.subplots(1, 2, figsize=(10, 4))
+        self.canvas = FigureCanvasTkAgg(self.fig, master=self.preview_frame)
+        self.canvas.draw()
+        self.canvas.get_tk_widget().pack(fill="both", expand=True)
+        
+        # Buttons
+        self.button_frame = ttk.Frame(self.window)
+        self.button_frame.pack(fill="x", padx=10, pady=5)
+        
+        ttk.Button(self.button_frame, text="Generate", command=self.generate_preview).pack(side="left", padx=5)
+        ttk.Button(self.button_frame, text="Load to SLM", command=self.load_to_slm).pack(side="left", padx=5)
+        ttk.Button(self.button_frame, text="Close", command=self.window.destroy).pack(side="right", padx=5)
+        
+        self.target_image = None
+        self.generated_pattern = None
+        
+    def create_parameter_controls(self):
+        # Number of iterations
+        ttk.Label(self.param_frame, text="Number of iterations:").grid(row=0, column=0, padx=5, pady=5)
+        self.iterations_var = tk.StringVar(value="100")
+        ttk.Entry(self.param_frame, textvariable=self.iterations_var, width=10).grid(row=0, column=1, padx=5, pady=5)
+        
+        # Beam width adjustment
+        ttk.Label(self.param_frame, text="Beam width factor:").grid(row=1, column=0, padx=5, pady=5)
+        self.beam_width_var = tk.StringVar(value="1.0")
+        ttk.Entry(self.param_frame, textvariable=self.beam_width_var, width=10).grid(row=1, column=1, padx=5, pady=5)
+        
+        # Phase range
+        ttk.Label(self.param_frame, text="Phase range (0-2π):").grid(row=2, column=0, padx=5, pady=5)
+        self.phase_range_var = tk.StringVar(value="2.0")
+        ttk.Entry(self.param_frame, textvariable=self.phase_range_var, width=10).grid(row=2, column=1, padx=5, pady=5)
+        
+    def generate_preview(self):
+        if self.target_image is None:
+            return
+            
+        # Get parameters
+        num_iterations = int(self.iterations_var.get())
+        beam_width_factor = float(self.beam_width_var.get())
+        phase_range = float(self.phase_range_var.get())
+        
+        # Generate pattern
+        phase, field, errors = self.controller.gerchberg_saxton(
+            self.target_image, 
+            num_iterations=num_iterations
+        )
+        
+        # Calculate far field
+        far_field = self.controller.simulate_far_field(field)
+        
+        # Update preview
+        self.ax1.clear()
+        self.ax2.clear()
+        
+        self.ax1.imshow(phase, cmap='gray')
+        self.ax1.set_title('Generated Phase Pattern')
+        self.ax2.imshow(far_field, cmap='viridis')
+        self.ax2.set_title('Simulated Far Field')
+        
+        self.canvas.draw()
+        
+        # Store the generated pattern
+        self.generated_pattern = ((phase + np.pi) / (2 * np.pi) * 255).astype(np.uint8)
+        
+    def load_to_slm(self):
+        if self.generated_pattern is not None:
+            # Apply calibration if available
+            if self.controller.is_calibrated:
+                pattern = self.controller.apply_calibration(self.generated_pattern)
+            else:
+                pattern = self.generated_pattern
+                
+            # Update the controller's pattern
+            self.controller.current_pattern = pattern
+            self.controller.update_preview()
+            self.controller.update_slm_display()
+            
+            # Close the window
+            self.window.destroy()
 
 class SLMPatternController(SLMController):
     def __init__(self):
@@ -187,32 +321,23 @@ class SLMPatternController(SLMController):
         return intensity
 
     def generate_pattern(self):
-        """Generate a new pattern using Gerchberg-Saxton algorithm"""
+        """Open pattern generator window and load target image"""
         try:
+            # Open file dialog
+            file_path = filedialog.askopenfilename(
+                title="Select Target Image",
+                filetypes=[("Image files", "*.png *.jpg *.jpeg *.bmp *.tif")]
+            )
+            
+            if not file_path:
+                return False
+                
             # Load and preprocess target image
             padded_target, target_image, start_x, end_x, start_y, end_y = self.load_target_image()
             
-            # Run Gerchberg-Saxton algorithm
-            phase, field, errors = self.gerchberg_saxton(padded_target)
-            
-            # Extract the phase pattern for the SLM
-            slm_phase = phase[start_y:end_y, start_x:end_x]
-            
-            # Convert phase to 8-bit grayscale
-            pattern = ((slm_phase + np.pi) / (2 * np.pi) * 255).astype(np.uint8)
-            
-            # Apply calibration if available
-            if self.is_calibrated:
-                pattern = self.apply_calibration(pattern)
-            
-            # Update the current pattern
-            self.current_pattern = pattern
-            
-            # Update the preview
-            self.update_preview()
-            
-            # Display the pattern on the SLM
-            self.update_slm_display()
+            # Create pattern generator window
+            generator_window = PatternGeneratorWindow(self)
+            generator_window.target_image = padded_target
             
             return True
         except Exception as e:
