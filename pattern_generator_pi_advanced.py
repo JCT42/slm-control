@@ -43,16 +43,18 @@ class AdvancedPatternGenerator(PatternGenerator):
         # Initialize base class
         super().__init__()
         
-        # Advanced parameters
-        self.algorithm = "Gerchberg-Saxton"  # Default algorithm
-        self.max_iterations = 50
+        # Additional instance variables
         self.convergence_threshold = 1e-6
+        self.aberration_coefficients = [0.0] * 5  # For Zernike terms
+        self.algorithm = "Gerchberg-Saxton"  # Default algorithm
+        self.beam_profile = "Gaussian"  # Default beam profile
+        
+        # Advanced parameters
+        self.max_iterations = 50
         self.phase_correction_enabled = False
         self.phase_correction_map = None
         self.aberration_correction_enabled = False
-        self.aberration_coefficients = np.zeros(15)  # Zernike coefficients
         self.beam_shaping_enabled = False
-        self.beam_profile = "Gaussian"  # Default beam profile
         self.multi_plane_enabled = False
         self.num_planes = 1
         self.plane_spacing = 100e-6  # 100 μm between planes
@@ -131,6 +133,7 @@ class AdvancedPatternGenerator(PatternGenerator):
         ttk.Label(advanced_frame, text="Algorithm:").pack(anchor=tk.W)
         self.algorithm_var = tk.StringVar(value=self.algorithm)
         algorithm_menu = ttk.OptionMenu(advanced_frame, self.algorithm_var,
+            self.algorithm,  # Current value
             "Gerchberg-Saxton",
             "Weighted Gerchberg-Saxton",
             "Direct Binary Search",
@@ -141,6 +144,7 @@ class AdvancedPatternGenerator(PatternGenerator):
         ttk.Label(advanced_frame, text="Beam Profile:").pack(anchor=tk.W)
         self.beam_profile_var = tk.StringVar(value=self.beam_profile)
         profile_menu = ttk.OptionMenu(advanced_frame, self.beam_profile_var,
+            self.beam_profile,  # Current value
             "Gaussian",
             "Top-Hat",
             "Bessel",
