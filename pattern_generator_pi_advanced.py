@@ -39,6 +39,10 @@ import json  # For saving/loading settings
 class AdvancedPatternGenerator:
     def __init__(self):
         """Initialize the advanced pattern generator with extended features"""
+        # Initialize camera state
+        self.camera_active = False
+        self.camera_paused = False
+        
         # Sony LCX016AL-6 specifications
         self.width = 832
         self.height = 624
@@ -46,6 +50,25 @@ class AdvancedPatternGenerator:
         self.active_area = (26.6e-3, 20.0e-3)
         self.refresh_rate = 60
         self.contrast_ratio = 200
+        
+        # Default wavelength
+        self.wavelength = 532e-9  # 532nm green laser
+        
+        # Simulation parameters
+        self.padding_factor = 2
+        self.padded_width = self.width * self.padding_factor
+        self.padded_height = self.height * self.padding_factor
+        
+        # Calculate important parameters
+        self.k = 2 * np.pi / self.wavelength  # Wave number
+        self.dx = self.pixel_size
+        self.df_x = 1 / (self.padded_width * self.dx)  # Frequency step size x
+        self.df_y = 1 / (self.padded_height * self.dx)  # Frequency step size y
+        
+        # Create coordinate grids
+        self.x = np.linspace(-self.padded_width//2, self.padded_width//2-1, self.padded_width) * self.dx
+        self.y = np.linspace(-self.padded_height//2, self.padded_height//2-1, self.padded_height) * self.dx
+        self.X, self.Y = np.meshgrid(self.x, self.y)
         
         # Advanced parameters
         self.algorithm = "Gerchberg-Saxton"  # Default algorithm
@@ -66,9 +89,6 @@ class AdvancedPatternGenerator:
         self.optimization_metric = "MSE"  # Mean Square Error
         self.optimization_weight = 1.0
         self.feedback_enabled = False
-        
-        # Initialize other parameters
-        super().__init__()
         
         # Initialize GUI
         self.setup_gui()
