@@ -18,42 +18,7 @@ from tqdm import tqdm
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 
-class SLMController:
-    def __init__(self):
-        # Initialize far-field simulation parameters
-        self.wavelength = 532e-9  # 532nm green laser
-        self.padding_factor = 2
-        self.padded_width = self.width * self.padding_factor
-        self.padded_height = self.height * self.padding_factor
-        
-        # Calculate important parameters
-        self.k = 2 * np.pi / self.wavelength  # Wave number
-        self.dx = self.pixel_pitch * 1e-6  # Convert to meters
-        self.df_x = 1 / (self.padded_width * self.dx)  # Frequency step size x
-        self.df_y = 1 / (self.padded_height * self.dx)  # Frequency step size y
-        
-        # Create coordinate grids
-        self.x = np.linspace(-self.padded_width//2, self.padded_width//2-1, self.padded_width) * self.dx
-        self.y = np.linspace(-self.padded_height//2, self.padded_height//2-1, self.padded_height) * self.dx
-        self.X, self.Y = np.meshgrid(self.x, self.y)
-        
-        # Additional buttons for pattern generation
-        button_width = 150
-        button_height = 35
-        button_margin = 30
-        button_spacing = 10
-        
-        # Add pattern generation button below load button
-        generate_y = self.load_button.rect.bottom + button_spacing
-        self.generate_button = Button(
-            self.load_button.rect.left,
-            generate_y,
-            button_width,
-            button_height,
-            "Generate Pattern",
-            self.font,
-            (100, 150, 100)
-        )
+from slm_controller import SLMController, Button
 
 class PatternGeneratorWindow:
     def __init__(self, parent_controller):
