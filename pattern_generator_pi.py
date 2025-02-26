@@ -66,7 +66,7 @@ class PatternGenerator:
         """Create the main GUI window and controls"""
         self.root = tk.Tk()
         self.root.title("SLM Pattern Generator")
-        self.root.geometry("1200x800")  # Set initial window size
+        self.root.geometry("1600x900")  # Increased window size
         
         # Create main frame with scrollbar
         self.main_frame = ttk.Frame(self.root)
@@ -77,12 +77,17 @@ class PatternGenerator:
         self.scrollbar = ttk.Scrollbar(self.main_frame, orient=tk.VERTICAL, command=self.canvas.yview)
         self.scrollable_frame = ttk.Frame(self.canvas)
         
+        # Make sure scrolling works properly
         self.scrollable_frame.bind(
             "<Configure>",
             lambda e: self.canvas.configure(scrollregion=self.canvas.bbox("all"))
         )
         
-        self.canvas.create_window((0, 0), window=self.scrollable_frame, anchor="nw")
+        # Bind mouse wheel to scroll
+        self.canvas.bind_all("<MouseWheel>", lambda e: self.canvas.yview_scroll(int(-1*(e.delta/120)), "units"))
+        
+        # Configure canvas
+        self.canvas.create_window((0, 0), window=self.scrollable_frame, anchor="nw", width=self.canvas.winfo_width())
         self.canvas.configure(yscrollcommand=self.scrollbar.set)
         
         # Pack scrollbar components
@@ -187,11 +192,11 @@ class PatternGenerator:
     def create_preview(self):
         """Create preview area"""
         # Create preview frame with fixed size
-        self.preview_frame.configure(height=600)  # Increased height
+        self.preview_frame.configure(height=700)  # Increased height
         self.preview_frame.pack_propagate(False)  # Prevent frame from shrinking
         
         # Create figure with three subplots and increased height
-        plt.rcParams['figure.figsize'] = [12, 6]  # Larger figure size
+        plt.rcParams['figure.figsize'] = [15, 8]  # Larger figure size
         plt.rcParams['figure.dpi'] = 100
         self.fig = plt.figure()
         
