@@ -48,6 +48,11 @@ class AdvancedSLMPatternGenerator(PatternGenerator):
         self.aberration_coefficients = [0.0] * 5  # For Zernike terms
         self.algorithm = "Gerchberg-Saxton"  # Default algorithm
         self.beam_profile = "Gaussian"  # Default beam profile
+        self.beam_params = {
+            'gaussian_sigma': 0.5,
+            'bessel_scale': 5.0,
+            'lg_l': 1
+        }
         
         # Advanced parameters
         self.max_iterations = 50
@@ -168,6 +173,8 @@ class AdvancedSLMPatternGenerator(PatternGenerator):
             command=self.save_settings).pack(side=tk.LEFT, padx=5)
         ttk.Button(settings_frame, text="Load Settings",
             command=self.load_settings).pack(side=tk.LEFT)
+        ttk.Button(settings_frame, text="Settings",
+            command=self.create_settings_window).pack(side=tk.LEFT)
         
     def create_preview(self):
         """Create preview area"""
@@ -259,47 +266,120 @@ class AdvancedSLMPatternGenerator(PatternGenerator):
                 self.pause_camera_button.configure(text="Pause Camera")
                 self.status_var.set("Camera resumed")
             
-    def load_pattern(self):
-        """Load a pattern from file"""
+    def load_image(self):
+        """Load and preprocess target image"""
         try:
-            # Use zenity file dialog
-            cmd = ['zenity', '--file-selection', 
-                   '--file-filter=*.png',
-                   '--title=Select Pattern']
-            result = subprocess.run(cmd, capture_output=True, text=True)
+            filename = filedialog.askopenfilename(
+                title="Select Target Image",
+                filetypes=[
+                    ("Image files", "*.png *.jpg *.jpeg *.bmp *.tif *.tiff"),
+                    ("All files", "*.*")
+                ]
+            )
             
-            if result.returncode != 0:
-                self.status_var.set("Pattern loading cancelled")
-                return
+            if filename:
+                # Load image
+                img = cv2.imread(filename, cv2.IMREAD_GRAYSCALE)
+                if img is None:
+                    raise ValueError("Failed to load image")
                 
-            file_path = result.stdout.strip()
-            if not file_path:
-                return
+                # Resize to SLM resolution if needed
+                if img.shape != (self.height, self.width):
+                    img = cv2.resize(img, (self.width, self.height))
                 
-            # Load the pattern
-            pattern = cv2.imread(file_path, cv2.IMREAD_GRAYSCALE)
-            if pattern is None:
-                raise ValueError("Could not load pattern")
+                # Normalize to [0, 1]
+                self.target = img.astype(float) / 255.0
                 
-            # Resize if necessary
-            if pattern.shape != (self.height, self.width):
-                pattern = cv2.resize(pattern, (self.width, self.height))
-            
-            self.pattern = pattern
-            self.slm_phase = (pattern.astype(float) / 255.0 * 2 * np.pi - np.pi)
-            
-            # Update preview
-            self.ax2.clear()
-            self.ax2.imshow(pattern, cmap='gray')
-            self.ax2.set_title('Loaded Pattern')
-            self.ax2.set_xticks([])
-            self.ax2.set_yticks([])
-            self.canvas.draw()
-            
-            self.status_var.set(f"Pattern loaded from: {file_path}")
-            
+                # Create padded version for FFT
+                self.padded_target = np.pad(
+                    self.target,
+                    ((0, self.height), (0, self.width)),
+                    mode='constant'
+                )
+                
+                # Update preview
+                self.update_preview()
+                self.status_var.set(f"Loaded image: {os.path.basename(filename)}")
+                
         except Exception as e:
-            self.status_var.set(f"Error loading pattern: {str(e)}")
+            self.status_var.set(f"Error loading image: {str(e)}")
+            
+    def create_settings_window(self):
+        """Create settings window for phase image generation"""
+        settings_window = tk.Toplevel(self.root)
+        settings_window.title("Phase Image Generation Settings")
+        settings_window.geometry("400x600")
+        
+        # Create settings frame
+        settings_frame = ttk.Frame(settings_window, padding="10")
+        settings_frame.pack(fill=tk.BOTH, expand=True)
+        
+        # Algorithm settings
+        algo_frame = ttk.LabelFrame(settings_frame, text="Algorithm Settings", padding="5")
+        algo_frame.pack(fill=tk.X, padx=5, pady=5)
+        
+        ttk.Label(algo_frame, text="Max Iterations:").pack(anchor=tk.W)
+        max_iter_entry = ttk.Entry(algo_frame)
+        max_iter_entry.insert(0, str(self.max_iterations))
+        max_iter_entry.pack(fill=tk.X)
+        
+        ttk.Label(algo_frame, text="Convergence Threshold:").pack(anchor=tk.W)
+        conv_entry = ttk.Entry(algo_frame)
+        conv_entry.insert(0, str(self.convergence_threshold))
+        conv_entry.pack(fill=tk.X)
+        
+        # Beam profile settings
+        beam_frame = ttk.LabelFrame(settings_frame, text="Beam Profile Settings", padding="5")
+        beam_frame.pack(fill=tk.X, padx=5, pady=5)
+        
+        profiles = ["Gaussian", "Top-Hat", "Bessel", "Laguerre-Gaussian"]
+        ttk.Label(beam_frame, text="Profile Type:").pack(anchor=tk.W)
+        profile_var = tk.StringVar(value=self.beam_profile)
+        profile_menu = ttk.OptionMenu(beam_frame, profile_var, self.beam_profile, *profiles)
+        profile_menu.pack(fill=tk.X)
+        
+        # Profile parameters
+        param_frame = ttk.LabelFrame(beam_frame, text="Profile Parameters", padding="5")
+        param_frame.pack(fill=tk.X, padx=5, pady=5)
+        
+        # Gaussian sigma
+        ttk.Label(param_frame, text="Gaussian Sigma:").pack(anchor=tk.W)
+        sigma_scale = ttk.Scale(param_frame, from_=0.1, to=2.0, orient=tk.HORIZONTAL)
+        sigma_scale.set(0.5)
+        sigma_scale.pack(fill=tk.X)
+        
+        # Bessel scale
+        ttk.Label(param_frame, text="Bessel Scale:").pack(anchor=tk.W)
+        bessel_scale = ttk.Scale(param_frame, from_=1.0, to=10.0, orient=tk.HORIZONTAL)
+        bessel_scale.set(5.0)
+        bessel_scale.pack(fill=tk.X)
+        
+        # LG parameters
+        ttk.Label(param_frame, text="LG Orbital Angular Momentum:").pack(anchor=tk.W)
+        lg_l_var = tk.StringVar(value="1")
+        ttk.Entry(param_frame, textvariable=lg_l_var).pack(fill=tk.X)
+        
+        # Save button
+        def save_settings():
+            try:
+                self.max_iterations = int(max_iter_entry.get())
+                self.convergence_threshold = float(conv_entry.get())
+                self.beam_profile = profile_var.get()
+                
+                # Save profile parameters
+                self.beam_params = {
+                    'gaussian_sigma': sigma_scale.get(),
+                    'bessel_scale': bessel_scale.get(),
+                    'lg_l': int(lg_l_var.get())
+                }
+                
+                self.status_var.set("Settings saved successfully")
+                settings_window.destroy()
+                
+            except ValueError as e:
+                self.status_var.set(f"Error saving settings: {str(e)}")
+        
+        ttk.Button(settings_frame, text="Save Settings", command=save_settings).pack(pady=10)
             
     def send_to_slm(self):
         """Send pattern to SLM via HDMI1"""
@@ -328,55 +408,6 @@ class AdvancedSLMPatternGenerator(PatternGenerator):
         cv2.destroyAllWindows()
         self.root.quit()
         
-    def load_image(self):
-        """Load and display target image"""
-        try:
-            filename = filedialog.askopenfilename(
-                title="Select Image",
-                filetypes=[("Image files", "*.png *.jpg *.jpeg *.bmp *.tif")]
-            )
-            
-            if filename:
-                # Load and resize image
-                target = cv2.imread(filename, cv2.IMREAD_GRAYSCALE)
-                if target is None:
-                    raise ValueError("Could not load image")
-                
-                # Resize to SLM dimensions
-                target = cv2.resize(target, (self.width, self.height))
-                
-                # Pad the target for FFT
-                self.padded_target = np.zeros((self.padded_height, self.padded_width))
-                start_x = (self.padded_width - self.width) // 2
-                end_x = start_x + self.width
-                start_y = (self.padded_height - self.height) // 2
-                end_y = start_y + self.height
-                self.padded_target[start_y:end_y, start_x:end_x] = target
-                
-                # Display target
-                self.ax1.clear()
-                self.ax1.imshow(target, cmap='gray')
-                self.ax1.set_title('Target Image')
-                self.ax1.set_xticks([])
-                self.ax1.set_yticks([])
-                
-                # Clear other plots
-                self.ax2.clear()
-                self.ax2.set_title('Generated Pattern')
-                self.ax2.set_xticks([])
-                self.ax2.set_yticks([])
-                
-                self.ax3.clear()
-                self.ax3.set_title('Simulated Reconstruction')
-                self.ax3.set_xticks([])
-                self.ax3.set_yticks([])
-                
-                self.canvas.draw()
-                self.status_var.set("Image loaded successfully")
-                
-        except Exception as e:
-            self.status_var.set(f"Error loading image: {str(e)}")
-            
     def generate_input_beam(self):
         """Generate Gaussian input beam profile"""
         beam_width = float(self.beam_width_var.get())
@@ -562,22 +593,22 @@ class AdvancedSLMPatternGenerator(PatternGenerator):
             X, Y = np.meshgrid(x, y)
             R = np.sqrt(X**2 + Y**2)
             
-            if self.beam_profile_var.get() == "Gaussian":
-                sigma = 0.5  # Adjustable parameter
+            if self.beam_profile == "Gaussian":
+                sigma = self.beam_params['gaussian_sigma']
                 return np.exp(-R**2 / (2*sigma**2))
                 
-            elif self.beam_profile_var.get() == "Top-Hat":
+            elif self.beam_profile == "Top-Hat":
                 radius = 0.8  # Adjustable parameter
                 return (R <= radius).astype(float)
                 
-            elif self.beam_profile_var.get() == "Bessel":
-                scale = 5.0  # Adjustable parameter
+            elif self.beam_profile == "Bessel":
+                scale = self.beam_params['bessel_scale']
                 return np.abs(jv(0, scale*R))
                 
-            elif self.beam_profile_var.get() == "Laguerre-Gaussian":
-                l = 1  # Orbital angular momentum
+            elif self.beam_profile == "Laguerre-Gaussian":
+                l = self.beam_params['lg_l']  # Orbital angular momentum
                 p = 0  # Radial index
-                sigma = 0.5  # Beam width
+                sigma = self.beam_params['gaussian_sigma']  # Beam width
                 Theta = np.arctan2(Y, X)
                 profile = (R/sigma)**(np.abs(l)) * np.exp(-R**2/(2*sigma**2)) * np.exp(1j*l*Theta)
                 return np.abs(profile)
