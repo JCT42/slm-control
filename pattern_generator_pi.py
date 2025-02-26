@@ -148,9 +148,10 @@ class PatternGenerator:
         self.save_button = ttk.Button(buttons_frame, text="Save Pattern", command=self.save_pattern)
         self.save_button.pack(side=tk.LEFT, padx=5)
         
-        # Toggle camera button
-        self.toggle_camera_button = ttk.Button(buttons_frame, text="Toggle Camera", command=self.toggle_camera)
-        self.toggle_camera_button.pack(side=tk.LEFT, padx=5)
+        # Pause camera button - only show if camera is active
+        if self.camera_active:
+            self.pause_camera_button = ttk.Button(buttons_frame, text="Pause Camera", command=self.pause_camera)
+            self.pause_camera_button.pack(side=tk.LEFT, padx=5)
         
         # File controls
         file_frame = ttk.Frame(self.control_frame)
@@ -233,12 +234,16 @@ class PatternGenerator:
             # Small delay to prevent high CPU usage
             time.sleep(0.03)
             
-    def toggle_camera(self):
-        """Toggle camera pause state"""
+    def pause_camera(self):
+        """Pause/Resume camera preview"""
         if self.camera_active:
             self.camera_paused = not self.camera_paused
-            state = "paused" if self.camera_paused else "resumed"
-            self.status_var.set(f"Camera {state}")
+            if self.camera_paused:
+                self.pause_camera_button.configure(text="Resume Camera")
+                self.status_var.set("Camera paused")
+            else:
+                self.pause_camera_button.configure(text="Pause Camera")
+                self.status_var.set("Camera resumed")
             
     def load_pattern(self):
         """Load a pattern from file"""
