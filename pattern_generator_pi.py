@@ -1,12 +1,6 @@
 """
 Pattern Generator for Sony LCX016AL-6 SLM - Raspberry Pi Version
 Generates phase patterns using Gerchberg-Saxton algorithm for far-field image reconstruction.
-
-SLM Specifications:
-- Resolution: 832 x 624 pixels
-- Pixel pitch: 32 µm
-- Active area: 26.6 x 20.0 mm
-- Default wavelength: 532 nm (green laser)
 """
 
 import numpy as np
@@ -21,13 +15,11 @@ from tqdm import tqdm
 class PatternGenerator:
     def __init__(self):
         """Initialize the pattern generator with SLM specifications"""
-        # Sony LCX016AL-6 specifications - DO NOT MODIFY
-        self.width = 832  # pixels
-        self.height = 624  # pixels
+        # Sony LCX016AL-6 specifications
+        self.width = 832
+        self.height = 624
         self.pixel_size = 32e-6  # 32 µm pixel pitch
-        self.active_area = (26.6e-3, 20.0e-3)  # 26.6mm x 20.0mm active area
-        
-        # Default wavelength (will be adjustable)
+        self.active_area = (26.6e-3, 20.0e-3)  # 26.6mm x 20.0mm
         self.wavelength = 532e-9  # 532nm green laser
         
         # Simulation parameters
@@ -75,20 +67,6 @@ class PatternGenerator:
         
     def create_controls(self):
         """Create parameter control widgets"""
-        # SLM Info frame
-        info_frame = ttk.LabelFrame(self.control_frame, text="SLM Specifications")
-        info_frame.pack(fill="x", pady=5)
-        
-        specs = [
-            ("Resolution", f"{self.width} x {self.height} pixels"),
-            ("Pixel Pitch", "32 µm"),
-            ("Active Area", "26.6 x 20.0 mm"),
-        ]
-        
-        for i, (label, value) in enumerate(specs):
-            ttk.Label(info_frame, text=f"{label}:").grid(row=i, column=0, padx=5, pady=2, sticky="e")
-            ttk.Label(info_frame, text=value).grid(row=i, column=1, padx=5, pady=2, sticky="w")
-        
         # File controls
         file_frame = ttk.Frame(self.control_frame)
         file_frame.pack(fill="x", pady=5)
@@ -97,28 +75,26 @@ class PatternGenerator:
         ttk.Button(file_frame, text="Save Pattern", command=self.save_pattern).pack(side="left", padx=5)
         
         # Parameter controls
-        param_frame = ttk.LabelFrame(self.control_frame, text="Pattern Generation Parameters")
+        param_frame = ttk.Frame(self.control_frame)
         param_frame.pack(fill="x", pady=5)
         
-        # Grid layout for parameters
-        params = [
-            ("Iterations:", "iterations_var", "100"),
-            ("Beam Width Factor:", "beam_width_var", "1.0"),
-            ("Phase Range (π):", "phase_range_var", "2.0"),
-            ("Wavelength (nm):", "wavelength_var", "532"),
-        ]
+        # Number of iterations
+        ttk.Label(param_frame, text="Iterations:").grid(row=0, column=0, padx=5, pady=5)
+        self.iterations_var = tk.StringVar(value="100")
+        ttk.Entry(param_frame, textvariable=self.iterations_var, width=10).grid(row=0, column=1, padx=5, pady=5)
         
-        for i, (label, var_name, default) in enumerate(params):
-            ttk.Label(param_frame, text=label).grid(row=i//2, column=i%2*2, padx=5, pady=5, sticky="e")
-            setattr(self, var_name, tk.StringVar(value=default))
-            ttk.Entry(param_frame, textvariable=getattr(self, var_name), width=10).grid(
-                row=i//2, column=i%2*2+1, padx=5, pady=5, sticky="w"
-            )
+        # Beam width factor
+        ttk.Label(param_frame, text="Beam Width Factor:").grid(row=0, column=2, padx=5, pady=5)
+        self.beam_width_var = tk.StringVar(value="1.0")
+        ttk.Entry(param_frame, textvariable=self.beam_width_var, width=10).grid(row=0, column=3, padx=5, pady=5)
+        
+        # Phase range
+        ttk.Label(param_frame, text="Phase Range (π):").grid(row=0, column=4, padx=5, pady=5)
+        self.phase_range_var = tk.StringVar(value="2.0")
+        ttk.Entry(param_frame, textvariable=self.phase_range_var, width=10).grid(row=0, column=5, padx=5, pady=5)
         
         # Generate button
-        ttk.Button(param_frame, text="Generate Pattern", command=self.generate_pattern).grid(
-            row=len(params)//2+1, column=0, columnspan=4, pady=10
-        )
+        ttk.Button(param_frame, text="Generate Pattern", command=self.generate_pattern).grid(row=0, column=6, padx=20, pady=5)
         
     def create_preview(self):
         """Create matplotlib preview area"""
@@ -247,10 +223,6 @@ class PatternGenerator:
             return
             
         try:
-            # Update wavelength from GUI
-            self.wavelength = float(self.wavelength_var.get()) * 1e-9  # Convert nm to m
-            self.k = 2 * np.pi / self.wavelength  # Update wave number
-            
             # Generate pattern
             phase, field = self.gerchberg_saxton(self.padded_target)
             if phase is None:
