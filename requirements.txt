@@ -6,3 +6,4 @@ scikit-image>=0.18.0
 tk==0.1.0
 scipy>=1.11.0
 matplotlib>=3.7.0
+tqdm>=4.66.0
