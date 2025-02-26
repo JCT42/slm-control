@@ -37,7 +37,7 @@ import time
 import threading
 from pattern_generator_pi import PatternGenerator
 
-class AdvancedPatternGenerator(PatternGenerator):
+class AdvancedSLMPatternGenerator(PatternGenerator):
     def __init__(self):
         """Initialize the advanced pattern generator with extended features"""
         # Initialize base class
@@ -58,65 +58,55 @@ class AdvancedPatternGenerator(PatternGenerator):
         self.multi_plane_enabled = False
         self.num_planes = 1
         self.plane_spacing = 100e-6  # 100 μm between planes
-        
-        # Optimization parameters
         self.optimization_enabled = False
-        self.optimization_metric = "MSE"  # Mean Square Error
-        self.optimization_weight = 1.0
-        self.feedback_enabled = False
-
-    def setup_gui(self):
-        """Create the main GUI window and controls"""
-        self.root = tk.Tk()
-        self.root.title("SLM Pattern Generator")
-        self.root.geometry("1600x900")  # Increased window size
+        self.optimization_metric = "MSE"
         
-        # Create main frame
+        # Create the main window
+        self.root = tk.Tk()
+        self.root.title("Advanced SLM Pattern Generator")
+        
+        # Create the main frame
         self.main_frame = ttk.Frame(self.root)
         self.main_frame.pack(fill=tk.BOTH, expand=True)
         
-        # Create scrollable frame
-        self.scrollable_frame = ttk.Frame(self.main_frame)
-        self.scrollable_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+        # Create canvas for scrolling
+        self.canvas = tk.Canvas(self.main_frame)
+        self.scrollbar = ttk.Scrollbar(self.main_frame, orient=tk.VERTICAL, command=self.canvas.yview)
+        self.scrollable_frame = ttk.Frame(self.canvas)
         
-        # Create frames for different sections
-        self.control_frame = ttk.LabelFrame(self.scrollable_frame, text="Controls", padding="10")
-        self.control_frame.pack(fill=tk.X, padx=5, pady=5)
+        self.scrollable_frame.bind(
+            "<Configure>",
+            lambda e: self.canvas.configure(scrollregion=self.canvas.bbox("all"))
+        )
         
-        self.preview_frame = ttk.LabelFrame(self.scrollable_frame, text="Pattern Preview", padding="10")
-        self.preview_frame.pack(fill=tk.X, padx=5, pady=5)
+        self.canvas.create_window((0, 0), window=self.scrollable_frame, anchor=tk.NW)
+        self.canvas.configure(yscrollcommand=self.scrollbar.set)
         
-        # Add status bar
-        self.status_var = tk.StringVar()
-        self.status_bar = ttk.Label(self.scrollable_frame, textvariable=self.status_var)
-        self.status_bar.pack(fill=tk.X, padx=5, pady=5)
+        # Pack scrollbar components
+        self.scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        self.canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         
-        # Create controls
+        # Create frames
+        self.control_frame = ttk.Frame(self.scrollable_frame)
+        self.control_frame.pack(fill=tk.X, padx=10, pady=5)
+        
+        self.preview_frame = ttk.Frame(self.scrollable_frame)
+        self.preview_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
+        
+        # Status variable
+        self.status_var = tk.StringVar(value="Ready")
+        
+        # Create controls and preview
         self.create_controls()
         self.create_advanced_controls()
-        
-        # Create preview area
         self.create_preview()
         
-        # Initialize camera
-        try:
-            self.cap = cv2.VideoCapture(0)
-            if self.cap.isOpened():
-                self.camera_active = True
-                # Create camera frame only if camera is available
-                self.camera_frame = ttk.LabelFrame(self.scrollable_frame, text="Camera Preview", padding="10")
-                self.camera_frame.pack(fill=tk.X, padx=5, pady=5)
-                self.create_camera_preview()
-                self.camera_thread = threading.Thread(target=self.update_camera_preview, daemon=True)
-                self.camera_thread.start()
-                self.status_var.set("Camera initialized successfully")
-            else:
-                self.cap.release()
-                self.status_var.set("No camera detected")
-        except Exception as e:
-            self.status_var.set(f"Camera error: {str(e)}")
+        # Create status bar
+        self.status_bar = ttk.Label(self.scrollable_frame, textvariable=self.status_var)
+        self.status_bar.pack(fill=tk.X, padx=10, pady=5)
         
-        # Bind ESC key to quit
+        # Bind keyboard shortcuts
+        self.root.bind('<Control-q>', lambda e: self.quit_application())
         self.root.bind('<Escape>', lambda e: self.quit_application())
         
     def create_controls(self):
@@ -803,5 +793,5 @@ class AdvancedPatternGenerator(PatternGenerator):
         self.root.mainloop()
 
 if __name__ == "__main__":
-    app = AdvancedPatternGenerator()
+    app = AdvancedSLMPatternGenerator()
     app.run()
