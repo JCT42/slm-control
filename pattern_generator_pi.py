@@ -23,6 +23,7 @@ import subprocess
 import os
 import time
 import threading
+from tkinter import filedialog
 
 class PatternGenerator:
     def __init__(self):
@@ -65,7 +66,7 @@ class PatternGenerator:
         """Create the main GUI window and controls"""
         self.root = tk.Tk()
         self.root.title("SLM Pattern Generator")
-        self.root.geometry("1200x800")
+        self.root.geometry("1200x800")  # Set initial window size
         
         # Create main frame with scrollbar
         self.main_frame = ttk.Frame(self.root)
@@ -185,39 +186,40 @@ class PatternGenerator:
         
     def create_preview(self):
         """Create preview area"""
-        # Create preview frame with fixed height
-        preview_height = 400  # pixels
+        # Create preview frame with fixed size
+        self.preview_frame.configure(height=600)  # Increased height
+        self.preview_frame.pack_propagate(False)  # Prevent frame from shrinking
         
-        # Create figure with three subplots
-        self.fig = plt.figure(figsize=(15, 5))
-        self.fig.set_dpi(100)  # Ensure consistent sizing
+        # Create figure with three subplots and increased height
+        plt.rcParams['figure.figsize'] = [12, 6]  # Larger figure size
+        plt.rcParams['figure.dpi'] = 100
+        self.fig = plt.figure()
         
-        # Create subplots with proper spacing
+        # Add subplots with proper spacing
         gs = self.fig.add_gridspec(1, 3, hspace=0, wspace=0.3)
         self.ax1 = self.fig.add_subplot(gs[0, 0])
         self.ax2 = self.fig.add_subplot(gs[0, 1])
         self.ax3 = self.fig.add_subplot(gs[0, 2])
         
-        # Create canvas with fixed size
+        # Create canvas
         self.canvas = FigureCanvasTkAgg(self.fig, master=self.preview_frame)
         self.canvas.draw()
         
-        # Pack canvas with fixed height
+        # Configure canvas to fill preview frame
         canvas_widget = self.canvas.get_tk_widget()
-        canvas_widget.configure(height=preview_height)
         canvas_widget.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
         
-        # Add toolbar
-        toolbar = NavigationToolbar2Tk(self.canvas, self.preview_frame)
+        # Add toolbar at the bottom
+        toolbar_frame = ttk.Frame(self.preview_frame)
+        toolbar_frame.pack(side=tk.BOTTOM, fill=tk.X)
+        toolbar = NavigationToolbar2Tk(self.canvas, toolbar_frame)
         toolbar.update()
-        toolbar.pack(side=tk.BOTTOM, fill=tk.X)
         
-        # Set titles
+        # Set titles and remove ticks
         self.ax1.set_title('Target Image')
         self.ax2.set_title('Generated Pattern')
         self.ax3.set_title('Simulated Reconstruction')
         
-        # Remove ticks
         for ax in [self.ax1, self.ax2, self.ax3]:
             ax.set_xticks([])
             ax.set_yticks([])
@@ -232,7 +234,7 @@ class PatternGenerator:
 • Default Wavelength: 532 nm (green laser)"""
         
         specs_label = ttk.Label(self.preview_frame, text=specs_text, justify=tk.LEFT)
-        specs_label.pack(fill=tk.X, padx=5, pady=5)
+        specs_label.pack(side=tk.BOTTOM, fill=tk.X, padx=5, pady=5)
         
     def create_camera_preview(self):
         """Create camera preview area"""
