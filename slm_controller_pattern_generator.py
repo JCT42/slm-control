@@ -120,30 +120,37 @@ class PatternGeneratorWindow:
 
 class SLMPatternController(SLMController):
     def __init__(self):
-        print("Initializing SLMPatternController")
+        # Initialize parent class first
         super().__init__()
         
-        # Move the Load Pattern button down to make room for Generate Pattern
-        self.load_button.rect.y += 45  # Move down by button height + spacing
+        print("Initializing SLMPatternController")
         
-        # Create Generate Pattern button above Load Pattern
+        # Calculate button dimensions and positions
         button_width = 150
         button_height = 35
         button_margin = 30
+        button_spacing = 10
         
-        # Place Generate Pattern button where Load Pattern was
+        # Store original load button position
+        original_load_y = self.load_button.rect.y
+        
+        # Create Generate Pattern button above Load Pattern
         self.generate_button = Button(
             self.load_button.rect.left,
-            self.load_button.rect.y - 45,  # Place above Load Pattern
+            original_load_y,  # Place at original load button position
             button_width,
             button_height,
             "Generate Pattern",
             self.font,
             (100, 150, 100)
         )
+        
+        # Move Load Pattern button down
+        self.load_button.rect.y = original_load_y + button_height + button_spacing
+        
         print("Generate Pattern button added")
         
-        # Initialize far-field simulation parameters
+        # Initialize simulation parameters
         self.wavelength = 532e-9  # 532nm green laser
         self.padding_factor = 2
         self.padded_width = self.width * self.padding_factor
@@ -159,10 +166,7 @@ class SLMPatternController(SLMController):
         self.x = np.linspace(-self.padded_width//2, self.padded_width//2-1, self.padded_width) * self.dx
         self.y = np.linspace(-self.padded_height//2, self.padded_height//2-1, self.padded_height) * self.dx
         self.X, self.Y = np.meshgrid(self.x, self.y)
-        
-        print("Adding Generate Pattern button")
-        # Additional buttons for pattern generation
-        
+
     def generate_input_beam(self):
         """Generate Gaussian input beam profile matching Sony SLM specifications"""
         # Calculate beam parameters based on active area
@@ -357,7 +361,9 @@ class SLMPatternController(SLMController):
             self.control_display.blit(self.camera_surface, self.camera_rect)
             
         # Draw all buttons
+        print("Drawing Generate Pattern button")
         self.generate_button.draw(self.control_display)
+        print("Drawing Load Pattern button")
         self.load_button.draw(self.control_display)
         self.save_preview_button.draw(self.control_display)
         if self.camera_active:
