@@ -26,49 +26,22 @@ import matplotlib.pyplot as plt
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2Tk
 import tkinter as tk
 from tkinter import ttk, filedialog
-from pathlib import Path
+from PIL import Image, ImageTk
+import json
 from tqdm import tqdm
+from scipy.special import jv  # For Bessel functions
+from scipy.optimize import minimize  # For pattern optimization
 import subprocess
 import os
 import time
 import threading
-from scipy.special import jv  # For Bessel functions
-from scipy.optimize import minimize  # For pattern optimization
-import json  # For saving/loading settings
+from pattern_generator_pi import PatternGenerator
 
-class AdvancedPatternGenerator:
+class AdvancedPatternGenerator(PatternGenerator):
     def __init__(self):
         """Initialize the advanced pattern generator with extended features"""
-        # Initialize camera state
-        self.camera_active = False
-        self.camera_paused = False
-        
-        # Sony LCX016AL-6 specifications
-        self.width = 832
-        self.height = 624
-        self.pixel_size = 32e-6
-        self.active_area = (26.6e-3, 20.0e-3)
-        self.refresh_rate = 60
-        self.contrast_ratio = 200
-        
-        # Default wavelength
-        self.wavelength = 532e-9  # 532nm green laser
-        
-        # Simulation parameters
-        self.padding_factor = 2
-        self.padded_width = self.width * self.padding_factor
-        self.padded_height = self.height * self.padding_factor
-        
-        # Calculate important parameters
-        self.k = 2 * np.pi / self.wavelength  # Wave number
-        self.dx = self.pixel_size
-        self.df_x = 1 / (self.padded_width * self.dx)  # Frequency step size x
-        self.df_y = 1 / (self.padded_height * self.dx)  # Frequency step size y
-        
-        # Create coordinate grids
-        self.x = np.linspace(-self.padded_width//2, self.padded_width//2-1, self.padded_width) * self.dx
-        self.y = np.linspace(-self.padded_height//2, self.padded_height//2-1, self.padded_height) * self.dx
-        self.X, self.Y = np.meshgrid(self.x, self.y)
+        # Initialize base class
+        super().__init__()
         
         # Advanced parameters
         self.algorithm = "Gerchberg-Saxton"  # Default algorithm
@@ -89,10 +62,7 @@ class AdvancedPatternGenerator:
         self.optimization_metric = "MSE"  # Mean Square Error
         self.optimization_weight = 1.0
         self.feedback_enabled = False
-        
-        # Initialize GUI
-        self.setup_gui()
-        
+
     def setup_gui(self):
         """Create the main GUI window and controls"""
         self.root = tk.Tk()
@@ -121,6 +91,7 @@ class AdvancedPatternGenerator:
         
         # Create controls
         self.create_controls()
+        self.create_advanced_controls()
         
         # Create preview area
         self.create_preview()
@@ -147,122 +118,62 @@ class AdvancedPatternGenerator:
         self.root.bind('<Escape>', lambda e: self.quit_application())
         
     def create_controls(self):
-        """Create advanced control panel"""
+        """Create basic control panel"""
+        # Call base class create_controls first
+        super().create_controls()
+        
+    def create_advanced_controls(self):
+        """Create controls for advanced features"""
+        advanced_frame = ttk.LabelFrame(self.control_frame, text="Advanced Controls")
+        advanced_frame.pack(fill=tk.X, padx=5, pady=5)
+        
         # Algorithm selection
-        algorithm_frame = ttk.LabelFrame(self.control_frame, text="Algorithm Settings", padding="5")
-        algorithm_frame.pack(fill=tk.X, padx=5, pady=5)
-        
-        ttk.Label(algorithm_frame, text="Algorithm:").grid(row=0, column=0, padx=5, pady=2)
-        algorithms = ["Gerchberg-Saxton", "Weighted GS", "Direct Binary Search", "Adaptive-Additive"]
+        ttk.Label(advanced_frame, text="Algorithm:").pack(anchor=tk.W)
         self.algorithm_var = tk.StringVar(value=self.algorithm)
-        algorithm_menu = ttk.OptionMenu(algorithm_frame, self.algorithm_var, self.algorithm, *algorithms)
-        algorithm_menu.grid(row=0, column=1, padx=5, pady=2)
+        algorithm_menu = ttk.OptionMenu(advanced_frame, self.algorithm_var,
+            "Gerchberg-Saxton",
+            "Weighted Gerchberg-Saxton",
+            "Direct Binary Search",
+            "Adaptive-Additive")
+        algorithm_menu.pack(fill=tk.X)
         
-        # Iteration control
-        ttk.Label(algorithm_frame, text="Max Iterations:").grid(row=1, column=0, padx=5, pady=2)
-        self.max_iter_var = tk.StringVar(value=str(self.max_iterations))
-        ttk.Entry(algorithm_frame, textvariable=self.max_iter_var, width=10).grid(row=1, column=1, padx=5, pady=2)
+        # Beam profile selection
+        ttk.Label(advanced_frame, text="Beam Profile:").pack(anchor=tk.W)
+        self.beam_profile_var = tk.StringVar(value=self.beam_profile)
+        profile_menu = ttk.OptionMenu(advanced_frame, self.beam_profile_var,
+            "Gaussian",
+            "Top-Hat",
+            "Bessel",
+            "Laguerre-Gaussian",
+            "Custom")
+        profile_menu.pack(fill=tk.X)
         
         # Phase correction
-        correction_frame = ttk.LabelFrame(self.control_frame, text="Correction Settings", padding="5")
-        correction_frame.pack(fill=tk.X, padx=5, pady=5)
-        
         self.phase_correction_var = tk.BooleanVar(value=self.phase_correction_enabled)
-        ttk.Checkbutton(correction_frame, text="Enable Phase Correction", variable=self.phase_correction_var).pack(anchor=tk.W)
+        ttk.Checkbutton(advanced_frame, text="Enable Phase Correction",
+            variable=self.phase_correction_var).pack(anchor=tk.W)
         
-        self.aberration_correction_var = tk.BooleanVar(value=self.aberration_correction_enabled)
-        ttk.Checkbutton(correction_frame, text="Enable Aberration Correction", variable=self.aberration_correction_var).pack(anchor=tk.W)
+        # Zernike coefficients
+        zernike_frame = ttk.LabelFrame(advanced_frame, text="Zernike Coefficients")
+        zernike_frame.pack(fill=tk.X, padx=5, pady=5)
         
-        # Beam shaping
-        beam_frame = ttk.LabelFrame(self.control_frame, text="Beam Shaping", padding="5")
-        beam_frame.pack(fill=tk.X, padx=5, pady=5)
+        self.zernike_scales = []
+        zernike_names = ["Piston", "Tip", "Tilt", "Defocus", "Astigmatism"]
+        for i, name in enumerate(zernike_names):
+            ttk.Label(zernike_frame, text=name).pack(anchor=tk.W)
+            scale = ttk.Scale(zernike_frame, from_=-1.0, to=1.0, orient=tk.HORIZONTAL)
+            scale.set(0.0)
+            scale.pack(fill=tk.X)
+            self.zernike_scales.append(scale)
+            
+        # Settings buttons
+        settings_frame = ttk.Frame(advanced_frame)
+        settings_frame.pack(fill=tk.X, pady=5)
         
-        self.beam_shaping_var = tk.BooleanVar(value=self.beam_shaping_enabled)
-        ttk.Checkbutton(beam_frame, text="Enable Beam Shaping", variable=self.beam_shaping_var).pack(anchor=tk.W)
-        
-        ttk.Label(beam_frame, text="Beam Profile:").pack(side=tk.LEFT, padx=5)
-        profiles = ["Gaussian", "Top-Hat", "Bessel", "Laguerre-Gaussian", "Custom"]
-        self.beam_profile_var = tk.StringVar(value=self.beam_profile)
-        profile_menu = ttk.OptionMenu(beam_frame, self.beam_profile_var, self.beam_profile, *profiles)
-        profile_menu.pack(side=tk.LEFT, padx=5)
-        
-        # Multi-plane settings
-        plane_frame = ttk.LabelFrame(self.control_frame, text="Multi-Plane Settings", padding="5")
-        plane_frame.pack(fill=tk.X, padx=5, pady=5)
-        
-        self.multi_plane_var = tk.BooleanVar(value=self.multi_plane_enabled)
-        ttk.Checkbutton(plane_frame, text="Enable Multi-Plane", variable=self.multi_plane_var).pack(anchor=tk.W)
-        
-        ttk.Label(plane_frame, text="Number of Planes:").pack(side=tk.LEFT, padx=5)
-        self.num_planes_var = tk.StringVar(value=str(self.num_planes))
-        ttk.Entry(plane_frame, textvariable=self.num_planes_var, width=5).pack(side=tk.LEFT, padx=5)
-        
-        # Optimization settings
-        opt_frame = ttk.LabelFrame(self.control_frame, text="Optimization Settings", padding="5")
-        opt_frame.pack(fill=tk.X, padx=5, pady=5)
-        
-        self.optimization_var = tk.BooleanVar(value=self.optimization_enabled)
-        ttk.Checkbutton(opt_frame, text="Enable Optimization", variable=self.optimization_var).pack(anchor=tk.W)
-        
-        ttk.Label(opt_frame, text="Metric:").pack(side=tk.LEFT, padx=5)
-        metrics = ["MSE", "PSNR", "SSIM", "Custom"]
-        self.metric_var = tk.StringVar(value=self.optimization_metric)
-        metric_menu = ttk.OptionMenu(opt_frame, self.metric_var, self.optimization_metric, *metrics)
-        metric_menu.pack(side=tk.LEFT, padx=5)
-        
-        # Add save/load settings buttons
-        settings_frame = ttk.Frame(self.control_frame)
-        settings_frame.pack(fill=tk.X, padx=5, pady=5)
-        
-        ttk.Button(settings_frame, text="Save Settings", command=self.save_settings).pack(side=tk.LEFT, padx=5)
-        ttk.Button(settings_frame, text="Load Settings", command=self.load_settings).pack(side=tk.LEFT, padx=5)
-        
-        # Original controls
-        self.load_button = ttk.Button(self.control_frame, text="Load Target Image", command=self.load_image)
-        self.load_button.pack(side=tk.LEFT, padx=5)
-        
-        self.load_pattern_button = ttk.Button(self.control_frame, text="Load Pattern", command=self.load_pattern)
-        self.load_pattern_button.pack(side=tk.LEFT, padx=5)
-        
-        self.send_to_slm_button = ttk.Button(self.control_frame, text="Send to SLM (HDMI1)", command=self.send_to_slm)
-        self.send_to_slm_button.pack(side=tk.LEFT, padx=5)
-        
-        self.save_button = ttk.Button(self.control_frame, text="Save Pattern", command=self.save_pattern)
-        self.save_button.pack(side=tk.LEFT, padx=5)
-        
-        # Pause camera button - only show if camera is active
-        if self.camera_active:
-            self.pause_camera_button = ttk.Button(self.control_frame, text="Pause Camera", command=self.pause_camera)
-            self.pause_camera_button.pack(side=tk.LEFT, padx=5)
-        
-        # File controls
-        file_frame = ttk.Frame(self.control_frame)
-        file_frame.pack(fill=tk.X, pady=5)
-        
-        ttk.Button(file_frame, text="Load Image", command=self.load_image).pack(side=tk.LEFT, padx=5)
-        ttk.Button(file_frame, text="Save Pattern", command=self.save_pattern).pack(side=tk.LEFT, padx=5)
-        
-        # Parameter controls
-        param_frame = ttk.Frame(self.control_frame)
-        param_frame.pack(fill=tk.X, pady=5)
-        
-        # Number of iterations
-        ttk.Label(param_frame, text="Iterations:").grid(row=0, column=0, padx=5, pady=5)
-        self.iterations_var = tk.StringVar(value="100")
-        ttk.Entry(param_frame, textvariable=self.iterations_var, width=10).grid(row=0, column=1, padx=5, pady=5)
-        
-        # Beam width factor
-        ttk.Label(param_frame, text="Beam Width Factor:").grid(row=0, column=2, padx=5, pady=5)
-        self.beam_width_var = tk.StringVar(value="1.0")
-        ttk.Entry(param_frame, textvariable=self.beam_width_var, width=10).grid(row=0, column=3, padx=5, pady=5)
-        
-        # Phase range
-        ttk.Label(param_frame, text="Phase Range (π):").grid(row=0, column=4, padx=5, pady=5)
-        self.phase_range_var = tk.StringVar(value="2.0")
-        ttk.Entry(param_frame, textvariable=self.phase_range_var, width=10).grid(row=0, column=5, padx=5, pady=5)
-        
-        # Generate button
-        ttk.Button(param_frame, text="Generate Pattern", command=self.generate_pattern).grid(row=0, column=6, padx=20, pady=5)
+        ttk.Button(settings_frame, text="Save Settings",
+            command=self.save_settings).pack(side=tk.LEFT, padx=5)
+        ttk.Button(settings_frame, text="Load Settings",
+            command=self.load_settings).pack(side=tk.LEFT)
         
     def create_preview(self):
         """Create preview area"""
@@ -511,18 +422,211 @@ class AdvancedPatternGenerator:
             self.status_var.set(f"Error in pattern generation: {str(e)}")
             return None, None
             
+    def weighted_gerchberg_saxton(self, target):
+        """Weighted Gerchberg-Saxton algorithm for improved uniformity"""
+        try:
+            iterations = int(self.max_iter_var.get())
+            phase = np.random.uniform(-np.pi, np.pi, target.shape)
+            weights = np.ones_like(target)
+            
+            for i in tqdm(range(iterations), desc="Generating pattern"):
+                # Forward propagation
+                field = np.exp(1j * phase)
+                far_field = np.fft.fftshift(np.fft.fft2(np.fft.ifftshift(field)))
+                far_field_amp = np.abs(far_field)
+                
+                # Update weights
+                weights = np.where(far_field_amp > 0, target / far_field_amp, weights)
+                
+                # Apply target amplitude with weights
+                far_field = weights * target * np.exp(1j * np.angle(far_field))
+                
+                # Backward propagation
+                field = np.fft.fftshift(np.fft.ifft2(np.fft.ifftshift(far_field)))
+                new_phase = np.angle(field)
+                
+                # Check convergence
+                if np.mean(np.abs(new_phase - phase)) < self.convergence_threshold:
+                    break
+                    
+                phase = new_phase
+            
+            return phase, field
+            
+        except Exception as e:
+            self.status_var.set(f"Error in weighted GS algorithm: {str(e)}")
+            return None, None
+            
+    def direct_binary_search(self, target):
+        """Direct Binary Search algorithm for binary phase patterns"""
+        try:
+            # Initialize binary phase (0 or π)
+            phase = np.random.choice([0, np.pi], size=target.shape)
+            field = np.exp(1j * phase)
+            
+            # Initial error
+            far_field = np.fft.fftshift(np.fft.fft2(np.fft.ifftshift(field)))
+            best_error = np.mean((np.abs(far_field)**2 - target)**2)
+            
+            improved = True
+            while improved:
+                improved = False
+                for i in range(target.shape[0]):
+                    for j in range(target.shape[1]):
+                        # Flip pixel
+                        old_phase = phase[i,j]
+                        phase[i,j] = np.pi if old_phase == 0 else 0
+                        field = np.exp(1j * phase)
+                        
+                        # Calculate new error
+                        far_field = np.fft.fftshift(np.fft.fft2(np.fft.ifftshift(field)))
+                        new_error = np.mean((np.abs(far_field)**2 - target)**2)
+                        
+                        # Keep change if better, revert if worse
+                        if new_error < best_error:
+                            best_error = new_error
+                            improved = True
+                        else:
+                            phase[i,j] = old_phase
+            
+            return phase, np.exp(1j * phase)
+            
+        except Exception as e:
+            self.status_var.set(f"Error in DBS algorithm: {str(e)}")
+            return None, None
+            
+    def adaptive_additive(self, target):
+        """Adaptive-Additive algorithm for phase retrieval"""
+        try:
+            iterations = int(self.max_iter_var.get())
+            phase = np.random.uniform(-np.pi, np.pi, target.shape)
+            
+            for i in tqdm(range(iterations), desc="Generating pattern"):
+                # Forward propagation
+                field = np.exp(1j * phase)
+                far_field = np.fft.fftshift(np.fft.fft2(np.fft.ifftshift(field)))
+                
+                # Adaptive-additive update
+                far_field_new = (target + np.abs(far_field)) * np.exp(1j * np.angle(far_field))
+                
+                # Backward propagation
+                field = np.fft.fftshift(np.fft.ifft2(np.fft.ifftshift(far_field_new)))
+                new_phase = np.angle(field)
+                
+                # Check convergence
+                if np.mean(np.abs(new_phase - phase)) < self.convergence_threshold:
+                    break
+                    
+                phase = new_phase
+            
+            return phase, field
+            
+        except Exception as e:
+            self.status_var.set(f"Error in adaptive-additive algorithm: {str(e)}")
+            return None, None
+            
+    def calculate_zernike_correction(self):
+        """Calculate phase correction using Zernike polynomials"""
+        try:
+            x = np.linspace(-1, 1, self.width)
+            y = np.linspace(-1, 1, self.height)
+            X, Y = np.meshgrid(x, y)
+            R = np.sqrt(X**2 + Y**2)
+            Theta = np.arctan2(Y, X)
+            
+            correction = np.zeros((self.height, self.width))
+            
+            # Add Zernike terms
+            # Z0,0 = 1 (Piston)
+            correction += self.aberration_coefficients[0] * np.ones_like(R)
+            
+            # Z1,1 = R cos(Theta) (Tip)
+            correction += self.aberration_coefficients[1] * R * np.cos(Theta)
+            
+            # Z1,-1 = R sin(Theta) (Tilt)
+            correction += self.aberration_coefficients[2] * R * np.sin(Theta)
+            
+            # Z2,0 = 2R^2 - 1 (Defocus)
+            correction += self.aberration_coefficients[3] * (2*R**2 - 1)
+            
+            # Z2,2 = R^2 cos(2Theta) (Astigmatism)
+            correction += self.aberration_coefficients[4] * R**2 * np.cos(2*Theta)
+            
+            # Add more Zernike terms as needed...
+            
+            return correction
+            
+        except Exception as e:
+            self.status_var.set(f"Error calculating Zernike correction: {str(e)}")
+            return np.zeros((self.height, self.width))
+            
+    def get_beam_profile(self):
+        """Generate selected beam profile"""
+        try:
+            x = np.linspace(-1, 1, self.width)
+            y = np.linspace(-1, 1, self.height)
+            X, Y = np.meshgrid(x, y)
+            R = np.sqrt(X**2 + Y**2)
+            
+            if self.beam_profile_var.get() == "Gaussian":
+                sigma = 0.5  # Adjustable parameter
+                return np.exp(-R**2 / (2*sigma**2))
+                
+            elif self.beam_profile_var.get() == "Top-Hat":
+                radius = 0.8  # Adjustable parameter
+                return (R <= radius).astype(float)
+                
+            elif self.beam_profile_var.get() == "Bessel":
+                scale = 5.0  # Adjustable parameter
+                return np.abs(jv(0, scale*R))
+                
+            elif self.beam_profile_var.get() == "Laguerre-Gaussian":
+                l = 1  # Orbital angular momentum
+                p = 0  # Radial index
+                sigma = 0.5  # Beam width
+                Theta = np.arctan2(Y, X)
+                profile = (R/sigma)**(np.abs(l)) * np.exp(-R**2/(2*sigma**2)) * np.exp(1j*l*Theta)
+                return np.abs(profile)
+                
+            else:  # Custom or default
+                return np.ones((self.height, self.width))
+                
+        except Exception as e:
+            self.status_var.set(f"Error generating beam profile: {str(e)}")
+            return np.ones((self.height, self.width))
+            
     def generate_pattern(self):
-        """Generate pattern using current parameters"""
+        """Override pattern generation to use advanced features"""
         if not hasattr(self, 'padded_target'):
             self.status_var.set("Please load an image first")
             return
             
         try:
-            # Generate pattern
-            phase, field = self.gerchberg_saxton(self.padded_target)
+            # Apply selected algorithm
+            if self.algorithm_var.get() == "Weighted GS":
+                phase, field = self.weighted_gerchberg_saxton(self.padded_target)
+            elif self.algorithm_var.get() == "Direct Binary Search":
+                phase, field = self.direct_binary_search(self.padded_target)
+            elif self.algorithm_var.get() == "Adaptive-Additive":
+                phase, field = self.adaptive_additive(self.padded_target)
+            else:
+                # Default to original GS algorithm
+                phase, field = super().gerchberg_saxton(self.padded_target)
+            
             if phase is None:
                 return
                 
+            # Apply corrections if enabled
+            if self.phase_correction_enabled and self.phase_correction_map is not None:
+                phase += self.phase_correction_map
+                
+            if self.aberration_correction_enabled:
+                phase += self.calculate_zernike_correction()
+                
+            # Apply beam shaping if enabled
+            if self.beam_shaping_enabled:
+                field *= self.get_beam_profile()
+            
             # Extract SLM region
             start_x = (self.padded_width - self.width) // 2
             end_x = start_x + self.width
@@ -532,12 +636,7 @@ class AdvancedPatternGenerator:
             self.slm_phase = phase[start_y:end_y, start_x:end_x]
             
             # Convert to 8-bit grayscale
-            phase_range = float(self.phase_range_var.get())
             self.pattern = ((self.slm_phase + np.pi) / (2 * np.pi) * 255).astype(np.uint8)
-            
-            # Calculate far field for preview
-            far_field = np.fft.fftshift(np.fft.fft2(np.fft.ifftshift(field)))
-            far_field_intensity = np.abs(far_field)**2
             
             # Update preview
             self.ax2.clear()
@@ -545,6 +644,10 @@ class AdvancedPatternGenerator:
             self.ax2.set_title('Generated Phase Pattern')
             self.ax2.set_xticks([])
             self.ax2.set_yticks([])
+            
+            # Calculate and show reconstruction
+            far_field = np.fft.fftshift(np.fft.fft2(np.fft.ifftshift(field)))
+            far_field_intensity = np.abs(far_field)**2
             
             self.ax3.clear()
             self.ax3.imshow(far_field_intensity, cmap='viridis')
@@ -598,57 +701,99 @@ class AdvancedPatternGenerator:
             
     def save_settings(self):
         """Save current settings to a JSON file"""
-        settings = {
-            'algorithm': self.algorithm_var.get(),
-            'max_iterations': int(self.max_iter_var.get()),
-            'phase_correction': self.phase_correction_var.get(),
-            'aberration_correction': self.aberration_correction_var.get(),
-            'beam_shaping': self.beam_shaping_var.get(),
-            'beam_profile': self.beam_profile_var.get(),
-            'multi_plane': self.multi_plane_var.get(),
-            'num_planes': int(self.num_planes_var.get()),
-            'optimization': self.optimization_var.get(),
-            'optimization_metric': self.metric_var.get()
-        }
-        
-        filename = filedialog.asksaveasfilename(
-            defaultextension=".json",
-            filetypes=[("JSON files", "*.json")],
-            title="Save Settings"
-        )
-        
-        if filename:
-            with open(filename, 'w') as f:
-                json.dump(settings, f, indent=4)
-            self.status_var.set("Settings saved successfully")
+        try:
+            settings = {
+                'algorithm': self.algorithm_var.get(),
+                'beam_profile': self.beam_profile_var.get(),
+                'phase_correction': self.phase_correction_var.get(),
+                'zernike_coefficients': [scale.get() for scale in self.zernike_scales],
+                'convergence_threshold': self.convergence_threshold
+            }
+            
+            filename = filedialog.asksaveasfilename(
+                defaultextension=".json",
+                filetypes=[("JSON files", "*.json"), ("All files", "*.*")],
+                title="Save Settings"
+            )
+            
+            if filename:
+                with open(filename, 'w') as f:
+                    json.dump(settings, f, indent=4)
+                self.status_var.set("Settings saved successfully")
+                
+        except Exception as e:
+            self.status_var.set(f"Error saving settings: {str(e)}")
             
     def load_settings(self):
         """Load settings from a JSON file"""
-        filename = filedialog.askopenfilename(
-            filetypes=[("JSON files", "*.json")],
-            title="Load Settings"
-        )
-        
-        if filename:
-            try:
+        try:
+            filename = filedialog.askopenfilename(
+                defaultextension=".json",
+                filetypes=[("JSON files", "*.json"), ("All files", "*.*")],
+                title="Load Settings"
+            )
+            
+            if filename:
                 with open(filename, 'r') as f:
                     settings = json.load(f)
                 
-                self.algorithm_var.set(settings['algorithm'])
-                self.max_iter_var.set(str(settings['max_iterations']))
-                self.phase_correction_var.set(settings['phase_correction'])
-                self.aberration_correction_var.set(settings['aberration_correction'])
-                self.beam_shaping_var.set(settings['beam_shaping'])
-                self.beam_profile_var.set(settings['beam_profile'])
-                self.multi_plane_var.set(settings['multi_plane'])
-                self.num_planes_var.set(str(settings['num_planes']))
-                self.optimization_var.set(settings['optimization'])
-                self.metric_var.set(settings['optimization_metric'])
+                # Apply loaded settings
+                self.algorithm_var.set(settings.get('algorithm', 'Gerchberg-Saxton'))
+                self.beam_profile_var.set(settings.get('beam_profile', 'Gaussian'))
+                self.phase_correction_var.set(settings.get('phase_correction', False))
+                
+                # Load Zernike coefficients
+                zernike_coeffs = settings.get('zernike_coefficients', [0.0] * 5)
+                for scale, coeff in zip(self.zernike_scales, zernike_coeffs):
+                    scale.set(coeff)
+                
+                self.convergence_threshold = settings.get('convergence_threshold', 1e-6)
                 
                 self.status_var.set("Settings loaded successfully")
-            except Exception as e:
-                self.status_var.set(f"Error loading settings: {str(e)}")
                 
+        except Exception as e:
+            self.status_var.set(f"Error loading settings: {str(e)}")
+            
+    def override_pattern_generation(self):
+        """Override pattern generation to use selected algorithm"""
+        try:
+            # Get selected algorithm
+            algorithm = self.algorithm_var.get()
+            
+            # Update aberration coefficients from sliders
+            self.aberration_coefficients = [scale.get() for scale in self.zernike_scales]
+            
+            # Generate base target
+            target = self.get_beam_profile() * self.padded_target
+            
+            # Apply phase correction if enabled
+            if self.phase_correction_var.get():
+                correction = self.calculate_zernike_correction()
+                target = target * np.exp(1j * correction)
+            
+            # Choose algorithm
+            if algorithm == "Weighted Gerchberg-Saxton":
+                phase, field = self.weighted_gerchberg_saxton(target)
+            elif algorithm == "Direct Binary Search":
+                phase, field = self.direct_binary_search(target)
+            elif algorithm == "Adaptive-Additive":
+                phase, field = self.adaptive_additive(target)
+            else:  # Default to standard Gerchberg-Saxton
+                phase, field = super().generate_pattern()
+            
+            # Update display
+            if phase is not None and field is not None:
+                self.phase = phase
+                self.field = field
+                self.update_preview()
+                return True
+            
+            return False
+            
+        except Exception as e:
+            self.status_var.set(f"Error in pattern generation: {str(e)}")
+            return False
+            
     def run(self):
         """Start the GUI application"""
         self.root.mainloop()
