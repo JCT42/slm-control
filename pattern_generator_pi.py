@@ -55,9 +55,6 @@ class PatternGenerator:
         self.root.title("SLM Pattern Generator")
         self.root.geometry("1200x800")
         
-        # Bind ESC key to quit
-        self.root.bind('<Escape>', self.quit_program)
-        
         # Create frames
         self.control_frame = ttk.LabelFrame(self.root, text="Controls", padding="10")
         self.control_frame.pack(fill="x", padx=10, pady=5)
@@ -314,20 +311,9 @@ class PatternGenerator:
         except Exception as e:
             self.status_var.set(f"Error saving pattern: {str(e)}")
             
-    def quit_program(self, event=None):
-        """Quit the program gracefully"""
-        print("\nExiting program...")
-        self.root.quit()
-        self.root.destroy()
-        
     def run(self):
         """Start the GUI application"""
-        try:
-            self.root.mainloop()
-        except KeyboardInterrupt:
-            self.quit_program()
-        finally:
-            print("Program terminated.")
+        self.root.mainloop()
 
 if __name__ == "__main__":
     app = PatternGenerator()
