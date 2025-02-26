@@ -38,6 +38,10 @@ class PatternGenerator:
         # Default wavelength (will be adjustable)
         self.wavelength = 532e-9  # 532nm green laser
         
+        # Initialize camera state
+        self.camera_active = False
+        self.camera_paused = False
+        
         # Simulation parameters
         self.padding_factor = 2
         self.padded_width = self.width * self.padding_factor
@@ -91,8 +95,10 @@ class PatternGenerator:
         self.preview_frame = ttk.LabelFrame(self.scrollable_frame, text="Pattern Preview", padding="10")
         self.preview_frame.pack(fill=tk.X, padx=10, pady=5)
         
-        self.camera_frame = ttk.LabelFrame(self.scrollable_frame, text="Camera Preview", padding="10")
-        self.camera_frame.pack(fill=tk.X, padx=10, pady=5)
+        # Add status bar
+        self.status_var = tk.StringVar()
+        self.status_bar = ttk.Label(self.scrollable_frame, textvariable=self.status_var)
+        self.status_bar.pack(fill=tk.X, padx=10, pady=5)
         
         # Create controls
         self.create_controls()
@@ -100,26 +106,21 @@ class PatternGenerator:
         # Create preview area
         self.create_preview()
         
-        # Create camera preview
-        self.create_camera_preview()
-        
-        # Add status bar
-        self.status_var = tk.StringVar()
-        self.status_bar = ttk.Label(self.scrollable_frame, textvariable=self.status_var)
-        self.status_bar.pack(fill=tk.X, padx=10, pady=5)
-        
         # Initialize camera
-        self.camera_active = False
-        self.camera_paused = False
         try:
             self.cap = cv2.VideoCapture(0)
             if self.cap.isOpened():
                 self.camera_active = True
+                # Create camera frame only if camera is available
+                self.camera_frame = ttk.LabelFrame(self.scrollable_frame, text="Camera Preview", padding="10")
+                self.camera_frame.pack(fill=tk.X, padx=10, pady=5)
+                self.create_camera_preview()
                 self.camera_thread = threading.Thread(target=self.update_camera_preview, daemon=True)
                 self.camera_thread.start()
                 self.status_var.set("Camera initialized successfully")
             else:
-                self.status_var.set("Could not initialize camera")
+                self.cap.release()
+                self.status_var.set("No camera detected")
         except Exception as e:
             self.status_var.set(f"Camera error: {str(e)}")
         
