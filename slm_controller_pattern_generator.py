@@ -120,6 +120,7 @@ class PatternGeneratorWindow:
 
 class SLMPatternController(SLMController):
     def __init__(self):
+        print("Initializing SLMPatternController")
         super().__init__()
         # Initialize far-field simulation parameters
         self.wavelength = 532e-9  # 532nm green laser
@@ -138,6 +139,7 @@ class SLMPatternController(SLMController):
         self.y = np.linspace(-self.padded_height//2, self.padded_height//2-1, self.padded_height) * self.dx
         self.X, self.Y = np.meshgrid(self.x, self.y)
         
+        print("Adding Generate Pattern button")
         # Additional buttons for pattern generation
         button_width = 150
         button_height = 35
@@ -155,6 +157,7 @@ class SLMPatternController(SLMController):
             self.font,
             (100, 150, 100)
         )
+        print("Generate Pattern button added")
 
     def generate_input_beam(self):
         """Generate Gaussian input beam profile matching Sony SLM specifications"""
@@ -317,8 +320,10 @@ class SLMPatternController(SLMController):
                 
             # Handle button events
             if self.load_button.handle_event(event):
+                print("Load button clicked")
                 self.load_pattern()
             elif self.generate_button.handle_event(event):
+                print("Generate button clicked")
                 self.generate_pattern()
             elif self.save_preview_button.handle_event(event):
                 self.save_preview()
@@ -349,6 +354,7 @@ class SLMPatternController(SLMController):
             
         # Draw all buttons
         self.load_button.draw(self.control_display)
+        print("Drawing Generate Pattern button")
         self.generate_button.draw(self.control_display)
         self.save_preview_button.draw(self.control_display)
         if self.camera_active:
