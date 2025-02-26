@@ -183,24 +183,38 @@ class PatternGenerator:
         ttk.Button(param_frame, text="Generate Pattern", command=self.generate_pattern).grid(row=0, column=6, padx=20, pady=5)
         
     def create_preview(self):
-        """Create matplotlib preview area"""
+        """Create preview area"""
+        # Create figure with three subplots
         self.fig, (self.ax1, self.ax2, self.ax3) = plt.subplots(1, 3, figsize=(15, 5))
         self.canvas = FigureCanvasTkAgg(self.fig, master=self.preview_frame)
         self.canvas.draw()
-        self.canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
+        self.canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
         
         # Add toolbar
         toolbar = NavigationToolbar2Tk(self.canvas, self.preview_frame)
         toolbar.update()
         
-        # Initialize axes
+        # Set titles
         self.ax1.set_title('Target Image')
-        self.ax2.set_title('Generated Phase Pattern')
-        self.ax3.set_title('Simulated Far Field')
+        self.ax2.set_title('Generated Pattern')
+        self.ax3.set_title('Simulated Reconstruction')
         
+        # Remove ticks
         for ax in [self.ax1, self.ax2, self.ax3]:
             ax.set_xticks([])
             ax.set_yticks([])
+            
+        # Add SLM specifications below the preview
+        specs_text = """SLM Specifications (Sony LCX016AL-6):
+• Resolution: 832 x 624 pixels
+• Pixel Pitch: 32 μm
+• Active Area: 26.6 x 20.0 mm
+• Refresh Rate: 60 Hz
+• Contrast Ratio: 200:1
+• Default Wavelength: 532 nm (green laser)"""
+        
+        specs_label = ttk.Label(self.preview_frame, text=specs_text, justify=tk.LEFT)
+        specs_label.pack(fill=tk.X, padx=5, pady=5)
         
     def create_camera_preview(self):
         """Create camera preview area"""
@@ -444,7 +458,7 @@ class PatternGenerator:
             phase_range = float(self.phase_range_var.get())
             self.pattern = ((self.slm_phase + np.pi) / (2 * np.pi) * 255).astype(np.uint8)
             
-            # Calculate far field
+            # Calculate far field for preview
             far_field = np.fft.fftshift(np.fft.fft2(np.fft.ifftshift(field)))
             far_field_intensity = np.abs(far_field)**2
             
@@ -457,7 +471,7 @@ class PatternGenerator:
             
             self.ax3.clear()
             self.ax3.imshow(far_field_intensity, cmap='viridis')
-            self.ax3.set_title('Simulated Far Field')
+            self.ax3.set_title('Simulated Reconstruction')
             self.ax3.set_xticks([])
             self.ax3.set_yticks([])
             
