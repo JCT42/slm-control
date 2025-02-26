@@ -68,43 +68,25 @@ class PatternGenerator:
         self.root.title("SLM Pattern Generator")
         self.root.geometry("1600x900")  # Increased window size
         
-        # Create main frame with scrollbar
+        # Create main frame
         self.main_frame = ttk.Frame(self.root)
         self.main_frame.pack(fill=tk.BOTH, expand=True)
         
-        # Add canvas and scrollbar
-        self.canvas = tk.Canvas(self.main_frame)
-        self.scrollbar = ttk.Scrollbar(self.main_frame, orient=tk.VERTICAL, command=self.canvas.yview)
-        self.scrollable_frame = ttk.Frame(self.canvas)
-        
-        # Make sure scrolling works properly
-        self.scrollable_frame.bind(
-            "<Configure>",
-            lambda e: self.canvas.configure(scrollregion=self.canvas.bbox("all"))
-        )
-        
-        # Bind mouse wheel to scroll
-        self.canvas.bind_all("<MouseWheel>", lambda e: self.canvas.yview_scroll(int(-1*(e.delta/120)), "units"))
-        
-        # Configure canvas
-        self.canvas.create_window((0, 0), window=self.scrollable_frame, anchor="nw", width=self.canvas.winfo_width())
-        self.canvas.configure(yscrollcommand=self.scrollbar.set)
-        
-        # Pack scrollbar components
-        self.scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
-        self.canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        # Create scrollable frame
+        self.scrollable_frame = ttk.Frame(self.main_frame)
+        self.scrollable_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
         
         # Create frames for different sections
         self.control_frame = ttk.LabelFrame(self.scrollable_frame, text="Controls", padding="10")
-        self.control_frame.pack(fill=tk.X, padx=10, pady=5)
+        self.control_frame.pack(fill=tk.X, padx=5, pady=5)
         
         self.preview_frame = ttk.LabelFrame(self.scrollable_frame, text="Pattern Preview", padding="10")
-        self.preview_frame.pack(fill=tk.X, padx=10, pady=5)
+        self.preview_frame.pack(fill=tk.X, padx=5, pady=5)
         
         # Add status bar
         self.status_var = tk.StringVar()
         self.status_bar = ttk.Label(self.scrollable_frame, textvariable=self.status_var)
-        self.status_bar.pack(fill=tk.X, padx=10, pady=5)
+        self.status_bar.pack(fill=tk.X, padx=5, pady=5)
         
         # Create controls
         self.create_controls()
@@ -119,7 +101,7 @@ class PatternGenerator:
                 self.camera_active = True
                 # Create camera frame only if camera is available
                 self.camera_frame = ttk.LabelFrame(self.scrollable_frame, text="Camera Preview", padding="10")
-                self.camera_frame.pack(fill=tk.X, padx=10, pady=5)
+                self.camera_frame.pack(fill=tk.X, padx=5, pady=5)
                 self.create_camera_preview()
                 self.camera_thread = threading.Thread(target=self.update_camera_preview, daemon=True)
                 self.camera_thread.start()
@@ -191,10 +173,6 @@ class PatternGenerator:
         
     def create_preview(self):
         """Create preview area"""
-        # Create preview frame with fixed size
-        self.preview_frame.configure(height=700)  # Increased height
-        self.preview_frame.pack_propagate(False)  # Prevent frame from shrinking
-        
         # Create figure with three subplots and increased height
         plt.rcParams['figure.figsize'] = [15, 8]  # Larger figure size
         plt.rcParams['figure.dpi'] = 100
@@ -206,12 +184,11 @@ class PatternGenerator:
         self.ax2 = self.fig.add_subplot(gs[0, 1])
         self.ax3 = self.fig.add_subplot(gs[0, 2])
         
-        # Create canvas
+        # Create canvas with fixed size
         self.canvas = FigureCanvasTkAgg(self.fig, master=self.preview_frame)
         self.canvas.draw()
-        
-        # Configure canvas to fill preview frame
         canvas_widget = self.canvas.get_tk_widget()
+        canvas_widget.configure(height=700)  # Fixed height
         canvas_widget.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
         
         # Add toolbar at the bottom
