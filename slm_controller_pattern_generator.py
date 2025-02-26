@@ -122,6 +122,27 @@ class SLMPatternController(SLMController):
     def __init__(self):
         print("Initializing SLMPatternController")
         super().__init__()
+        
+        # Move the Load Pattern button down to make room for Generate Pattern
+        self.load_button.rect.y += 45  # Move down by button height + spacing
+        
+        # Create Generate Pattern button above Load Pattern
+        button_width = 150
+        button_height = 35
+        button_margin = 30
+        
+        # Place Generate Pattern button where Load Pattern was
+        self.generate_button = Button(
+            self.load_button.rect.left,
+            self.load_button.rect.y - 45,  # Place above Load Pattern
+            button_width,
+            button_height,
+            "Generate Pattern",
+            self.font,
+            (100, 150, 100)
+        )
+        print("Generate Pattern button added")
+        
         # Initialize far-field simulation parameters
         self.wavelength = 532e-9  # 532nm green laser
         self.padding_factor = 2
@@ -141,24 +162,7 @@ class SLMPatternController(SLMController):
         
         print("Adding Generate Pattern button")
         # Additional buttons for pattern generation
-        button_width = 150
-        button_height = 35
-        button_margin = 30
-        button_spacing = 10
         
-        # Add pattern generation button below load button
-        generate_y = self.load_button.rect.bottom + button_spacing
-        self.generate_button = Button(
-            self.load_button.rect.left,
-            generate_y,
-            button_width,
-            button_height,
-            "Generate Pattern",
-            self.font,
-            (100, 150, 100)
-        )
-        print("Generate Pattern button added")
-
     def generate_input_beam(self):
         """Generate Gaussian input beam profile matching Sony SLM specifications"""
         # Calculate beam parameters based on active area
@@ -353,9 +357,8 @@ class SLMPatternController(SLMController):
             self.control_display.blit(self.camera_surface, self.camera_rect)
             
         # Draw all buttons
-        self.load_button.draw(self.control_display)
-        print("Drawing Generate Pattern button")
         self.generate_button.draw(self.control_display)
+        self.load_button.draw(self.control_display)
         self.save_preview_button.draw(self.control_display)
         if self.camera_active:
             self.save_camera_button.draw(self.control_display)
