@@ -24,6 +24,7 @@ import os
 import time
 import threading
 from tkinter import filedialog
+import pygame
 
 class PatternGenerator:
     def __init__(self):
@@ -296,8 +297,8 @@ class PatternGenerator:
             self.ax2.set_title('Loaded Pattern')
             self.ax2.set_xticks([])
             self.ax2.set_yticks([])
-            self.canvas.draw()
             
+            self.canvas.draw()
             self.status_var.set(f"Pattern loaded from: {file_path}")
             
         except Exception as e:
@@ -308,15 +309,19 @@ class PatternGenerator:
         if not hasattr(self, 'pattern'):
             self.status_var.set("No pattern to display. Generate or load a pattern first.")
             return
-            
+        
         try:
-            # Create a fullscreen window on HDMI1
-            cv2.namedWindow('SLM Display', cv2.WND_PROP_FULLSCREEN)
-            cv2.moveWindow('SLM Display', 1920, 0)  # Move to second display (HDMI1)
-            cv2.setWindowProperty('SLM Display', cv2.WND_PROP_FULLSCREEN, cv2.WINDOW_FULLSCREEN)
+            os.environ['SDL_VIDEO_WINDOW_POS'] = '0,0'
+            os.environ['DISPLAY'] = ':0.1'
+            slm_window = pygame.display.set_mode((self.width, self.height), pygame.NOFRAME | pygame.FULLSCREEN, display=1)
             
-            # Display the pattern
-            cv2.imshow('SLM Display', self.pattern)
+            pattern_surface = pygame.Surface((self.width, self.height), depth=8)
+            pattern_surface.set_palette([(i, i, i) for i in range(256)])
+            pygame.surfarray.pixels2d(pattern_surface)[:] = self.pattern.T
+            
+            slm_window.blit(pattern_surface, (0, 0))
+            pygame.display.flip()
+            
             self.status_var.set("Pattern sent to SLM (HDMI1)")
             
         except Exception as e:
