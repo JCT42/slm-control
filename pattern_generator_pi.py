@@ -134,7 +134,7 @@ class PatternGenerator:
         self.load_pattern_button.pack(side=tk.LEFT, padx=5)
         
         # Send to SLM button
-        self.send_to_slm_button = ttk.Button(buttons_frame, text="Send to SLM (HDMI1)", command=self.send_to_slm)
+        self.send_to_slm_button = ttk.Button(buttons_frame, text="Send to SLM (HDMI-A-2)", command=self.send_to_slm)
         self.send_to_slm_button.pack(side=tk.LEFT, padx=5)
         
         # Save pattern button
@@ -322,7 +322,7 @@ class PatternGenerator:
             return 0, []
 
     def send_to_slm(self):
-        """Send pattern to SLM via HDMI1"""
+        """Send pattern to SLM via HDMI1 (HDMI-A-2)"""
         if not hasattr(self, 'pattern'):
             self.status_var.set("No pattern to display. Generate or load a pattern first.")
             return
@@ -333,22 +333,27 @@ class PatternGenerator:
                 pygame.display.quit()
             pygame.display.init()
             
-            # Try to set up HDMI1 display
-            os.environ['SDL_VIDEO_WINDOW_POS'] = '1920,0'  # Position for second monitor
+            # Set position for HDMI-A-2 (offset by primary display width)
+            os.environ['SDL_VIDEO_WINDOW_POS'] = '1280,0'  # Primary display is 1280x720
+            
+            # Try to set up HDMI-A-2 display
             slm_window = pygame.display.set_mode(
                 (self.width, self.height),
-                pygame.FULLSCREEN,
-                display=1  # Explicitly request second display
+                pygame.NOFRAME | pygame.FULLSCREEN,
+                display=1  # Second display (HDMI-A-2)
             )
             
             # Create and show pattern
             pattern_surface = pygame.Surface((self.width, self.height), depth=8)
             pattern_surface.set_palette([(i, i, i) for i in range(256)])
             pygame.surfarray.pixels2d(pattern_surface)[:] = self.pattern.T
+            
+            # Clear window and display pattern
+            slm_window.fill((0, 0, 0))
             slm_window.blit(pattern_surface, (0, 0))
             pygame.display.flip()
             
-            self.status_var.set("Pattern sent to SLM. Press ESC to close.")
+            self.status_var.set("Pattern sent to HDMI-A-2. Press ESC to close.")
             
             # Wait for ESC
             while True:
