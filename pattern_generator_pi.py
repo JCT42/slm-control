@@ -29,6 +29,9 @@ import pygame
 class PatternGenerator:
     def __init__(self):
         """Initialize the pattern generator with SLM specifications"""
+        # Initialize pygame
+        pygame.init()
+        
         # Sony LCX016AL-6 specifications
         self.width = 832  # width in pixels
         self.height = 624  # height in pixels
@@ -311,10 +314,19 @@ class PatternGenerator:
             return
         
         try:
-            os.environ['SDL_VIDEO_WINDOW_POS'] = '0,0'
-            os.environ['DISPLAY'] = ':0.1'
-            slm_window = pygame.display.set_mode((self.width, self.height), pygame.NOFRAME | pygame.FULLSCREEN, display=1)
+            # Get information about available displays
+            pygame.display.init()
+            display_info = pygame.display.Info()
             
+            # Store the current display mode
+            current_mode = pygame.display.get_mode()
+            
+            # Set up the window on HDMI1 (display 1)
+            os.environ['SDL_VIDEO_WINDOW_POS'] = f"{display_info.current_w},0"  # Position at the right edge of primary display
+            slm_window = pygame.display.set_mode((self.width, self.height), pygame.NOFRAME | pygame.FULLSCREEN, display=1)
+            pygame.display.set_caption('SLM Display')
+            
+            # Create and display the pattern
             pattern_surface = pygame.Surface((self.width, self.height), depth=8)
             pattern_surface.set_palette([(i, i, i) for i in range(256)])
             pygame.surfarray.pixels2d(pattern_surface)[:] = self.pattern.T
@@ -322,10 +334,32 @@ class PatternGenerator:
             slm_window.blit(pattern_surface, (0, 0))
             pygame.display.flip()
             
-            self.status_var.set("Pattern sent to SLM (HDMI1)")
+            self.status_var.set("Pattern sent to SLM (HDMI1). Press ESC in the pattern window to close.")
+            
+            # Event loop to handle ESC key
+            running = True
+            while running:
+                for event in pygame.event.get():
+                    if event.type == pygame.KEYDOWN:
+                        if event.key == pygame.K_ESCAPE:
+                            running = False
+                    elif event.type == pygame.QUIT:
+                        running = False
+                        
+                # Add a small delay to prevent high CPU usage
+                pygame.time.wait(100)
+            
+            # Clean up
+            pygame.display.quit()
+            pygame.display.init()
+            
+            # Restore the main window
+            if current_mode:
+                pygame.display.set_mode(current_mode)
             
         except Exception as e:
             self.status_var.set(f"Error sending to SLM: {str(e)}")
+            print(f"Detailed error: {str(e)}")  # Print detailed error for debugging
             
     def quit_application(self):
         """Clean up and quit the application"""
