@@ -391,54 +391,40 @@ class PatternGenerator:
         self.root.quit()
         
     def load_image(self):
-        """Load and display target image"""
-        try:
-            filename = filedialog.askopenfilename(
-                title="Select Image",
-                filetypes=[("Image files", "*.png *.jpg *.jpeg *.bmp *.tif")]
-            )
-            
-            if filename:
-                # Load and resize image
-                target = cv2.imread(filename, cv2.IMREAD_GRAYSCALE)
-                if target is None:
-                    raise ValueError("Could not load image")
+        """Load an image file and convert it to grayscale pattern"""
+        filetypes = [
+            ('All Image Files', '*.png;*.jpg;*.jpeg;*.bmp;*.tif;*.tiff'),
+            ('PNG Files', '*.png'),
+            ('JPEG Files', '*.jpg;*.jpeg'),
+            ('Bitmap Files', '*.bmp'),
+            ('TIFF Files', '*.tif;*.tiff'),
+            ('All Files', '*.*')
+        ]
+        
+        filename = filedialog.askopenfilename(
+            title="Select Image File",
+            filetypes=filetypes
+        )
+        
+        if filename:
+            try:
+                # Read image using cv2
+                img = cv2.imread(filename, cv2.IMREAD_GRAYSCALE)
+                if img is None:
+                    raise ValueError("Failed to load image")
                 
-                # Resize to SLM dimensions
-                target = cv2.resize(target, (self.width, self.height))
+                # Resize if needed
+                if img.shape != (self.height, self.width):
+                    img = cv2.resize(img, (self.width, self.height))
                 
-                # Pad the target for FFT
-                self.padded_target = np.zeros((self.padded_height, self.padded_width))
-                start_x = (self.padded_width - self.width) // 2
-                end_x = start_x + self.width
-                start_y = (self.padded_height - self.height) // 2
-                end_y = start_y + self.height
-                self.padded_target[start_y:end_y, start_x:end_x] = target
+                self.pattern = img
+                self.update_preview()
+                self.status_var.set(f"Loaded and converted image: {os.path.basename(filename)}")
                 
-                # Display target
-                self.ax1.clear()
-                self.ax1.imshow(target, cmap='gray')
-                self.ax1.set_title('Target Image')
-                self.ax1.set_xticks([])
-                self.ax1.set_yticks([])
+            except Exception as e:
+                self.status_var.set(f"Error loading image: {str(e)}")
+                print(f"Detailed error: {str(e)}")
                 
-                # Clear other plots
-                self.ax2.clear()
-                self.ax2.set_title('Generated Pattern')
-                self.ax2.set_xticks([])
-                self.ax2.set_yticks([])
-                
-                self.ax3.clear()
-                self.ax3.set_title('Simulated Reconstruction')
-                self.ax3.set_xticks([])
-                self.ax3.set_yticks([])
-                
-                self.canvas.draw()
-                self.status_var.set("Image loaded successfully")
-                
-        except Exception as e:
-            self.status_var.set(f"Error loading image: {str(e)}")
-            
     def generate_input_beam(self):
         """Generate Gaussian input beam profile"""
         beam_width = float(self.beam_width_var.get())
