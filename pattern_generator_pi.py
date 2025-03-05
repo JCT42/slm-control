@@ -307,6 +307,20 @@ class PatternGenerator:
         except Exception as e:
             self.status_var.set(f"Error loading pattern: {str(e)}")
             
+    def detect_displays(self):
+        """Detect and print information about available displays"""
+        try:
+            if not pygame.display.get_init():
+                pygame.display.init()
+            num_displays = pygame.display.get_num_displays()
+            sizes = pygame.display.get_desktop_sizes()
+            print(f"Number of displays: {num_displays}")
+            print(f"Display sizes: {sizes}")
+            return num_displays, sizes
+        except Exception as e:
+            print(f"Error detecting displays: {e}")
+            return 0, []
+
     def send_to_slm(self):
         """Send pattern to SLM via HDMI1"""
         if not hasattr(self, 'pattern'):
@@ -314,32 +328,29 @@ class PatternGenerator:
             return
         
         try:
-            # Initialize display for SLM
+            # Force reinitialize pygame display
+            if pygame.display.get_init():
+                pygame.display.quit()
             pygame.display.init()
             
-            # Try to get display info
-            try:
-                info = pygame.display.Info()
-                x_pos = info.current_w  # Position at the right edge of primary display
-            except:
-                x_pos = 1920  # Fallback position
+            # Try to set up HDMI1 display
+            os.environ['SDL_VIDEO_WINDOW_POS'] = '1920,0'  # Position for second monitor
+            slm_window = pygame.display.set_mode(
+                (self.width, self.height),
+                pygame.FULLSCREEN,
+                display=1  # Explicitly request second display
+            )
             
-            # Set window position
-            os.environ['SDL_VIDEO_WINDOW_POS'] = f"{x_pos},0"
-            
-            # Create SLM window
-            slm_window = pygame.display.set_mode((self.width, self.height), pygame.NOFRAME | pygame.FULLSCREEN, display=1)
-            
-            # Create and display pattern
+            # Create and show pattern
             pattern_surface = pygame.Surface((self.width, self.height), depth=8)
             pattern_surface.set_palette([(i, i, i) for i in range(256)])
             pygame.surfarray.pixels2d(pattern_surface)[:] = self.pattern.T
             slm_window.blit(pattern_surface, (0, 0))
             pygame.display.flip()
             
-            self.status_var.set("Pattern sent to SLM (HDMI1). Press ESC to close.")
+            self.status_var.set("Pattern sent to SLM. Press ESC to close.")
             
-            # Wait for ESC key
+            # Wait for ESC
             while True:
                 event = pygame.event.wait()
                 if event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE:
@@ -347,13 +358,16 @@ class PatternGenerator:
                 elif event.type == pygame.QUIT:
                     break
             
-            # Clean up
+            # Cleanup
             pygame.display.quit()
             pygame.display.init()
             
         except Exception as e:
-            self.status_var.set(f"Error sending to SLM: {str(e)}")
-            print(f"Error details: {str(e)}")
+            self.status_var.set(f"Error: {str(e)}")
+            print(f"Detailed error: {str(e)}")
+            # Try to recover display
+            pygame.display.quit()
+            pygame.display.init()
             
     def quit_application(self):
         """Clean up and quit the application"""
