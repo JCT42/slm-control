@@ -322,7 +322,7 @@ class PatternGenerator:
             return 0, []
 
     def send_to_slm(self):
-        """Send pattern to SLM via HDMI1 (HDMI-A-2)"""
+        """Send pattern to SLM via HDMI-A-2"""
         if not hasattr(self, 'pattern'):
             self.status_var.set("No pattern to display. Generate or load a pattern first.")
             return
@@ -333,15 +333,36 @@ class PatternGenerator:
                 pygame.display.quit()
             pygame.display.init()
             
-            # Set position for HDMI-A-2 (offset by primary display width)
-            os.environ['SDL_VIDEO_WINDOW_POS'] = '1280,0'  # Primary display is 1280x720
+            # Set SDL environment variables for display control
+            os.environ['SDL_VIDEO_WINDOW_POS'] = '0,0'  # Reset position
+            os.environ['SDL_VIDEO_MINIMIZE_ON_FOCUS_LOSS'] = '0'
+            os.environ['SDL_VIDEO_X11_XRANDR'] = '1'
             
-            # Try to set up HDMI-A-2 display
+            # Get display info
+            pygame.display.init()
+            print(f"Number of displays: {pygame.display.get_num_displays()}")
+            for i in range(pygame.display.get_num_displays()):
+                info = pygame.display.get_desktop_sizes()[i]
+                print(f"Display {i}: {info}")
+            
+            # Create initial window on primary display
+            temp_window = pygame.display.set_mode((800, 600))
+            pygame.display.quit()
+            
+            # Now target HDMI-A-2 specifically
+            os.environ['SDL_VIDEO_FULLSCREEN_HEAD'] = '1'  # Force second display
+            
+            # Initialize display again for SLM
+            pygame.display.init()
             slm_window = pygame.display.set_mode(
                 (self.width, self.height),
-                pygame.NOFRAME | pygame.FULLSCREEN,
-                display=1  # Second display (HDMI-A-2)
+                pygame.NOFRAME,
+                display=1
             )
+            
+            # Move window to second display after creation
+            if hasattr(pygame.display, 'set_window_position'):
+                pygame.display.set_window_position(1280, 0)
             
             # Create and show pattern
             pattern_surface = pygame.Surface((self.width, self.height), depth=8)
@@ -354,6 +375,7 @@ class PatternGenerator:
             pygame.display.flip()
             
             self.status_var.set("Pattern sent to HDMI-A-2. Press ESC to close.")
+            print("Pattern displayed. Press ESC to close.")
             
             # Wait for ESC
             while True:
