@@ -334,35 +334,21 @@ class PatternGenerator:
             pygame.display.init()
             
             # Set SDL environment variables for display control
-            os.environ['SDL_VIDEO_WINDOW_POS'] = '0,0'  # Reset position
+            os.environ['SDL_VIDEO_WINDOW_POS'] = '1280,0'  # Position at main monitor width
             os.environ['SDL_VIDEO_MINIMIZE_ON_FOCUS_LOSS'] = '0'
-            os.environ['SDL_VIDEO_X11_XRANDR'] = '1'
             
             # Get display info
-            pygame.display.init()
             print(f"Number of displays: {pygame.display.get_num_displays()}")
             for i in range(pygame.display.get_num_displays()):
                 info = pygame.display.get_desktop_sizes()[i]
                 print(f"Display {i}: {info}")
             
-            # Create initial window on primary display
-            temp_window = pygame.display.set_mode((800, 600))
-            pygame.display.quit()
-            
-            # Now target HDMI-A-2 specifically
-            os.environ['SDL_VIDEO_FULLSCREEN_HEAD'] = '1'  # Force second display
-            
-            # Initialize display again for SLM
-            pygame.display.init()
+            # Create window on second display
             slm_window = pygame.display.set_mode(
                 (self.width, self.height),
                 pygame.NOFRAME,
                 display=1
             )
-            
-            # Move window to second display after creation
-            if hasattr(pygame.display, 'set_window_position'):
-                pygame.display.set_window_position(1280, 0)
             
             # Create and show pattern
             pattern_surface = pygame.Surface((self.width, self.height), depth=8)
