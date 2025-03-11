@@ -242,7 +242,7 @@ class AdvancedPatternGenerator:
         
         # Tolerance
         ttk.Label(error_frame, text="Tolerance:").grid(row=0, column=0, padx=5, pady=5)
-        self.tolerance_var = tk.StringVar(value="1e-4")
+        self.tolerance_var = tk.StringVar(value="1e-24")
         ttk.Entry(error_frame, textvariable=self.tolerance_var, width=10).grid(row=0, column=1, padx=5, pady=5)
         
         # Show error plot checkbox
@@ -1211,9 +1211,9 @@ class AdvancedPatternGenerator:
     def _on_algorithm_change(self, *args):
         """Handle algorithm selection change"""
         if self.algorithm_var.get() == "mraf":
-            self.mraf_frame.pack(fill=tk.X, padx=5, pady=5)
+            self.mraf_frame.grid(row=1, column=0, columnspan=8, padx=5, pady=5)
         else:
-            self.mraf_frame.pack_forget()
+            self.mraf_frame.grid_remove()
 
 class PatternGenerator:
     def __init__(self, target_intensity, signal_region_mask=None, mixing_parameter=0.4):
