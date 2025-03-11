@@ -29,6 +29,16 @@ matplotlib.rcParams['path.simplify'] = True  # Enable path simplification
 matplotlib.rcParams['path.simplify_threshold'] = 1.0  # Maximum simplification
 matplotlib.rcParams['agg.path.chunksize'] = 10000  # Larger chunks for faster path rendering
 matplotlib.rcParams['figure.autolayout'] = False  # Disable expensive autolayout
+matplotlib.rcParams['axes.formatter.limits'] = (-3, 3)  # Set axis limits for scientific notation
+matplotlib.rcParams['axes.formatter.useoffset'] = False  # Disable offset for small values
+matplotlib.rcParams['axes.formatter.use_locale'] = True  # Use locale for formatting
+matplotlib.rcParams['axes.formatter.min_exponent'] = 0  # Set minimum exponent for scientific notation
+matplotlib.rcParams['axes.formatter.offset_threshold'] = 1e-3  # Set offset threshold
+matplotlib.rcParams['axes.titlesize'] = 12  # Set title size
+matplotlib.rcParams['axes.labelsize'] = 10  # Set label size
+matplotlib.rcParams['xtick.labelsize'] = 8  # Set xtick label size
+matplotlib.rcParams['ytick.labelsize'] = 8  # Set ytick label size
+matplotlib.rcParams['legend.fontsize'] = 10  # Set legend font size
 import matplotlib.pyplot as plt
 from matplotlib.figure import Figure
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2Tk
@@ -519,7 +529,7 @@ class AdvancedPatternGenerator:
             
             # Plot current pattern
             if hasattr(self, 'pattern'):
-                # Use gray colormap for all patterns
+                # Use gray colormap for phase patterns
                 self.ax2.imshow(self.pattern, cmap='gray', interpolation='nearest')
                 self.ax2.set_title('SLM Pattern')
                 self.ax2.set_xticks([])
@@ -566,6 +576,7 @@ class AdvancedPatternGenerator:
                 self.ax4.set_title('Optimization Error')
                 self.ax4.set_xlabel('Iteration')
                 self.ax4.set_ylabel('Error')
+                self.ax4.grid(True)
             
             # Apply tight_layout with padding for better performance
             self.fig.tight_layout(pad=1.5)
