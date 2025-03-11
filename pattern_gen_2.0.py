@@ -20,8 +20,18 @@ import numpy as np
 import cv2
 import tkinter as tk
 from tkinter import ttk, filedialog
+import matplotlib
+# Set the backend before importing pyplot
+matplotlib.use('TkAgg')  # Optimized backend for Tkinter
+# Configure matplotlib for better performance
+matplotlib.rcParams['figure.dpi'] = 80  # Lower DPI for faster rendering
+matplotlib.rcParams['figure.autolayout'] = False  # Disable autolayout which is expensive
+matplotlib.rcParams['path.simplify'] = True  # Simplify paths for better performance
+matplotlib.rcParams['path.simplify_threshold'] = 1.0  # Maximum simplification
+matplotlib.rcParams['agg.path.chunksize'] = 10000  # Larger chunk size for faster rendering
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2Tk
+from matplotlib.figure import Figure
 import threading
 import time
 import os
@@ -284,7 +294,7 @@ class AdvancedPatternGenerator:
     def create_preview(self):
         """Create preview area with matplotlib plots"""
         # Create figure and subplots with 2x2 grid
-        self.fig = plt.figure(figsize=(16, 10))
+        self.fig = Figure(figsize=(16, 10), dpi=80)  # Use Figure instead of plt.figure for better performance
         gs = self.fig.add_gridspec(2, 2)
         
         # Create subplots
@@ -329,7 +339,8 @@ class AdvancedPatternGenerator:
             
         try:
             # Create camera preview figure
-            self.camera_fig, self.camera_ax = plt.subplots(figsize=(16, 6))  # Match preview size
+            self.camera_fig = Figure(figsize=(16, 6), dpi=80)  # Use Figure instead of plt.subplots for better performance
+            self.camera_ax = self.camera_fig.add_subplot(111)
             self.camera_canvas = FigureCanvasTkAgg(self.camera_fig, master=self.camera_frame)
             
             # Initialize camera preview with black image
@@ -351,142 +362,34 @@ class AdvancedPatternGenerator:
             self.pause_camera_button.pack(fill=tk.X, pady=2)
             
             # Capture button
-            self.capture_button = ttk.Button(buttons_frame, text="Capture Image", command=self.capture_camera_image)
-            self.capture_button.pack(fill=tk.X, pady=2)
+            ttk.Button(buttons_frame, text="Capture Image", command=self.capture_image).pack(fill=tk.X, pady=2)
             
-            # Save button
-            self.save_camera_button = ttk.Button(buttons_frame, text="Save Image", 
-                                               command=lambda: self.save_camera_image())
-            self.save_camera_button.pack(fill=tk.X, pady=2)
+            # Camera settings frame
+            settings_frame = ttk.LabelFrame(controls_frame, text="Camera Settings", padding=5)
+            settings_frame.pack(fill=tk.X, pady=5)
             
-            # Exposure settings frame
-            exposure_frame = ttk.LabelFrame(controls_frame, text="Exposure Settings", padding=5)
-            exposure_frame.pack(fill=tk.X, pady=5)
+            # Exposure slider
+            ttk.Label(settings_frame, text="Exposure:").pack(anchor=tk.W)
+            self.exposure_var = tk.DoubleVar(value=0)
+            exposure_slider = ttk.Scale(settings_frame, from_=-8, to=8, variable=self.exposure_var, orient=tk.HORIZONTAL)
+            exposure_slider.pack(fill=tk.X, pady=2)
+            exposure_slider.bind("<ButtonRelease-1>", lambda e: self.update_camera_settings())
             
-            # Exposure control
-            ttk.Label(exposure_frame, text="Exposure Time (ms):").pack(fill=tk.X)
-            exposure_control_frame = ttk.Frame(exposure_frame)
-            exposure_control_frame.pack(fill=tk.X)
-            
-            self.exposure_var = tk.StringVar(value="10")
-            exposure_entry = ttk.Entry(exposure_control_frame, textvariable=self.exposure_var, width=8)
-            exposure_entry.pack(side=tk.LEFT, padx=2)
-            
-            ttk.Button(exposure_control_frame, text="Set", 
-                      command=lambda: self.set_exposure(float(self.exposure_var.get()))).pack(side=tk.LEFT, padx=2)
-            
-            # Gain settings frame
-            gain_frame = ttk.LabelFrame(controls_frame, text="Gain Settings", padding=5)
-            gain_frame.pack(fill=tk.X, pady=5)
-            
-            # Gain control
-            ttk.Label(gain_frame, text="Analog Gain:").pack(fill=tk.X)
-            gain_control_frame = ttk.Frame(gain_frame)
-            gain_control_frame.pack(fill=tk.X)
-            
-            self.gain_var = tk.StringVar(value="1.0")
-            gain_entry = ttk.Entry(gain_control_frame, textvariable=self.gain_var, width=8)
-            gain_entry.pack(side=tk.LEFT, padx=2)
-            
-            ttk.Button(gain_control_frame, text="Set",
-                      command=lambda: self.set_gain(float(self.gain_var.get()))).pack(side=tk.LEFT, padx=2)
-            
-            # Pack the camera canvas
+            # Pack camera canvas
             self.camera_canvas.get_tk_widget().pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
             
+            # Initial draw
+            self.camera_canvas.draw()
+            
+            # Start camera preview thread
+            self.camera_thread = threading.Thread(target=self.update_camera_preview)
+            self.camera_thread.daemon = True
+            self.camera_thread.start()
+            
         except Exception as e:
-            self.status_var.set(f"Error creating camera preview: {str(e)}")
-            print(f"Detailed error: {str(e)}")
-
-    def initialize_camera(self):
-        """Initialize Raspberry Pi Camera"""
-        try:
-            # Initialize PiCamera2
-            self.picam = Picamera2()
+            self.status_var.set(f"Camera preview error: {str(e)}")
+            print(f"Detailed camera preview error: {str(e)}")
             
-            # Configure camera
-            preview_config = self.picam.create_preview_configuration(
-                main={"size": (1920, 1080), "format": "RGB888"},
-                lores={"size": (640, 360), "format": "YUV420"},
-                display="lores"
-            )
-            
-            still_config = self.picam.create_still_configuration(
-                main={"size": (1920, 1080), "format": "RGB888"},
-                lores={"size": (640, 360), "format": "YUV420"}
-            )
-            
-            self.picam.configure(preview_config)
-            
-            # Set camera controls
-            self.picam.set_controls({
-                "FrameDurationLimits": (33333, 33333),  # 30fps
-                "ExposureTime": 10000,  # 10ms exposure
-                "AnalogueGain": 1.0
-            })
-            
-            # Start the camera
-            self.picam.start()
-            time.sleep(2)  # Wait for camera to warm up
-            
-            # Test if camera is working
-            test_frame = self.picam.capture_array()
-            if test_frame is not None:
-                print("Successfully connected to Raspberry Pi Camera")
-                print(f"Frame shape: {test_frame.shape}")
-                print(f"Frame type: {test_frame.dtype}")
-                print(f"Frame range: min={test_frame.min()}, max={test_frame.max()}")
-                self.camera_active = True
-                
-                # Create camera frame
-                self.create_camera_preview()
-                
-                # Start camera thread
-                self.camera_thread = threading.Thread(target=self.update_camera_preview, daemon=True)
-                self.camera_thread.start()
-                
-                self.status_var.set("Raspberry Pi Camera initialized")
-            else:
-                self.status_var.set("Could not capture frame from Pi Camera")
-                
-        except Exception as e:
-            self.status_var.set(f"Pi Camera initialization error: {str(e)}")
-            print(f"Detailed camera error: {str(e)}")
-            self.camera_active = False
-
-    def update_camera_preview(self):
-        """Update camera preview in a separate thread"""
-        while self.camera_active:
-            try:
-                if not self.camera_paused:
-                    # Capture new frame from Pi Camera
-                    frame = self.picam.capture_array()
-                    
-                    if frame is not None:
-                        # Convert to grayscale if needed
-                        if len(frame.shape) == 3:
-                            frame_gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-                        else:
-                            frame_gray = frame
-                        
-                        # Store as last frame (at native resolution)
-                        self.last_frame = frame_gray
-                        
-                        # Update matplotlib image (display at native resolution)
-                        self.camera_image.set_array(frame_gray)
-                        self.camera_canvas.draw_idle()
-                else:
-                    # If paused and we have a last frame, keep displaying it
-                    if self.last_frame is not None:
-                        self.camera_image.set_array(self.last_frame)
-                        self.camera_canvas.draw_idle()
-                    
-            except Exception as e:
-                print(f"Camera preview error: {str(e)}")
-                time.sleep(0.1)
-            
-            time.sleep(0.033)  # ~30 FPS
-
     def update_preview(self):
         """Update the preview plots with current patterns and reconstructions"""
         try:
@@ -498,7 +401,7 @@ class AdvancedPatternGenerator:
             
             # Plot target image
             if hasattr(self, 'target'):
-                self.ax1.imshow(self.target, cmap='gray')
+                self.ax1.imshow(self.target, cmap='gray', interpolation='nearest')
                 self.ax1.set_title('Target')
                 self.ax1.set_xticks([])
                 self.ax1.set_yticks([])
@@ -506,10 +409,7 @@ class AdvancedPatternGenerator:
             # Plot current pattern
             if hasattr(self, 'pattern'):
                 # Use gray colormap for phase patterns
-                if self.modulation_mode == "Phase":
-                    self.ax2.imshow(self.pattern, cmap='gray')
-                else:
-                    self.ax2.imshow(self.pattern, cmap='gray')
+                self.ax2.imshow(self.pattern, cmap='gray', interpolation='nearest')
                 self.ax2.set_title('SLM Pattern')
                 self.ax2.set_xticks([])
                 self.ax2.set_yticks([])
@@ -525,7 +425,7 @@ class AdvancedPatternGenerator:
                 central_recon = self.reconstruction[start_y:end_y, start_x:end_x]
                 
                 # Display the central region of the reconstruction
-                self.ax3.imshow(central_recon, cmap='hot')  # Use hot colormap for intensity
+                self.ax3.imshow(central_recon, cmap='hot', interpolation='nearest')
                 self.ax3.set_title('Simulated Reconstruction')
                 self.ax3.set_xticks([])
                 self.ax3.set_yticks([])
@@ -533,7 +433,11 @@ class AdvancedPatternGenerator:
             # Plot error history if available and enabled
             if hasattr(self, 'error_history') and self.show_error_plot_var.get():
                 iterations = range(0, len(self.error_history))
-                self.ax4.plot(iterations, self.error_history, 'b-', marker='o')
+                # Use a simple line style without markers for better performance with large datasets
+                if len(self.error_history) > 100:
+                    self.ax4.plot(iterations, self.error_history, 'b-')
+                else:
+                    self.ax4.plot(iterations, self.error_history, 'b-', marker='o')
                 self.ax4.set_title('Optimization Error')
                 self.ax4.set_xlabel('Iteration')
                 self.ax4.set_ylabel('Error')
@@ -549,14 +453,14 @@ class AdvancedPatternGenerator:
                 self.ax4.set_title('Optimization Error')
                 self.ax4.set_xlabel('Iteration')
                 self.ax4.set_ylabel('Error')
-                self.ax4.grid(True)
             
-            # Update canvas
-            self.preview_canvas.draw()
+            # Draw the canvas with a more efficient method
+            self.fig.tight_layout(pad=1.0)
+            self.preview_canvas.draw_idle()
             
         except Exception as e:
             self.status_var.set(f"Error updating preview: {str(e)}")
-            print(f"Detailed error: {str(e)}")
+            print(f"Detailed preview error: {str(e)}")
 
     def generate_pattern(self):
         """Generate pattern based on selected modulation mode"""
