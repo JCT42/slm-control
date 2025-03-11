@@ -503,14 +503,18 @@ class AdvancedPatternGenerator:
             
             # Plot target image
             if hasattr(self, 'target'):
-                self.ax1.imshow(self.target, cmap='viridis')
+                self.ax1.imshow(self.target, cmap='gray')
                 self.ax1.set_title('Target')
                 self.ax1.set_xticks([])
                 self.ax1.set_yticks([])
             
             # Plot current pattern
             if hasattr(self, 'pattern'):
-                self.ax2.imshow(self.pattern, cmap='viridis')
+                # Use gray colormap for phase patterns
+                if self.modulation_mode == "Phase":
+                    self.ax2.imshow(self.pattern, cmap='gray')
+                else:
+                    self.ax2.imshow(self.pattern, cmap='gray')
                 self.ax2.set_title('SLM Pattern')
                 self.ax2.set_xticks([])
                 self.ax2.set_yticks([])
@@ -526,7 +530,7 @@ class AdvancedPatternGenerator:
                 central_recon = self.reconstruction[start_y:end_y, start_x:end_x]
                 
                 # Display the central region of the reconstruction
-                self.ax3.imshow(central_recon, cmap='viridis')
+                self.ax3.imshow(central_recon, cmap='hot')  # Use hot colormap for intensity
                 self.ax3.set_title('Simulated Reconstruction')
                 self.ax3.set_xticks([])
                 self.ax3.set_yticks([])
@@ -1300,12 +1304,10 @@ class PatternGenerator:
         """
         field = initial_field.copy()
         error_history = []
+        prev_error = float('inf')
         
         # Run optimization loop
         for i in tqdm(range(max_iterations), desc=f"Running {algorithm.upper()} optimization"):
-            # Store previous field for error calculation
-            prev_field = field.copy()
-            
             # Apply iteration based on selected algorithm
             if algorithm.lower() == 'gs':
                 field = self.gs_iteration(field)
@@ -1314,21 +1316,27 @@ class PatternGenerator:
             else:
                 raise ValueError("Algorithm must be 'gs' or 'mraf'")
                 
-            # Calculate error
-            if i % error_interval == 0 or i == max_iterations - 1:  # Calculate error periodically and at the end
-                if algorithm.lower() == 'gs':
-                    # For GS, calculate error over entire field
-                    error = np.mean(np.abs(np.abs(field)**2 - self.target_intensity))
-                else:
-                    # For MRAF, calculate error only in signal region
-                    sr_mask = self.signal_region_mask
-                    error = np.mean(np.abs(np.abs(field[sr_mask == 1])**2 - self.target_intensity[sr_mask == 1]))
+            # Calculate error for convergence check
+            if algorithm.lower() == 'gs':
+                # For GS, calculate error over entire field
+                current_error = np.mean(np.abs(np.abs(field)**2 - self.target_intensity))
+            else:
+                # For MRAF, calculate error only in signal region
+                sr_mask = self.signal_region_mask
+                current_error = np.mean(np.abs(np.abs(field[sr_mask == 1])**2 - self.target_intensity[sr_mask == 1]))
+            
+            # Record error at specified intervals for plotting
+            if i % error_interval == 0 or i == max_iterations - 1:
+                error_history.append(current_error)
+            
+            # Check convergence at every iteration
+            if abs(current_error - prev_error) < tolerance:
+                # Add final error to history if not already added
+                if i % error_interval != 0 and i != max_iterations - 1:
+                    error_history.append(current_error)
+                break
                 
-                error_history.append(error)
-                
-                # Check convergence
-                if i > 0 and abs(error_history[-1] - error_history[-2]) < tolerance:
-                    break
+            prev_error = current_error
         
         return field, error_history
 
