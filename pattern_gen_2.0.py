@@ -20,27 +20,7 @@ import numpy as np
 import cv2
 import tkinter as tk
 from tkinter import ttk, filedialog
-import matplotlib
-# Set the backend before importing pyplot
-matplotlib.use('TkAgg')  # Optimized backend for Tkinter
-# Configure matplotlib for better performance
-matplotlib.rcParams['figure.dpi'] = 80  # Lower DPI for faster rendering
-matplotlib.rcParams['path.simplify'] = True  # Enable path simplification
-matplotlib.rcParams['path.simplify_threshold'] = 1.0  # Maximum simplification
-matplotlib.rcParams['agg.path.chunksize'] = 10000  # Larger chunks for faster path rendering
-matplotlib.rcParams['figure.autolayout'] = False  # Disable expensive autolayout
-matplotlib.rcParams['axes.formatter.limits'] = (-3, 3)  # Set axis limits for scientific notation
-matplotlib.rcParams['axes.formatter.useoffset'] = False  # Disable offset for small values
-matplotlib.rcParams['axes.formatter.use_locale'] = True  # Use locale for formatting
-matplotlib.rcParams['axes.formatter.min_exponent'] = 0  # Set minimum exponent for scientific notation
-matplotlib.rcParams['axes.formatter.offset_threshold'] = 1e-3  # Set offset threshold
-matplotlib.rcParams['axes.titlesize'] = 12  # Set title size
-matplotlib.rcParams['axes.labelsize'] = 10  # Set label size
-matplotlib.rcParams['xtick.labelsize'] = 8  # Set xtick label size
-matplotlib.rcParams['ytick.labelsize'] = 8  # Set ytick label size
-matplotlib.rcParams['legend.fontsize'] = 10  # Set legend font size
 import matplotlib.pyplot as plt
-from matplotlib.figure import Figure
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2Tk
 import threading
 import time
@@ -141,9 +121,8 @@ class AdvancedPatternGenerator:
         self.preview_frame = ttk.LabelFrame(self.scrollable_frame, text="Pattern Preview", padding="10")
         self.preview_frame.pack(fill=tk.X, padx=5, pady=5)
         
-        # Create camera frame with fixed height to ensure it's visible
         self.camera_frame = ttk.LabelFrame(self.scrollable_frame, text="Camera Preview", padding="10")
-        self.camera_frame.pack(fill=tk.BOTH, padx=5, pady=5, expand=True, ipady=300)  # Added ipady for minimum height
+        self.camera_frame.pack(fill=tk.BOTH, padx=5, pady=5)
         
         # Add status bar
         self.status_var = tk.StringVar()
@@ -305,9 +284,8 @@ class AdvancedPatternGenerator:
     def create_preview(self):
         """Create preview area with matplotlib plots"""
         # Create figure and subplots with 2x2 grid
-        # Use Figure directly with optimized parameters
-        self.fig = Figure(figsize=(16, 10), dpi=80)
-        gs = self.fig.add_gridspec(2, 2, wspace=0.3, hspace=0.3)
+        self.fig = plt.figure(figsize=(16, 10))
+        gs = self.fig.add_gridspec(2, 2)
         
         # Create subplots
         self.ax1 = self.fig.add_subplot(gs[0, 0])  # Target
@@ -346,61 +324,39 @@ class AdvancedPatternGenerator:
         
     def create_camera_preview(self):
         """Create camera preview area"""
-        try:
-            # Clear any existing widgets in the camera frame
-            for widget in self.camera_frame.winfo_children():
-                widget.destroy()
-                
-            # Create a container frame to hold both the camera feed and controls
-            container_frame = ttk.Frame(self.camera_frame)
-            container_frame.pack(fill=tk.BOTH, expand=True)
+        if not self.camera_active:
+            return
             
-            # Create camera preview figure with optimized settings
-            self.camera_fig = Figure(figsize=(16, 6), dpi=80)
-            self.camera_ax = self.camera_fig.add_subplot(111)
-            self.camera_canvas = FigureCanvasTkAgg(self.camera_fig, master=container_frame)
+        try:
+            # Create camera preview figure
+            self.camera_fig, self.camera_ax = plt.subplots(figsize=(16, 6))  # Match preview size
+            self.camera_canvas = FigureCanvasTkAgg(self.camera_fig, master=self.camera_frame)
             
             # Initialize camera preview with black image
-            self.camera_image = self.camera_ax.imshow(np.zeros((1080, 1920)), cmap='gray', vmin=0, vmax=255, 
-                                                     interpolation='nearest')  # Use nearest for faster rendering
-            
-            # Set title based on camera status
-            if self.camera_active:
-                self.camera_ax.set_title('Camera Feed')
-            else:
-                self.camera_ax.set_title('Camera Feed (Hardware Not Available)')
-                
+            self.camera_image = self.camera_ax.imshow(np.zeros((1080, 1920)), cmap='gray', vmin=0, vmax=255)
+            self.camera_ax.set_title('Camera Feed')
             self.camera_ax.set_xticks([])
             self.camera_ax.set_yticks([])
             
-            # Pack the canvas
-            self.camera_canvas.get_tk_widget().pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-            
-            # Create frame for camera controls with fixed width
-            controls_frame = ttk.Frame(container_frame, width=200)
+            # Create frame for camera controls
+            controls_frame = ttk.Frame(self.camera_frame)
             controls_frame.pack(side=tk.RIGHT, padx=10, pady=5, fill=tk.Y)
-            controls_frame.pack_propagate(False)  # Prevent the frame from shrinking
             
             # Create sections for different control groups
             buttons_frame = ttk.LabelFrame(controls_frame, text="Camera Controls", padding=5)
             buttons_frame.pack(fill=tk.X, pady=5)
             
             # Pause/Resume button
-            self.pause_camera_button = ttk.Button(buttons_frame, text="Pause Camera", 
-                                                command=self.pause_camera,
-                                                state="normal" if self.camera_active else "disabled")
+            self.pause_camera_button = ttk.Button(buttons_frame, text="Pause Camera", command=self.pause_camera)
             self.pause_camera_button.pack(fill=tk.X, pady=2)
             
             # Capture button
-            self.capture_button = ttk.Button(buttons_frame, text="Capture Image", 
-                                           command=self.capture_camera_image,
-                                           state="normal" if self.camera_active else "disabled")
+            self.capture_button = ttk.Button(buttons_frame, text="Capture Image", command=self.capture_camera_image)
             self.capture_button.pack(fill=tk.X, pady=2)
             
             # Save button
             self.save_camera_button = ttk.Button(buttons_frame, text="Save Image", 
-                                               command=lambda: self.save_camera_image(),
-                                               state="normal" if self.camera_active else "disabled")
+                                               command=lambda: self.save_camera_image())
             self.save_camera_button.pack(fill=tk.X, pady=2)
             
             # Exposure settings frame
@@ -417,8 +373,7 @@ class AdvancedPatternGenerator:
             exposure_entry.pack(side=tk.LEFT, padx=2)
             
             ttk.Button(exposure_control_frame, text="Set", 
-                      command=lambda: self.set_exposure(float(self.exposure_var.get())),
-                      state="normal" if self.camera_active else "disabled").pack(side=tk.LEFT, padx=2)
+                      command=lambda: self.set_exposure(float(self.exposure_var.get()))).pack(side=tk.LEFT, padx=2)
             
             # Gain settings frame
             gain_frame = ttk.LabelFrame(controls_frame, text="Gain Settings", padding=5)
@@ -434,18 +389,10 @@ class AdvancedPatternGenerator:
             gain_entry.pack(side=tk.LEFT, padx=2)
             
             ttk.Button(gain_control_frame, text="Set",
-                      command=lambda: self.set_gain(float(self.gain_var.get())),
-                      state="normal" if self.camera_active else "disabled").pack(side=tk.LEFT, padx=2)
+                      command=lambda: self.set_gain(float(self.gain_var.get()))).pack(side=tk.LEFT, padx=2)
             
-            # Add a note about camera status if not active
-            if not self.camera_active:
-                note_frame = ttk.LabelFrame(controls_frame, text="Note", padding=5)
-                note_frame.pack(fill=tk.X, pady=5)
-                ttk.Label(note_frame, text="Camera hardware not detected.\nControls will be enabled when\nrunning on Raspberry Pi.",
-                         justify=tk.CENTER, wraplength=150).pack(fill=tk.X, pady=5)
-            
-            # Initial draw
-            self.camera_canvas.draw()
+            # Pack the camera canvas
+            self.camera_canvas.get_tk_widget().pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
             
         except Exception as e:
             self.status_var.set(f"Error creating camera preview: {str(e)}")
@@ -453,10 +400,6 @@ class AdvancedPatternGenerator:
 
     def initialize_camera(self):
         """Initialize Raspberry Pi Camera"""
-        self.camera_active = False
-        self.camera_paused = False
-        self.last_frame = None
-        
         try:
             # Initialize PiCamera2
             self.picam = Picamera2()
@@ -495,6 +438,9 @@ class AdvancedPatternGenerator:
                 print(f"Frame range: min={test_frame.min()}, max={test_frame.max()}")
                 self.camera_active = True
                 
+                # Create camera frame
+                self.create_camera_preview()
+                
                 # Start camera thread
                 self.camera_thread = threading.Thread(target=self.update_camera_preview, daemon=True)
                 self.camera_thread.start()
@@ -506,9 +452,7 @@ class AdvancedPatternGenerator:
         except Exception as e:
             self.status_var.set(f"Pi Camera initialization error: {str(e)}")
             print(f"Detailed camera error: {str(e)}")
-        
-        # Always create camera preview, even if camera initialization failed
-        self.create_camera_preview()
+            self.camera_active = False
 
     def update_camera_preview(self):
         """Update camera preview in a separate thread"""
@@ -530,11 +474,10 @@ class AdvancedPatternGenerator:
                         
                         # Update matplotlib image (display at native resolution)
                         self.camera_image.set_array(frame_gray)
-                        # Use draw_idle for faster rendering
                         self.camera_canvas.draw_idle()
                 else:
                     # If paused and we have a last frame, keep displaying it
-                    if hasattr(self, 'last_frame') and self.last_frame is not None:
+                    if self.last_frame is not None:
                         self.camera_image.set_array(self.last_frame)
                         self.camera_canvas.draw_idle()
                     
@@ -555,7 +498,7 @@ class AdvancedPatternGenerator:
             
             # Plot target image
             if hasattr(self, 'target'):
-                self.ax1.imshow(self.target, cmap='gray', interpolation='nearest')
+                self.ax1.imshow(self.target, cmap='gray')
                 self.ax1.set_title('Target')
                 self.ax1.set_xticks([])
                 self.ax1.set_yticks([])
@@ -563,7 +506,10 @@ class AdvancedPatternGenerator:
             # Plot current pattern
             if hasattr(self, 'pattern'):
                 # Use gray colormap for phase patterns
-                self.ax2.imshow(self.pattern, cmap='gray', interpolation='nearest')
+                if self.modulation_mode == "Phase":
+                    self.ax2.imshow(self.pattern, cmap='gray')
+                else:
+                    self.ax2.imshow(self.pattern, cmap='gray')
                 self.ax2.set_title('SLM Pattern')
                 self.ax2.set_xticks([])
                 self.ax2.set_yticks([])
@@ -579,7 +525,7 @@ class AdvancedPatternGenerator:
                 central_recon = self.reconstruction[start_y:end_y, start_x:end_x]
                 
                 # Display the central region of the reconstruction
-                self.ax3.imshow(central_recon, cmap='hot', interpolation='nearest')  # Use hot colormap for intensity
+                self.ax3.imshow(central_recon, cmap='hot')  # Use hot colormap for intensity
                 self.ax3.set_title('Simulated Reconstruction')
                 self.ax3.set_xticks([])
                 self.ax3.set_yticks([])
@@ -587,13 +533,7 @@ class AdvancedPatternGenerator:
             # Plot error history if available and enabled
             if hasattr(self, 'error_history') and self.show_error_plot_var.get():
                 iterations = range(0, len(self.error_history))
-                
-                # Use simpler line style without markers for large datasets
-                if len(self.error_history) > 100:
-                    self.ax4.plot(iterations, self.error_history, 'b-')
-                else:
-                    self.ax4.plot(iterations, self.error_history, 'b-o')
-                    
+                self.ax4.plot(iterations, self.error_history, 'b-', marker='o')
                 self.ax4.set_title('Optimization Error')
                 self.ax4.set_xlabel('Iteration')
                 self.ax4.set_ylabel('Error')
@@ -611,15 +551,12 @@ class AdvancedPatternGenerator:
                 self.ax4.set_ylabel('Error')
                 self.ax4.grid(True)
             
-            # Apply tight_layout with padding for better performance
-            self.fig.tight_layout(pad=1.5)
-            
-            # Use draw_idle for more responsive updates
-            self.preview_canvas.draw_idle()
+            # Update canvas
+            self.preview_canvas.draw()
             
         except Exception as e:
             self.status_var.set(f"Error updating preview: {str(e)}")
-            print(f"Detailed preview error: {str(e)}")
+            print(f"Detailed error: {str(e)}")
 
     def generate_pattern(self):
         """Generate pattern based on selected modulation mode"""
