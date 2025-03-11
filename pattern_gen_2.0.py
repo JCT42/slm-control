@@ -1227,8 +1227,9 @@ class PatternGenerator:
             mixing_parameter (float): Mixing parameter for MRAF algorithm (0 < m < 1)
         """
         self.target_intensity = target_intensity
-        # Normalize target intensity to preserve energy
-        self.target_intensity = self.target_intensity / np.sum(self.target_intensity)
+        # Normalize target intensity by maximum value instead of sum
+        # This provides more meaningful error values and better convergence
+        self.target_intensity = self.target_intensity / np.max(self.target_intensity)
         
         # If no signal region mask is provided, use the entire region
         if signal_region_mask is None:
@@ -1279,7 +1280,7 @@ class PatternGenerator:
         
         return mixed_field
     
-    def optimize(self, initial_field, algorithm='gs', max_iterations=100, tolerance=1e-6):
+    def optimize(self, initial_field, algorithm='gs', max_iterations=100, tolerance=1e-4):
         """
         Optimize the phase pattern using specified algorithm.
         
@@ -1297,8 +1298,15 @@ class PatternGenerator:
         prev_error = float('inf')
         stop_reason = "Maximum iterations reached"
         
+        # Calculate initial error for reference
+        initial_error = self.calculate_error(field, algorithm)
+        print(f"Initial error: {initial_error:.3e}")
+        
         # Run optimization loop
         for i in tqdm(range(max_iterations), desc=f"Running {algorithm.upper()} optimization"):
+            # Store field before iteration for comparison
+            prev_field = field.copy()
+            
             # Apply iteration based on selected algorithm
             if algorithm.lower() == 'gs':
                 field = self.gs_iteration(field)
@@ -1307,24 +1315,19 @@ class PatternGenerator:
             else:
                 raise ValueError("Algorithm must be 'gs' or 'mraf'")
                 
-            # Calculate error for convergence check
-            if algorithm.lower() == 'gs':
-                # For GS, calculate error over entire field
-                current_error = np.mean(np.abs(np.abs(field)**2 - self.target_intensity))
-            else:
-                # For MRAF, calculate error only in signal region
-                sr_mask = self.signal_region_mask
-                current_error = np.mean(np.abs(np.abs(field[sr_mask == 1])**2 - self.target_intensity[sr_mask == 1]))
-            
-            # Record error at every iteration
+            # Calculate error for monitoring
+            current_error = self.calculate_error(field, algorithm)
             error_history.append(current_error)
-                
-            # Print current error for debugging with scientific notation for very small values
-            print(f"Iteration {i}, Error: {current_error:.3e}, Delta: {abs(current_error - prev_error):.3e}, Tolerance: {tolerance:.3e}")
             
-            # Check convergence at every iteration
-            if abs(current_error - prev_error) < tolerance:
-                stop_reason = f"Convergence reached at iteration {i+1}: Error delta ({abs(current_error - prev_error):.3e}) < tolerance ({tolerance:.3e})"
+            # Calculate field change for convergence check
+            field_change = self.calculate_field_change(field, prev_field)
+                
+            # Print current metrics for debugging
+            print(f"Iteration {i}, Error: {current_error:.3e}, Field Change: {field_change:.3e}, Tolerance: {tolerance:.3e}")
+            
+            # Check convergence based on field change (more reliable than error delta)
+            if field_change < tolerance and i > 5:  # Require at least 5 iterations
+                stop_reason = f"Convergence reached at iteration {i+1}: Field change ({field_change:.3e}) < tolerance ({tolerance:.3e})"
                 print(stop_reason)
                 break
                 
@@ -1340,7 +1343,43 @@ class PatternGenerator:
         if i == max_iterations - 1:
             print(stop_reason)
         
+        # Calculate final error for comparison
+        final_error = self.calculate_error(field, algorithm)
+        improvement = initial_error / final_error if final_error > 0 else float('inf')
+        print(f"Final error: {final_error:.3e}, Improvement: {improvement:.2f}x")
+        
         return field, error_history, stop_reason
+    
+    def calculate_error(self, field, algorithm):
+        """
+        Calculate Normalized Mean Square Error (NMSE) between reconstructed and target intensity.
+        This provides a more meaningful error metric than absolute difference.
+        """
+        recon_intensity = np.abs(field)**2
+        
+        if algorithm.lower() == 'gs':
+            # For GS, calculate error over entire field
+            mse = np.mean((recon_intensity - self.target_intensity)**2)
+            # Normalize by mean squared target intensity (NMSE)
+            norm_error = mse / np.mean(self.target_intensity**2)
+        else:
+            # For MRAF, calculate error only in signal region
+            sr_mask = self.signal_region_mask
+            if np.sum(sr_mask) > 0:  # Ensure signal region is not empty
+                mse = np.mean((recon_intensity[sr_mask == 1] - self.target_intensity[sr_mask == 1])**2)
+                # Normalize by mean squared target intensity in signal region (NMSE)
+                norm_error = mse / np.mean(self.target_intensity[sr_mask == 1]**2)
+            else:
+                norm_error = 0.0
+                
+        return norm_error
+    
+    def calculate_field_change(self, field, prev_field):
+        """
+        Calculate the mean change in field intensity between iterations.
+        This is a more reliable convergence metric than error delta.
+        """
+        return np.mean(np.abs(np.abs(field)**2 - np.abs(prev_field)**2))
 
 if __name__ == "__main__":
     app = AdvancedPatternGenerator()
