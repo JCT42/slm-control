@@ -462,42 +462,40 @@ class AdvancedPatternGenerator:
             
             time.sleep(0.033)  # ~30 FPS
 
-    def update_preview(self, field):
-        """Update preview plots with current pattern and reconstruction"""
+    def update_preview(self):
+        """Update the preview plots with current patterns and reconstructions"""
         try:
-            # Clear existing plots
+            # Clear axes
             self.ax1.clear()
             self.ax2.clear()
             self.ax3.clear()
             
-            # Show target image
-            self.ax1.imshow(self.target, cmap='gray')
-            self.ax1.set_title('Target Image')
-            self.ax1.set_xticks([])
-            self.ax1.set_yticks([])
+            # Plot target image
+            if hasattr(self, 'target'):
+                self.ax1.imshow(self.target, cmap='viridis')
+                self.ax1.set_title('Target')
+                self.ax1.set_xticks([])
+                self.ax1.set_yticks([])
             
-            # Show generated pattern
-            self.ax2.imshow(self.pattern, cmap='gray')
-            self.ax2.set_title('Generated Pattern')
-            self.ax2.set_xticks([])
-            self.ax2.set_yticks([])
+            # Plot current pattern
+            if hasattr(self, 'pattern'):
+                self.ax2.imshow(self.pattern, cmap='viridis')
+                self.ax2.set_title('SLM Pattern')
+                self.ax2.set_xticks([])
+                self.ax2.set_yticks([])
             
-            # Calculate and show reconstruction
-            if field is not None:
-                far_field = np.fft.fftshift(np.fft.fft2(np.fft.ifftshift(field)))
-                reconstruction = np.abs(far_field)**2
-                
-                # Extract central region of reconstruction
+            # Plot simulated reconstruction
+            if hasattr(self, 'reconstruction'):
+                # Extract central region of reconstruction to match target size
                 start_y = (self.padded_height - self.height) // 2
                 end_y = start_y + self.height
                 start_x = (self.padded_width - self.width) // 2
                 end_x = start_x + self.width
-                reconstruction = reconstruction[start_y:end_y, start_x:end_x]
                 
-                # Normalize reconstruction
-                reconstruction = reconstruction / np.max(reconstruction)
+                central_recon = self.reconstruction[start_y:end_y, start_x:end_x]
                 
-                self.ax3.imshow(reconstruction, cmap='viridis')
+                # Display the central region of the reconstruction
+                self.ax3.imshow(central_recon, cmap='viridis')
                 self.ax3.set_title('Simulated Reconstruction')
                 self.ax3.set_xticks([])
                 self.ax3.set_yticks([])
@@ -532,23 +530,15 @@ class AdvancedPatternGenerator:
                     signal_region_ratio = float(self.signal_region_ratio_var.get())
                     
                     # Create circular signal region mask
-                    y, x = np.ogrid[:self.height, :self.width]
-                    center_y, center_x = self.height // 2, self.width // 2
+                    y, x = np.ogrid[:self.padded_height, :self.padded_width]
+                    center_y, center_x = self.padded_height // 2, self.padded_width // 2
                     radius = min(center_x, center_y) * signal_region_ratio
                     signal_mask = ((x - center_x)**2 + (y - center_y)**2 <= radius**2).astype(float)
-                    
-                    # Create padded mask
-                    padded_signal_mask = np.zeros((self.padded_height, self.padded_width))
-                    start_y = (self.padded_height - self.height) // 2
-                    end_y = start_y + self.height
-                    start_x = (self.padded_width - self.width) // 2
-                    end_x = start_x + self.width
-                    padded_signal_mask[start_y:end_y, start_x:end_x] = signal_mask
                     
                     # Initialize PatternGenerator with MRAF parameters
                     self.pattern_generator = PatternGenerator(
                         target_intensity=self.padded_target,
-                        signal_region_mask=padded_signal_mask,
+                        signal_region_mask=signal_mask,
                         mixing_parameter=mixing_parameter
                     )
                 except ValueError as e:
@@ -562,11 +552,11 @@ class AdvancedPatternGenerator:
             
             # Generate pattern based on mode
             if self.modulation_mode == "Phase":
-                field = self.generate_phase_pattern(iterations, algorithm)
+                field, slm_phase = self.generate_phase_pattern(iterations, algorithm)
             elif self.modulation_mode == "Amplitude":
-                field = self.generate_amplitude_pattern(iterations, algorithm)
+                field, slm_phase = self.generate_amplitude_pattern(iterations, algorithm)
             else:  # Combined mode
-                field = self.generate_combined_pattern(iterations, algorithm)
+                field, slm_phase = self.generate_combined_pattern(iterations, algorithm)
             
             if field is None:
                 return
@@ -576,25 +566,24 @@ class AdvancedPatternGenerator:
             end_y = start_y + self.height
             start_x = (self.padded_width - self.width) // 2
             end_x = start_x + self.width
-            central_field = field[start_y:end_y, start_x:end_x]
+            central_phase = slm_phase[start_y:end_y, start_x:end_x]
             
             # Generate pattern based on mode
             if self.modulation_mode == "Phase":
                 # Extract phase and normalize to [0, 1]
-                phase = np.angle(central_field)
-                normalized_phase = (phase + np.pi) / (2 * np.pi)
+                normalized_phase = (central_phase + np.pi) / (2 * np.pi)
                 self.pattern = (normalized_phase ** gamma * 255).astype(np.uint8)
                 
             elif self.modulation_mode == "Amplitude":
                 # Extract amplitude and normalize
-                amplitude = np.abs(central_field)
+                amplitude = np.abs(field)
                 normalized_amplitude = amplitude / np.max(amplitude)
                 self.pattern = (normalized_amplitude ** gamma * 255).astype(np.uint8)
                 
             else:  # Combined mode
                 # Extract both amplitude and phase
-                amplitude = np.abs(central_field)
-                phase = np.angle(central_field)
+                amplitude = np.abs(field)
+                phase = np.angle(field)
                 
                 # Normalize both components
                 normalized_amplitude = amplitude / np.max(amplitude)
@@ -611,7 +600,7 @@ class AdvancedPatternGenerator:
                 self.pattern = (combined ** gamma * 255).astype(np.uint8)
             
             # Update the preview with the full field for proper reconstruction
-            self.update_preview(field)
+            self.update_preview()
             
             self.status_var.set(f"Pattern generated using {self.modulation_mode} mode")
             
@@ -970,22 +959,33 @@ class AdvancedPatternGenerator:
             input_beam = self.generate_input_beam()
             
             # Apply input beam to initial field
-            field = input_beam * np.exp(1j * np.angle(field))
+            initial_field = input_beam * np.exp(1j * np.angle(field))
             
             # Run optimization with selected algorithm
-            optimized_field, _ = self.pattern_generator.optimize(
-                initial_field=field,
+            optimized_field, error_history = self.pattern_generator.optimize(
+                initial_field=initial_field,
                 algorithm=algorithm,
                 max_iterations=iterations
             )
             
+            # Get SLM phase pattern
+            slm_field = self.pattern_generator.propagate(optimized_field)
+            slm_phase = np.angle(slm_field)
+            
+            # Calculate and store reconstruction for preview
+            image_field = self.pattern_generator.inverse_propagate(np.exp(1j * slm_phase))
+            self.reconstruction = np.abs(image_field)**2
+            
+            # Normalize reconstruction for display
+            self.reconstruction = self.reconstruction / np.max(self.reconstruction)
+            
             self.status_var.set(f"Phase pattern generated using {algorithm.upper()} algorithm")
-            return optimized_field
+            return optimized_field, slm_phase
             
         except Exception as e:
             self.status_var.set(f"Error in pattern generation: {str(e)}")
             print(f"Detailed error: {str(e)}")
-            return None
+            return None, None
 
     def generate_amplitude_pattern(self, iterations, algorithm='gs'):
         """Generate amplitude-only pattern"""
@@ -998,22 +998,33 @@ class AdvancedPatternGenerator:
             input_beam = self.generate_input_beam()
             
             # Apply input beam to initial field
-            field = input_beam * np.exp(1j * np.angle(field))
+            initial_field = input_beam * np.exp(1j * np.angle(field))
             
             # Run optimization with selected algorithm
-            optimized_field, _ = self.pattern_generator.optimize(
-                initial_field=field,
+            optimized_field, error_history = self.pattern_generator.optimize(
+                initial_field=initial_field,
                 algorithm=algorithm,
                 max_iterations=iterations
             )
             
+            # Get SLM phase pattern
+            slm_field = self.pattern_generator.propagate(optimized_field)
+            slm_phase = np.angle(slm_field)
+            
+            # Calculate and store reconstruction for preview
+            image_field = self.pattern_generator.inverse_propagate(np.exp(1j * slm_phase))
+            self.reconstruction = np.abs(image_field)**2
+            
+            # Normalize reconstruction for display
+            self.reconstruction = self.reconstruction / np.max(self.reconstruction)
+            
             self.status_var.set(f"Amplitude pattern generated using {algorithm.upper()} algorithm")
-            return optimized_field
+            return optimized_field, slm_phase
             
         except Exception as e:
             self.status_var.set(f"Error in amplitude pattern generation: {str(e)}")
             print(f"Detailed error: {str(e)}")
-            return None
+            return None, None
 
     def generate_combined_pattern(self, iterations, algorithm='gs'):
         """Generate combined amplitude and phase pattern"""
@@ -1026,22 +1037,33 @@ class AdvancedPatternGenerator:
             input_beam = self.generate_input_beam()
             
             # Apply input beam to initial field
-            field = input_beam * np.exp(1j * np.angle(field))
+            initial_field = input_beam * np.exp(1j * np.angle(field))
             
             # Run optimization with selected algorithm
-            optimized_field, _ = self.pattern_generator.optimize(
-                initial_field=field,
+            optimized_field, error_history = self.pattern_generator.optimize(
+                initial_field=initial_field,
                 algorithm=algorithm,
                 max_iterations=iterations
             )
             
+            # Get SLM phase pattern
+            slm_field = self.pattern_generator.propagate(optimized_field)
+            slm_phase = np.angle(slm_field)
+            
+            # Calculate and store reconstruction for preview
+            image_field = self.pattern_generator.inverse_propagate(np.exp(1j * slm_phase))
+            self.reconstruction = np.abs(image_field)**2
+            
+            # Normalize reconstruction for display
+            self.reconstruction = self.reconstruction / np.max(self.reconstruction)
+            
             self.status_var.set(f"Combined pattern generated using {algorithm.upper()} algorithm")
-            return optimized_field
+            return optimized_field, slm_phase
             
         except Exception as e:
             self.status_var.set(f"Error in combined pattern generation: {str(e)}")
             print(f"Detailed error: {str(e)}")
-            return None
+            return None, None
 
     def pause_camera(self):
         """Pause or resume the camera feed"""
@@ -1093,7 +1115,7 @@ class AdvancedPatternGenerator:
                     self.target = cv2.resize(gray, (800, 600))
                     
                     # Update preview
-                    self.update_preview(None)
+                    self.update_preview()
                     self.status_var.set("Image captured from camera")
                 else:
                     self.status_var.set("Failed to capture image from camera")
@@ -1150,7 +1172,15 @@ class PatternGenerator:
             mixing_parameter (float): Mixing parameter for MRAF algorithm (0 < m < 1)
         """
         self.target_intensity = target_intensity
-        self.signal_region_mask = signal_region_mask
+        # Normalize target intensity to preserve energy
+        self.target_intensity = self.target_intensity / np.sum(self.target_intensity)
+        
+        # If no signal region mask is provided, use the entire region
+        if signal_region_mask is None:
+            self.signal_region_mask = np.ones_like(target_intensity)
+        else:
+            self.signal_region_mask = signal_region_mask
+            
         self.mixing_parameter = mixing_parameter
     
     def propagate(self, field):
@@ -1224,8 +1254,15 @@ class PatternGenerator:
                 raise ValueError("Algorithm must be 'gs' or 'mraf'")
                 
             # Calculate error
-            if i % 10 == 0:  # Calculate error every 10 iterations to save time
-                error = np.mean(np.abs(np.abs(field) - np.sqrt(self.target_intensity))**2)
+            if i % 10 == 0 or i == max_iterations - 1:  # Calculate error periodically and at the end
+                if algorithm.lower() == 'gs':
+                    # For GS, calculate error over entire field
+                    error = np.mean(np.abs(np.abs(field)**2 - self.target_intensity))
+                else:
+                    # For MRAF, calculate error only in signal region
+                    sr_mask = self.signal_region_mask
+                    error = np.mean(np.abs(np.abs(field[sr_mask == 1])**2 - self.target_intensity[sr_mask == 1]))
+                
                 error_history.append(error)
                 
                 # Check convergence
