@@ -242,7 +242,7 @@ class AdvancedPatternGenerator:
         
         # Tolerance
         ttk.Label(error_frame, text="Tolerance:").grid(row=0, column=0, padx=5, pady=5)
-        self.tolerance_var = tk.StringVar(value="1e-6")
+        self.tolerance_var = tk.StringVar(value="1e-24")
         ttk.Entry(error_frame, textvariable=self.tolerance_var, width=10).grid(row=0, column=1, padx=5, pady=5)
         
         # Show error plot checkbox
@@ -311,9 +311,9 @@ class AdvancedPatternGenerator:
         self.ax3.set_xticks([])
         self.ax3.set_yticks([])
         
-        self.ax4.set_title('Optimization Error')
+        self.ax4.set_title('Optimization Error (NMSE)')
         self.ax4.set_xlabel('Iteration')
-        self.ax4.set_ylabel('Error')
+        self.ax4.set_ylabel('Normalized Mean Square Error')
         self.ax4.grid(True)
         
         # Pack canvas
@@ -534,9 +534,9 @@ class AdvancedPatternGenerator:
             if hasattr(self, 'error_history') and self.show_error_plot_var.get():
                 iterations = range(0, len(self.error_history))
                 self.ax4.plot(iterations, self.error_history, 'b-', marker='o')
-                self.ax4.set_title('Optimization Error')
+                self.ax4.set_title('Optimization Error (NMSE)')
                 self.ax4.set_xlabel('Iteration')
-                self.ax4.set_ylabel('Error')
+                self.ax4.set_ylabel('Normalized Mean Square Error')
                 self.ax4.grid(True)
                 
                 # Use log scale if the error values span multiple orders of magnitude
@@ -546,10 +546,9 @@ class AdvancedPatternGenerator:
                     if max_error / min_error > 100:  # More than 2 orders of magnitude
                         self.ax4.set_yscale('log')
             else:
-                self.ax4.set_title('Optimization Error')
+                self.ax4.set_title('Optimization Error (NMSE)')
                 self.ax4.set_xlabel('Iteration')
-                self.ax4.set_ylabel('Error')
-                self.ax4.grid(True)
+                self.ax4.set_ylabel('Normalized Mean Square Error')
             
             # Update canvas
             self.preview_canvas.draw()
@@ -1307,20 +1306,26 @@ class PatternGenerator:
             else:
                 raise ValueError("Algorithm must be 'gs' or 'mraf'")
                 
-            # Calculate error for convergence check
+            # Calculate normalized error for convergence check
             if algorithm.lower() == 'gs':
-                # For GS, calculate error over entire field
-                current_error = np.mean(np.abs(np.abs(field)**2 - self.target_intensity))
+                # For GS, calculate normalized error over entire field (NMSE)
+                current_intensity = np.abs(field)**2
+                # Normalized Mean Square Error
+                current_error = np.sum((current_intensity - self.target_intensity)**2) / np.sum(self.target_intensity**2)
             else:
-                # For MRAF, calculate error only in signal region
+                # For MRAF, calculate normalized error only in signal region (NMSE)
                 sr_mask = self.signal_region_mask
-                current_error = np.mean(np.abs(np.abs(field[sr_mask == 1])**2 - self.target_intensity[sr_mask == 1]))
+                current_intensity = np.abs(field)**2
+                target_sr = self.target_intensity[sr_mask == 1]
+                current_sr = current_intensity[sr_mask == 1]
+                # Normalized Mean Square Error in signal region
+                current_error = np.sum((current_sr - target_sr)**2) / np.sum(target_sr**2)
             
             # Record error at every iteration
             error_history.append(current_error)
                 
             # Print current error for debugging with scientific notation for very small values
-            print(f"Iteration {i}, Error: {current_error:.3e}, Delta: {abs(current_error - prev_error):.3e}, Tolerance: {tolerance:.3e}")
+            print(f"Iteration {i}, NMSE: {current_error:.3e}, Delta: {abs(current_error - prev_error):.3e}, Tolerance: {tolerance:.3e}")
             
             # Check convergence at every iteration
             if abs(current_error - prev_error) < tolerance:
