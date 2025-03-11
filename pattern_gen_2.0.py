@@ -311,9 +311,9 @@ class AdvancedPatternGenerator:
         self.ax3.set_xticks([])
         self.ax3.set_yticks([])
         
-        self.ax4.set_title('Optimization Error (NMSE)')
+        self.ax4.set_title('Optimization Error')
         self.ax4.set_xlabel('Iteration')
-        self.ax4.set_ylabel('Normalized Mean Square Error')
+        self.ax4.set_ylabel('Error')
         self.ax4.grid(True)
         
         # Pack canvas
@@ -534,9 +534,9 @@ class AdvancedPatternGenerator:
             if hasattr(self, 'error_history') and self.show_error_plot_var.get():
                 iterations = range(0, len(self.error_history))
                 self.ax4.plot(iterations, self.error_history, 'b-', marker='o')
-                self.ax4.set_title('Optimization Error (NMSE)')
+                self.ax4.set_title('Optimization Error')
                 self.ax4.set_xlabel('Iteration')
-                self.ax4.set_ylabel('Normalized Mean Square Error')
+                self.ax4.set_ylabel('Error')
                 self.ax4.grid(True)
                 
                 # Use log scale if the error values span multiple orders of magnitude
@@ -546,9 +546,10 @@ class AdvancedPatternGenerator:
                     if max_error / min_error > 100:  # More than 2 orders of magnitude
                         self.ax4.set_yscale('log')
             else:
-                self.ax4.set_title('Optimization Error (NMSE)')
+                self.ax4.set_title('Optimization Error')
                 self.ax4.set_xlabel('Iteration')
-                self.ax4.set_ylabel('Normalized Mean Square Error')
+                self.ax4.set_ylabel('Error')
+                self.ax4.grid(True)
             
             # Update canvas
             self.preview_canvas.draw()
@@ -1211,9 +1212,9 @@ class AdvancedPatternGenerator:
     def _on_algorithm_change(self, *args):
         """Handle algorithm selection change"""
         if self.algorithm_var.get() == "mraf":
-            self.mraf_frame.grid(row=1, column=0, columnspan=8, padx=5, pady=5)
+            self.mraf_frame.pack(fill=tk.X, padx=5, pady=5)
         else:
-            self.mraf_frame.grid_remove()
+            self.mraf_frame.pack_forget()
 
 class PatternGenerator:
     def __init__(self, target_intensity, signal_region_mask=None, mixing_parameter=0.4):
@@ -1306,36 +1307,20 @@ class PatternGenerator:
             else:
                 raise ValueError("Algorithm must be 'gs' or 'mraf'")
                 
-            # Calculate normalized error for convergence check
+            # Calculate error for convergence check
             if algorithm.lower() == 'gs':
-                # For GS, calculate normalized error over entire field
-                current_intensity = np.abs(field)**2
-                
-                # Calculate Mean Square Error (MSE)
-                mse = np.mean((current_intensity - self.target_intensity)**2)
-                
-                # Normalize by dividing by the mean of target intensity to get NMSE
-                current_error = mse / np.mean(self.target_intensity**2)
+                # For GS, calculate error over entire field
+                current_error = np.mean(np.abs(np.abs(field)**2 - self.target_intensity))
             else:
-                # For MRAF, calculate normalized error only in signal region
+                # For MRAF, calculate error only in signal region
                 sr_mask = self.signal_region_mask
-                current_intensity = np.abs(field)**2
-                
-                # Extract signal regions
-                target_sr = self.target_intensity[sr_mask == 1]
-                current_sr = current_intensity[sr_mask == 1]
-                
-                # Calculate Mean Square Error (MSE) in signal region
-                mse = np.mean((current_sr - target_sr)**2)
-                
-                # Normalize by dividing by the mean of target intensity to get NMSE
-                current_error = mse / np.mean(target_sr**2)
+                current_error = np.mean(np.abs(np.abs(field[sr_mask == 1])**2 - self.target_intensity[sr_mask == 1]))
             
             # Record error at every iteration
             error_history.append(current_error)
                 
             # Print current error for debugging with scientific notation for very small values
-            print(f"Iteration {i}, NMSE: {current_error:.3e}, Delta: {abs(current_error - prev_error):.3e}, Tolerance: {tolerance:.3e}")
+            print(f"Iteration {i}, Error: {current_error:.3e}, Delta: {abs(current_error - prev_error):.3e}, Tolerance: {tolerance:.3e}")
             
             # Check convergence at every iteration
             if abs(current_error - prev_error) < tolerance:
