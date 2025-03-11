@@ -345,9 +345,6 @@ class AdvancedPatternGenerator:
         
     def create_camera_preview(self):
         """Create camera preview area"""
-        if not self.camera_active:
-            return
-            
         try:
             # Create camera preview figure with optimized settings
             self.camera_fig = Figure(figsize=(16, 6), dpi=80)
@@ -357,7 +354,13 @@ class AdvancedPatternGenerator:
             # Initialize camera preview with black image
             self.camera_image = self.camera_ax.imshow(np.zeros((1080, 1920)), cmap='gray', vmin=0, vmax=255, 
                                                      interpolation='nearest')  # Use nearest for faster rendering
-            self.camera_ax.set_title('Camera Feed')
+            
+            # Set title based on camera status
+            if self.camera_active:
+                self.camera_ax.set_title('Camera Feed')
+            else:
+                self.camera_ax.set_title('Camera Feed (Hardware Not Available)')
+                
             self.camera_ax.set_xticks([])
             self.camera_ax.set_yticks([])
             
@@ -373,16 +376,21 @@ class AdvancedPatternGenerator:
             buttons_frame.pack(fill=tk.X, pady=5)
             
             # Pause/Resume button
-            self.pause_camera_button = ttk.Button(buttons_frame, text="Pause Camera", command=self.pause_camera)
+            self.pause_camera_button = ttk.Button(buttons_frame, text="Pause Camera", 
+                                                command=self.pause_camera,
+                                                state="normal" if self.camera_active else "disabled")
             self.pause_camera_button.pack(fill=tk.X, pady=2)
             
             # Capture button
-            self.capture_button = ttk.Button(buttons_frame, text="Capture Image", command=self.capture_camera_image)
+            self.capture_button = ttk.Button(buttons_frame, text="Capture Image", 
+                                           command=self.capture_camera_image,
+                                           state="normal" if self.camera_active else "disabled")
             self.capture_button.pack(fill=tk.X, pady=2)
             
             # Save button
             self.save_camera_button = ttk.Button(buttons_frame, text="Save Image", 
-                                               command=lambda: self.save_camera_image())
+                                               command=lambda: self.save_camera_image(),
+                                               state="normal" if self.camera_active else "disabled")
             self.save_camera_button.pack(fill=tk.X, pady=2)
             
             # Exposure settings frame
@@ -399,7 +407,8 @@ class AdvancedPatternGenerator:
             exposure_entry.pack(side=tk.LEFT, padx=2)
             
             ttk.Button(exposure_control_frame, text="Set", 
-                      command=lambda: self.set_exposure(float(self.exposure_var.get()))).pack(side=tk.LEFT, padx=2)
+                      command=lambda: self.set_exposure(float(self.exposure_var.get())),
+                      state="normal" if self.camera_active else "disabled").pack(side=tk.LEFT, padx=2)
             
             # Gain settings frame
             gain_frame = ttk.LabelFrame(controls_frame, text="Gain Settings", padding=5)
@@ -415,7 +424,15 @@ class AdvancedPatternGenerator:
             gain_entry.pack(side=tk.LEFT, padx=2)
             
             ttk.Button(gain_control_frame, text="Set",
-                      command=lambda: self.set_gain(float(self.gain_var.get()))).pack(side=tk.LEFT, padx=2)
+                      command=lambda: self.set_gain(float(self.gain_var.get())),
+                      state="normal" if self.camera_active else "disabled").pack(side=tk.LEFT, padx=2)
+            
+            # Add a note about camera status if not active
+            if not self.camera_active:
+                note_frame = ttk.LabelFrame(controls_frame, text="Note", padding=5)
+                note_frame.pack(fill=tk.X, pady=5)
+                ttk.Label(note_frame, text="Camera hardware not detected.\nControls will be enabled when\nrunning on Raspberry Pi.",
+                         justify=tk.CENTER, wraplength=150).pack(fill=tk.X, pady=5)
             
         except Exception as e:
             self.status_var.set(f"Error creating camera preview: {str(e)}")
@@ -423,6 +440,10 @@ class AdvancedPatternGenerator:
 
     def initialize_camera(self):
         """Initialize Raspberry Pi Camera"""
+        self.camera_active = False
+        self.camera_paused = False
+        self.last_frame = None
+        
         try:
             # Initialize PiCamera2
             self.picam = Picamera2()
@@ -461,9 +482,6 @@ class AdvancedPatternGenerator:
                 print(f"Frame range: min={test_frame.min()}, max={test_frame.max()}")
                 self.camera_active = True
                 
-                # Create camera frame
-                self.create_camera_preview()
-                
                 # Start camera thread
                 self.camera_thread = threading.Thread(target=self.update_camera_preview, daemon=True)
                 self.camera_thread.start()
@@ -475,7 +493,9 @@ class AdvancedPatternGenerator:
         except Exception as e:
             self.status_var.set(f"Pi Camera initialization error: {str(e)}")
             print(f"Detailed camera error: {str(e)}")
-            self.camera_active = False
+        
+        # Always create camera preview, even if camera initialization failed
+        self.create_camera_preview()
 
     def update_camera_preview(self):
         """Update camera preview in a separate thread"""
