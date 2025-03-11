@@ -285,7 +285,7 @@ class AdvancedPatternGenerator:
             self.camera_canvas = FigureCanvasTkAgg(self.camera_fig, master=self.camera_frame)
             
             # Initialize camera preview with black image
-            self.camera_image = self.camera_ax.imshow(np.zeros((600, 800)), cmap='gray', vmin=0, vmax=255)
+            self.camera_image = self.camera_ax.imshow(np.zeros((1080, 1920)), cmap='gray', vmin=0, vmax=255)
             self.camera_ax.set_title('Camera Feed')
             self.camera_ax.set_xticks([])
             self.camera_ax.set_yticks([])
@@ -358,14 +358,14 @@ class AdvancedPatternGenerator:
             
             # Configure camera
             preview_config = self.picam.create_preview_configuration(
-                main={"size": (800, 600), "format": "RGB888"},
-                lores={"size": (400, 300), "format": "YUV420"},
+                main={"size": (1920, 1080), "format": "RGB888"},
+                lores={"size": (640, 360), "format": "YUV420"},
                 display="lores"
             )
             
             still_config = self.picam.create_still_configuration(
-                main={"size": (800, 600), "format": "RGB888"},
-                lores={"size": (400, 300), "format": "YUV420"}
+                main={"size": (1920, 1080), "format": "RGB888"},
+                lores={"size": (640, 360), "format": "YUV420"}
             )
             
             self.picam.configure(preview_config)
@@ -421,10 +421,10 @@ class AdvancedPatternGenerator:
                         else:
                             frame_gray = frame
                         
-                        # Store as last frame
+                        # Store as last frame (at native resolution)
                         self.last_frame = frame_gray
                         
-                        # Update matplotlib image
+                        # Update matplotlib image (display at native resolution)
                         self.camera_image.set_array(frame_gray)
                         self.camera_canvas.draw_idle()
                 else:
@@ -1050,7 +1050,8 @@ class AdvancedPatternGenerator:
                     # Convert to grayscale
                     gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
                     
-                    # Resize to match SLM resolution
+                    # Resize to match SLM resolution (keep camera preview at native resolution)
+                    # Only resize when using the image for pattern generation
                     self.target = cv2.resize(gray, (800, 600))
                     
                     # Update preview
