@@ -211,20 +211,43 @@ class AdvancedPatternGenerator:
         algo_frame = ttk.Frame(param_notebook)
         param_notebook.add(algo_frame, text="Algorithm")
         
+        # Algorithm selection
+        ttk.Label(algo_frame, text="Algorithm:").grid(row=0, column=0, padx=5, pady=5)
+        self.algorithm_var = tk.StringVar(value="gs")
+        algorithm_menu = ttk.OptionMenu(algo_frame, self.algorithm_var, "gs", "gs", "mraf")
+        algorithm_menu.grid(row=0, column=1, padx=5, pady=5)
+        
         # Number of iterations
-        ttk.Label(algo_frame, text="Iterations:").grid(row=0, column=0, padx=5, pady=5)
+        ttk.Label(algo_frame, text="Iterations:").grid(row=0, column=2, padx=5, pady=5)
         self.iterations_var = tk.StringVar(value="100")
-        ttk.Entry(algo_frame, textvariable=self.iterations_var, width=10).grid(row=0, column=1, padx=5, pady=5)
+        ttk.Entry(algo_frame, textvariable=self.iterations_var, width=10).grid(row=0, column=3, padx=5, pady=5)
+        
+        # MRAF parameters frame (initially hidden)
+        self.mraf_frame = ttk.Frame(algo_frame)
+        self.mraf_frame.grid(row=1, column=0, columnspan=8, padx=5, pady=5)
+        
+        # MRAF mixing parameter
+        ttk.Label(self.mraf_frame, text="Mixing Parameter:").grid(row=0, column=0, padx=5, pady=5)
+        self.mixing_parameter_var = tk.StringVar(value="0.5")
+        ttk.Entry(self.mraf_frame, textvariable=self.mixing_parameter_var, width=10).grid(row=0, column=1, padx=5, pady=5)
+        
+        # Signal region ratio
+        ttk.Label(self.mraf_frame, text="Signal Region Ratio:").grid(row=0, column=2, padx=5, pady=5)
+        self.signal_region_ratio_var = tk.StringVar(value="0.3")
+        ttk.Entry(self.mraf_frame, textvariable=self.signal_region_ratio_var, width=10).grid(row=0, column=3, padx=5, pady=5)
+        
+        # Add event handler for algorithm selection
+        self.algorithm_var.trace_add("write", self._on_algorithm_change)
         
         # Beam width factor
-        ttk.Label(algo_frame, text="Beam Width:").grid(row=0, column=2, padx=5, pady=5)
+        ttk.Label(algo_frame, text="Beam Width:").grid(row=0, column=4, padx=5, pady=5)
         self.beam_width_var = tk.StringVar(value="1.0")
-        ttk.Entry(algo_frame, textvariable=self.beam_width_var, width=10).grid(row=0, column=3, padx=5, pady=5)
+        ttk.Entry(algo_frame, textvariable=self.beam_width_var, width=10).grid(row=0, column=5, padx=5, pady=5)
         
         # Phase range
-        ttk.Label(algo_frame, text="Phase Range (π):").grid(row=0, column=4, padx=5, pady=5)
+        ttk.Label(algo_frame, text="Phase Range (π):").grid(row=0, column=6, padx=5, pady=5)
         self.phase_range_var = tk.StringVar(value="2.0")
-        ttk.Entry(algo_frame, textvariable=self.phase_range_var, width=10).grid(row=0, column=5, padx=5, pady=5)
+        ttk.Entry(algo_frame, textvariable=self.phase_range_var, width=10).grid(row=0, column=7, padx=5, pady=5)
         
         # Optical parameters tab
         optical_frame = ttk.Frame(param_notebook)
@@ -500,14 +523,50 @@ class AdvancedPatternGenerator:
             iterations = int(self.iterations_var.get())
             gamma = float(self.gamma_var.get())
             phase_range = float(self.phase_range_var.get()) * np.pi
+            algorithm = self.algorithm_var.get()
+            
+            # Create signal region mask for MRAF if needed
+            if algorithm == "mraf":
+                try:
+                    mixing_parameter = float(self.mixing_parameter_var.get())
+                    signal_region_ratio = float(self.signal_region_ratio_var.get())
+                    
+                    # Create circular signal region mask
+                    y, x = np.ogrid[:self.height, :self.width]
+                    center_y, center_x = self.height // 2, self.width // 2
+                    radius = min(center_x, center_y) * signal_region_ratio
+                    signal_mask = ((x - center_x)**2 + (y - center_y)**2 <= radius**2).astype(float)
+                    
+                    # Create padded mask
+                    padded_signal_mask = np.zeros((self.padded_height, self.padded_width))
+                    start_y = (self.padded_height - self.height) // 2
+                    end_y = start_y + self.height
+                    start_x = (self.padded_width - self.width) // 2
+                    end_x = start_x + self.width
+                    padded_signal_mask[start_y:end_y, start_x:end_x] = signal_mask
+                    
+                    # Initialize PatternGenerator with MRAF parameters
+                    self.pattern_generator = PatternGenerator(
+                        target_intensity=self.padded_target,
+                        signal_region_mask=padded_signal_mask,
+                        mixing_parameter=mixing_parameter
+                    )
+                except ValueError as e:
+                    self.status_var.set(f"Invalid MRAF parameters: {str(e)}")
+                    return
+            else:
+                # Initialize PatternGenerator without MRAF parameters
+                self.pattern_generator = PatternGenerator(
+                    target_intensity=self.padded_target
+                )
             
             # Generate pattern based on mode
             if self.modulation_mode == "Phase":
-                field = self.generate_phase_pattern(iterations)
+                field = self.generate_phase_pattern(iterations, algorithm)
             elif self.modulation_mode == "Amplitude":
-                field = self.generate_amplitude_pattern(iterations)
+                field = self.generate_amplitude_pattern(iterations, algorithm)
             else:  # Combined mode
-                field = self.generate_combined_pattern(iterations)
+                field = self.generate_combined_pattern(iterations, algorithm)
             
             if field is None:
                 return
@@ -900,8 +959,8 @@ class AdvancedPatternGenerator:
         finally:
             self.quit_application()
 
-    def generate_phase_pattern(self, iterations):
-        """Generate phase-only pattern using Gerchberg-Saxton algorithm"""
+    def generate_phase_pattern(self, iterations, algorithm='gs'):
+        """Generate phase-only pattern using selected algorithm"""
         try:
             # Initialize random phase
             random_phase = np.exp(1j * 2 * np.pi * np.random.rand(self.padded_height, self.padded_width))
@@ -910,95 +969,74 @@ class AdvancedPatternGenerator:
             # Get input beam
             input_beam = self.generate_input_beam()
             
-            # Run iterations
-            for _ in tqdm(range(iterations), desc="Running Gerchberg-Saxton"):
-                # Apply input beam constraint
-                field = input_beam * np.exp(1j * np.angle(field))
-                
-                # Forward FFT
-                far_field = np.fft.fftshift(np.fft.fft2(np.fft.ifftshift(field)))
-                
-                # Replace amplitude with target
-                far_field = np.sqrt(self.padded_target) * np.exp(1j * np.angle(far_field))
-                
-                # Inverse FFT
-                field = np.fft.fftshift(np.fft.ifft2(np.fft.ifftshift(far_field)))
+            # Apply input beam to initial field
+            field = input_beam * np.exp(1j * np.angle(field))
             
-            return field
+            # Run optimization with selected algorithm
+            optimized_field, _ = self.pattern_generator.optimize(
+                initial_field=field,
+                algorithm=algorithm,
+                max_iterations=iterations
+            )
+            
+            self.status_var.set(f"Phase pattern generated using {algorithm.upper()} algorithm")
+            return optimized_field
             
         except Exception as e:
             self.status_var.set(f"Error in pattern generation: {str(e)}")
             print(f"Detailed error: {str(e)}")
             return None
 
-    def generate_amplitude_pattern(self, iterations):
+    def generate_amplitude_pattern(self, iterations, algorithm='gs'):
         """Generate amplitude-only pattern"""
         try:
             # Initialize random phase
-            phase = 2 * np.pi * np.random.rand(self.padded_height, self.padded_width)
-            field = np.sqrt(self.padded_target) * np.exp(1j * phase)
+            random_phase = np.exp(1j * 2 * np.pi * np.random.rand(self.padded_height, self.padded_width))
+            field = random_phase
             
             # Get input beam
             input_beam = self.generate_input_beam()
             
-            for _ in tqdm(range(iterations), desc="Running amplitude optimization"):
-                # Apply input beam constraint
-                field = input_beam * np.exp(1j * np.angle(field))
-                
-                # Forward propagation
-                far_field = np.fft.fftshift(np.fft.fft2(np.fft.ifftshift(field)))
-                
-                # Keep amplitude, randomize phase in Fourier plane
-                new_phase = 2 * np.pi * np.random.rand(*far_field.shape)
-                far_field = np.abs(far_field) * np.exp(1j * new_phase)
-                
-                # Backward propagation
-                field = np.fft.fftshift(np.fft.ifft2(np.fft.ifftshift(far_field)))
-                
-                # Apply target amplitude
-                amplitude = np.abs(field)
-                field = np.sqrt(self.padded_target) * np.exp(1j * np.angle(field))
+            # Apply input beam to initial field
+            field = input_beam * np.exp(1j * np.angle(field))
             
-            return field
+            # Run optimization with selected algorithm
+            optimized_field, _ = self.pattern_generator.optimize(
+                initial_field=field,
+                algorithm=algorithm,
+                max_iterations=iterations
+            )
+            
+            self.status_var.set(f"Amplitude pattern generated using {algorithm.upper()} algorithm")
+            return optimized_field
             
         except Exception as e:
             self.status_var.set(f"Error in amplitude pattern generation: {str(e)}")
             print(f"Detailed error: {str(e)}")
             return None
 
-    def generate_combined_pattern(self, iterations):
+    def generate_combined_pattern(self, iterations, algorithm='gs'):
         """Generate combined amplitude and phase pattern"""
         try:
-            # Initialize with random phase and target amplitude
-            phase = 2 * np.pi * np.random.rand(self.padded_height, self.padded_width)
-            field = np.sqrt(self.padded_target) * np.exp(1j * phase)
+            # Initialize random phase
+            random_phase = np.exp(1j * 2 * np.pi * np.random.rand(self.padded_height, self.padded_width))
+            field = random_phase
             
             # Get input beam
             input_beam = self.generate_input_beam()
             
-            for _ in tqdm(range(iterations), desc="Running combined optimization"):
-                # Apply input beam constraint
-                field = input_beam * np.exp(1j * np.angle(field))
-                
-                # Forward propagation
-                far_field = np.fft.fftshift(np.fft.fft2(np.fft.ifftshift(field)))
-                
-                # Apply target amplitude while preserving phase
-                far_field = np.sqrt(self.padded_target) * np.exp(1j * np.angle(far_field))
-                
-                # Backward propagation
-                field = np.fft.fftshift(np.fft.ifft2(np.fft.ifftshift(far_field)))
-                
-                # Apply amplitude coupling
-                amplitude = np.abs(field)
-                phase = np.angle(field)
-                coupled_amplitude = amplitude ** self.amplitude_coupling
-                coupled_phase = ((phase + np.pi) / (2 * np.pi)) ** self.phase_coupling
-                
-                # Combine amplitude and phase components
-                field = coupled_amplitude * np.exp(1j * (coupled_phase * 2 * np.pi - np.pi))
+            # Apply input beam to initial field
+            field = input_beam * np.exp(1j * np.angle(field))
             
-            return field
+            # Run optimization with selected algorithm
+            optimized_field, _ = self.pattern_generator.optimize(
+                initial_field=field,
+                algorithm=algorithm,
+                max_iterations=iterations
+            )
+            
+            self.status_var.set(f"Combined pattern generated using {algorithm.upper()} algorithm")
+            return optimized_field
             
         except Exception as e:
             self.status_var.set(f"Error in combined pattern generation: {str(e)}")
@@ -1094,10 +1132,17 @@ class AdvancedPatternGenerator:
         except Exception as e:
             self.status_var.set(f"Error saving camera image: {str(e)}")
 
+    def _on_algorithm_change(self, *args):
+        """Handle algorithm selection change"""
+        if self.algorithm_var.get() == "mraf":
+            self.mraf_frame.pack(fill=tk.X, padx=5, pady=5)
+        else:
+            self.mraf_frame.pack_forget()
+
 class PatternGenerator:
     def __init__(self, target_intensity, signal_region_mask=None, mixing_parameter=0.4):
         """
-        Initialize the pattern generator with target intensity and optional parameters.
+        Initialize pattern generator with target intensity and optional MRAF parameters.
         
         Args:
             target_intensity (np.ndarray): Target intensity pattern (2D array)
@@ -1105,24 +1150,15 @@ class PatternGenerator:
             mixing_parameter (float): Mixing parameter for MRAF algorithm (0 < m < 1)
         """
         self.target_intensity = target_intensity
-        self.signal_region_mask = signal_region_mask if signal_region_mask is not None else np.ones_like(target_intensity)
+        self.signal_region_mask = signal_region_mask
         self.mixing_parameter = mixing_parameter
-        self.normalize_target()
-        
-    def normalize_target(self):
-        """Normalize target intensity to preserve total power"""
-        self.target_intensity = self.target_intensity / np.sum(self.target_intensity)
-        
-    def random_phase(self):
-        """Generate random initial phase"""
-        return np.exp(2j * np.pi * np.random.rand(*self.target_intensity.shape))
     
     def propagate(self, field):
-        """Propagate field using FFT"""
+        """Propagate field from image plane to SLM plane"""
         return np.fft.fftshift(np.fft.fft2(np.fft.ifftshift(field)))
     
     def inverse_propagate(self, field):
-        """Inverse propagate field using IFFT"""
+        """Propagate field from SLM plane to image plane"""
         return np.fft.fftshift(np.fft.ifft2(np.fft.ifftshift(field)))
     
     def gs_iteration(self, field):
@@ -1158,61 +1194,45 @@ class PatternGenerator:
         
         return mixed_field
     
-    def optimize(self, algorithm='gs', max_iterations=100, tolerance=1e-6):
+    def optimize(self, initial_field, algorithm='gs', max_iterations=100, tolerance=1e-6):
         """
         Optimize the phase pattern using specified algorithm.
         
         Args:
+            initial_field (np.ndarray): Initial complex field
             algorithm (str): 'gs' for Gerchberg-Saxton or 'mraf' for Mixed-Region Amplitude Freedom
             max_iterations (int): Maximum number of iterations
             tolerance (float): Convergence tolerance
             
         Returns:
-            tuple: (optimized_phase, error_history)
+            tuple: (optimized_field, error_history)
         """
-        # Initialize with random phase
-        field = np.sqrt(self.target_intensity) * self.random_phase()
+        field = initial_field.copy()
         error_history = []
         
-        for i in range(max_iterations):
-            # Store previous field for convergence check
+        # Run optimization loop
+        for i in tqdm(range(max_iterations), desc=f"Running {algorithm.upper()} optimization"):
+            # Store previous field for error calculation
             prev_field = field.copy()
             
-            # Perform iteration based on selected algorithm
+            # Apply iteration based on selected algorithm
             if algorithm.lower() == 'gs':
                 field = self.gs_iteration(field)
             elif algorithm.lower() == 'mraf':
                 field = self.mraf_iteration(field)
             else:
                 raise ValueError("Algorithm must be 'gs' or 'mraf'")
-            
+                
             # Calculate error
-            error = np.mean(np.abs(np.abs(field)**2 - self.target_intensity))
-            error_history.append(error)
-            
-            # Check convergence
-            if i > 0 and np.abs(error_history[-1] - error_history[-2]) < tolerance:
-                break
+            if i % 10 == 0:  # Calculate error every 10 iterations to save time
+                error = np.mean(np.abs(np.abs(field) - np.sqrt(self.target_intensity))**2)
+                error_history.append(error)
+                
+                # Check convergence
+                if i > 0 and abs(error_history[-1] - error_history[-2]) < tolerance:
+                    break
         
-        # Get final SLM phase pattern
-        final_slm_field = self.propagate(field)
-        optimized_phase = np.angle(final_slm_field)
-        
-        return optimized_phase, error_history
-
-    def get_reconstruction(self, phase_pattern):
-        """
-        Get the reconstructed intensity pattern from a phase pattern.
-        
-        Args:
-            phase_pattern (np.ndarray): Phase pattern to reconstruct from
-            
-        Returns:
-            np.ndarray: Reconstructed intensity pattern
-        """
-        slm_field = np.exp(1j * phase_pattern)
-        image_field = self.inverse_propagate(slm_field)
-        return np.abs(image_field)**2
+        return field, error_history
 
 if __name__ == "__main__":
     app = AdvancedPatternGenerator()
