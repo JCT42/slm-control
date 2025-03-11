@@ -236,6 +236,24 @@ class AdvancedPatternGenerator:
         self.signal_region_ratio_var = tk.StringVar(value="0.3")
         ttk.Entry(self.mraf_frame, textvariable=self.signal_region_ratio_var, width=10).grid(row=0, column=3, padx=5, pady=5)
         
+        # Error parameters frame
+        error_frame = ttk.LabelFrame(algo_frame, text="Error Parameters")
+        error_frame.grid(row=3, column=0, columnspan=8, padx=5, pady=5, sticky="ew")
+        
+        # Tolerance
+        ttk.Label(error_frame, text="Tolerance:").grid(row=0, column=0, padx=5, pady=5)
+        self.tolerance_var = tk.StringVar(value="1e-6")
+        ttk.Entry(error_frame, textvariable=self.tolerance_var, width=10).grid(row=0, column=1, padx=5, pady=5)
+        
+        # Error calculation interval
+        ttk.Label(error_frame, text="Error Calc Interval:").grid(row=0, column=2, padx=5, pady=5)
+        self.error_interval_var = tk.StringVar(value="10")
+        ttk.Entry(error_frame, textvariable=self.error_interval_var, width=10).grid(row=0, column=3, padx=5, pady=5)
+        
+        # Show error plot checkbox
+        self.show_error_plot_var = tk.BooleanVar(value=True)
+        ttk.Checkbutton(error_frame, text="Show Error Plot", variable=self.show_error_plot_var).grid(row=0, column=4, padx=5, pady=5)
+        
         # Add event handler for algorithm selection
         self.algorithm_var.trace_add("write", self._on_algorithm_change)
         
@@ -270,8 +288,15 @@ class AdvancedPatternGenerator:
 
     def create_preview(self):
         """Create preview area with matplotlib plots"""
-        # Create figure and subplots
-        self.fig, (self.ax1, self.ax2, self.ax3) = plt.subplots(1, 3, figsize=(16, 6))  # Increased height
+        # Create figure and subplots with 2x2 grid
+        self.fig = plt.figure(figsize=(16, 10))
+        gs = self.fig.add_gridspec(2, 2)
+        
+        # Create subplots
+        self.ax1 = self.fig.add_subplot(gs[0, 0])  # Target
+        self.ax2 = self.fig.add_subplot(gs[0, 1])  # Pattern
+        self.ax3 = self.fig.add_subplot(gs[1, 0])  # Reconstruction
+        self.ax4 = self.fig.add_subplot(gs[1, 1])  # Error plot
         
         # Create canvas and toolbar
         self.preview_canvas = FigureCanvasTkAgg(self.fig, master=self.preview_frame)
@@ -291,12 +316,17 @@ class AdvancedPatternGenerator:
         self.ax3.set_xticks([])
         self.ax3.set_yticks([])
         
+        self.ax4.set_title('Optimization Error')
+        self.ax4.set_xlabel('Iteration')
+        self.ax4.set_ylabel('Error')
+        self.ax4.grid(True)
+        
         # Pack canvas
         self.preview_canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
         
         # Initial draw
         self.preview_canvas.draw()
-
+        
     def create_camera_preview(self):
         """Create camera preview area"""
         if not self.camera_active:
@@ -469,6 +499,7 @@ class AdvancedPatternGenerator:
             self.ax1.clear()
             self.ax2.clear()
             self.ax3.clear()
+            self.ax4.clear()
             
             # Plot target image
             if hasattr(self, 'target'):
@@ -500,6 +531,27 @@ class AdvancedPatternGenerator:
                 self.ax3.set_xticks([])
                 self.ax3.set_yticks([])
             
+            # Plot error history if available and enabled
+            if hasattr(self, 'error_history') and self.show_error_plot_var.get():
+                iterations = range(0, len(self.error_history) * int(self.error_interval_var.get()), int(self.error_interval_var.get()))
+                self.ax4.plot(iterations, self.error_history, 'b-', marker='o')
+                self.ax4.set_title('Optimization Error')
+                self.ax4.set_xlabel('Iteration')
+                self.ax4.set_ylabel('Error')
+                self.ax4.grid(True)
+                
+                # Use log scale if the error values span multiple orders of magnitude
+                if len(self.error_history) > 1:
+                    max_error = max(self.error_history)
+                    min_error = min(self.error_history)
+                    if max_error / min_error > 100:  # More than 2 orders of magnitude
+                        self.ax4.set_yscale('log')
+            else:
+                self.ax4.set_title('Optimization Error')
+                self.ax4.set_xlabel('Iteration')
+                self.ax4.set_ylabel('Error')
+                self.ax4.grid(True)
+            
             # Update canvas
             self.preview_canvas.draw()
             
@@ -522,6 +574,8 @@ class AdvancedPatternGenerator:
             gamma = float(self.gamma_var.get())
             phase_range = float(self.phase_range_var.get()) * np.pi
             algorithm = self.algorithm_var.get()
+            tolerance = float(self.tolerance_var.get())
+            error_interval = int(self.error_interval_var.get())
             
             # Create signal region mask for MRAF if needed
             if algorithm == "mraf":
@@ -552,11 +606,11 @@ class AdvancedPatternGenerator:
             
             # Generate pattern based on mode
             if self.modulation_mode == "Phase":
-                field, slm_phase = self.generate_phase_pattern(iterations, algorithm)
+                field, slm_phase = self.generate_phase_pattern(iterations, algorithm, tolerance, error_interval)
             elif self.modulation_mode == "Amplitude":
-                field, slm_phase = self.generate_amplitude_pattern(iterations, algorithm)
+                field, slm_phase = self.generate_amplitude_pattern(iterations, algorithm, tolerance, error_interval)
             else:  # Combined mode
-                field, slm_phase = self.generate_combined_pattern(iterations, algorithm)
+                field, slm_phase = self.generate_combined_pattern(iterations, algorithm, tolerance, error_interval)
             
             if field is None:
                 return
@@ -830,7 +884,7 @@ class AdvancedPatternGenerator:
             # Ensure .png extension
             if not save_path.lower().endswith('.png'):
                 save_path += '.png'
-                
+            
             # Save the pattern
             cv2.imwrite(save_path, self.pattern)
             self.status_var.set(f"Pattern saved to: {save_path}")
@@ -948,7 +1002,7 @@ class AdvancedPatternGenerator:
         finally:
             self.quit_application()
 
-    def generate_phase_pattern(self, iterations, algorithm='gs'):
+    def generate_phase_pattern(self, iterations, algorithm='gs', tolerance=1e-6, error_interval=10):
         """Generate phase-only pattern using selected algorithm"""
         try:
             # Initialize random phase
@@ -962,10 +1016,12 @@ class AdvancedPatternGenerator:
             initial_field = input_beam * np.exp(1j * np.angle(field))
             
             # Run optimization with selected algorithm
-            optimized_field, error_history = self.pattern_generator.optimize(
+            optimized_field, self.error_history = self.pattern_generator.optimize(
                 initial_field=initial_field,
                 algorithm=algorithm,
-                max_iterations=iterations
+                max_iterations=iterations,
+                tolerance=tolerance,
+                error_interval=error_interval
             )
             
             # Get SLM phase pattern
@@ -987,7 +1043,7 @@ class AdvancedPatternGenerator:
             print(f"Detailed error: {str(e)}")
             return None, None
 
-    def generate_amplitude_pattern(self, iterations, algorithm='gs'):
+    def generate_amplitude_pattern(self, iterations, algorithm='gs', tolerance=1e-6, error_interval=10):
         """Generate amplitude-only pattern"""
         try:
             # Initialize random phase
@@ -1001,10 +1057,12 @@ class AdvancedPatternGenerator:
             initial_field = input_beam * np.exp(1j * np.angle(field))
             
             # Run optimization with selected algorithm
-            optimized_field, error_history = self.pattern_generator.optimize(
+            optimized_field, self.error_history = self.pattern_generator.optimize(
                 initial_field=initial_field,
                 algorithm=algorithm,
-                max_iterations=iterations
+                max_iterations=iterations,
+                tolerance=tolerance,
+                error_interval=error_interval
             )
             
             # Get SLM phase pattern
@@ -1026,7 +1084,7 @@ class AdvancedPatternGenerator:
             print(f"Detailed error: {str(e)}")
             return None, None
 
-    def generate_combined_pattern(self, iterations, algorithm='gs'):
+    def generate_combined_pattern(self, iterations, algorithm='gs', tolerance=1e-6, error_interval=10):
         """Generate combined amplitude and phase pattern"""
         try:
             # Initialize random phase
@@ -1040,10 +1098,12 @@ class AdvancedPatternGenerator:
             initial_field = input_beam * np.exp(1j * np.angle(field))
             
             # Run optimization with selected algorithm
-            optimized_field, error_history = self.pattern_generator.optimize(
+            optimized_field, self.error_history = self.pattern_generator.optimize(
                 initial_field=initial_field,
                 algorithm=algorithm,
-                max_iterations=iterations
+                max_iterations=iterations,
+                tolerance=tolerance,
+                error_interval=error_interval
             )
             
             # Get SLM phase pattern
@@ -1224,7 +1284,7 @@ class PatternGenerator:
         
         return mixed_field
     
-    def optimize(self, initial_field, algorithm='gs', max_iterations=100, tolerance=1e-6):
+    def optimize(self, initial_field, algorithm='gs', max_iterations=100, tolerance=1e-6, error_interval=10):
         """
         Optimize the phase pattern using specified algorithm.
         
@@ -1233,6 +1293,7 @@ class PatternGenerator:
             algorithm (str): 'gs' for Gerchberg-Saxton or 'mraf' for Mixed-Region Amplitude Freedom
             max_iterations (int): Maximum number of iterations
             tolerance (float): Convergence tolerance
+            error_interval (int): Interval for calculating and recording error
             
         Returns:
             tuple: (optimized_field, error_history)
@@ -1254,7 +1315,7 @@ class PatternGenerator:
                 raise ValueError("Algorithm must be 'gs' or 'mraf'")
                 
             # Calculate error
-            if i % 10 == 0 or i == max_iterations - 1:  # Calculate error periodically and at the end
+            if i % error_interval == 0 or i == max_iterations - 1:  # Calculate error periodically and at the end
                 if algorithm.lower() == 'gs':
                     # For GS, calculate error over entire field
                     error = np.mean(np.abs(np.abs(field)**2 - self.target_intensity))
