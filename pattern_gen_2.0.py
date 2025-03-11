@@ -610,11 +610,11 @@ class AdvancedPatternGenerator:
             
             # Generate pattern based on mode
             if self.modulation_mode == "Phase":
-                field, slm_phase = self.generate_phase_pattern(iterations, algorithm, tolerance, error_interval)
+                field, slm_phase, stop_reason = self.generate_phase_pattern(iterations, algorithm, tolerance, error_interval)
             elif self.modulation_mode == "Amplitude":
-                field, slm_phase = self.generate_amplitude_pattern(iterations, algorithm, tolerance, error_interval)
+                field, slm_phase, stop_reason = self.generate_amplitude_pattern(iterations, algorithm, tolerance, error_interval)
             else:  # Combined mode
-                field, slm_phase = self.generate_combined_pattern(iterations, algorithm, tolerance, error_interval)
+                field, slm_phase, stop_reason = self.generate_combined_pattern(iterations, algorithm, tolerance, error_interval)
             
             if field is None:
                 return
@@ -660,7 +660,7 @@ class AdvancedPatternGenerator:
             # Update the preview with the full field for proper reconstruction
             self.update_preview()
             
-            self.status_var.set(f"Pattern generated using {self.modulation_mode} mode")
+            self.status_var.set(f"Pattern generated using {self.modulation_mode} mode. Stopped due to: {stop_reason}")
             
         except Exception as e:
             self.status_var.set(f"Error generating pattern: {str(e)}")
@@ -1020,7 +1020,7 @@ class AdvancedPatternGenerator:
             initial_field = input_beam * np.exp(1j * np.angle(field))
             
             # Run optimization with selected algorithm
-            optimized_field, self.error_history = self.pattern_generator.optimize(
+            optimized_field, self.error_history, stop_reason = self.pattern_generator.optimize(
                 initial_field=initial_field,
                 algorithm=algorithm,
                 max_iterations=iterations,
@@ -1040,12 +1040,12 @@ class AdvancedPatternGenerator:
             self.reconstruction = self.reconstruction / np.max(self.reconstruction)
             
             self.status_var.set(f"Phase pattern generated using {algorithm.upper()} algorithm")
-            return optimized_field, slm_phase
+            return optimized_field, slm_phase, stop_reason
             
         except Exception as e:
             self.status_var.set(f"Error in pattern generation: {str(e)}")
             print(f"Detailed error: {str(e)}")
-            return None, None
+            return None, None, "Error in pattern generation"
 
     def generate_amplitude_pattern(self, iterations, algorithm='gs', tolerance=1e-6, error_interval=10):
         """Generate amplitude-only pattern"""
@@ -1061,7 +1061,7 @@ class AdvancedPatternGenerator:
             initial_field = input_beam * np.exp(1j * np.angle(field))
             
             # Run optimization with selected algorithm
-            optimized_field, self.error_history = self.pattern_generator.optimize(
+            optimized_field, self.error_history, stop_reason = self.pattern_generator.optimize(
                 initial_field=initial_field,
                 algorithm=algorithm,
                 max_iterations=iterations,
@@ -1081,12 +1081,12 @@ class AdvancedPatternGenerator:
             self.reconstruction = self.reconstruction / np.max(self.reconstruction)
             
             self.status_var.set(f"Amplitude pattern generated using {algorithm.upper()} algorithm")
-            return optimized_field, slm_phase
+            return optimized_field, slm_phase, stop_reason
             
         except Exception as e:
             self.status_var.set(f"Error in amplitude pattern generation: {str(e)}")
             print(f"Detailed error: {str(e)}")
-            return None, None
+            return None, None, "Error in amplitude pattern generation"
 
     def generate_combined_pattern(self, iterations, algorithm='gs', tolerance=1e-6, error_interval=10):
         """Generate combined amplitude and phase pattern"""
@@ -1102,7 +1102,7 @@ class AdvancedPatternGenerator:
             initial_field = input_beam * np.exp(1j * np.angle(field))
             
             # Run optimization with selected algorithm
-            optimized_field, self.error_history = self.pattern_generator.optimize(
+            optimized_field, self.error_history, stop_reason = self.pattern_generator.optimize(
                 initial_field=initial_field,
                 algorithm=algorithm,
                 max_iterations=iterations,
@@ -1122,12 +1122,12 @@ class AdvancedPatternGenerator:
             self.reconstruction = self.reconstruction / np.max(self.reconstruction)
             
             self.status_var.set(f"Combined pattern generated using {algorithm.upper()} algorithm")
-            return optimized_field, slm_phase
+            return optimized_field, slm_phase, stop_reason
             
         except Exception as e:
             self.status_var.set(f"Error in combined pattern generation: {str(e)}")
             print(f"Detailed error: {str(e)}")
-            return None, None
+            return None, None, "Error in combined pattern generation"
 
     def pause_camera(self):
         """Pause or resume the camera feed"""
@@ -1300,11 +1300,12 @@ class PatternGenerator:
             error_interval (int): Interval for calculating and recording error
             
         Returns:
-            tuple: (optimized_field, error_history)
+            tuple: (optimized_field, error_history, stop_reason)
         """
         field = initial_field.copy()
         error_history = []
         prev_error = float('inf')
+        stop_reason = "Maximum iterations reached"
         
         # Run optimization loop
         for i in tqdm(range(max_iterations), desc=f"Running {algorithm.upper()} optimization"):
@@ -1328,17 +1329,33 @@ class PatternGenerator:
             # Record error at specified intervals for plotting
             if i % error_interval == 0 or i == max_iterations - 1:
                 error_history.append(current_error)
+                
+                # Print current error for debugging
+                print(f"Iteration {i}, Error: {current_error:.8f}, Delta: {abs(current_error - prev_error):.8f}, Tolerance: {tolerance:.8f}")
             
             # Check convergence at every iteration
             if abs(current_error - prev_error) < tolerance:
                 # Add final error to history if not already added
                 if i % error_interval != 0 and i != max_iterations - 1:
                     error_history.append(current_error)
+                
+                stop_reason = f"Convergence reached at iteration {i+1}: Error delta ({abs(current_error - prev_error):.8f}) < tolerance ({tolerance:.8f})"
+                print(stop_reason)
+                break
+                
+            # Check for NaN or Inf in error
+            if np.isnan(current_error) or np.isinf(current_error):
+                stop_reason = f"Algorithm stopped at iteration {i+1}: Error value is {current_error}"
+                print(stop_reason)
                 break
                 
             prev_error = current_error
         
-        return field, error_history
+        # If we reached max iterations, note that
+        if i == max_iterations - 1:
+            print(stop_reason)
+        
+        return field, error_history, stop_reason
 
 if __name__ == "__main__":
     app = AdvancedPatternGenerator()
