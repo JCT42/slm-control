@@ -141,8 +141,9 @@ class AdvancedPatternGenerator:
         self.preview_frame = ttk.LabelFrame(self.scrollable_frame, text="Pattern Preview", padding="10")
         self.preview_frame.pack(fill=tk.X, padx=5, pady=5)
         
+        # Create camera frame with fixed height to ensure it's visible
         self.camera_frame = ttk.LabelFrame(self.scrollable_frame, text="Camera Preview", padding="10")
-        self.camera_frame.pack(fill=tk.BOTH, padx=5, pady=5)
+        self.camera_frame.pack(fill=tk.BOTH, padx=5, pady=5, expand=True, ipady=300)  # Added ipady for minimum height
         
         # Add status bar
         self.status_var = tk.StringVar()
@@ -346,10 +347,18 @@ class AdvancedPatternGenerator:
     def create_camera_preview(self):
         """Create camera preview area"""
         try:
+            # Clear any existing widgets in the camera frame
+            for widget in self.camera_frame.winfo_children():
+                widget.destroy()
+                
+            # Create a container frame to hold both the camera feed and controls
+            container_frame = ttk.Frame(self.camera_frame)
+            container_frame.pack(fill=tk.BOTH, expand=True)
+            
             # Create camera preview figure with optimized settings
             self.camera_fig = Figure(figsize=(16, 6), dpi=80)
             self.camera_ax = self.camera_fig.add_subplot(111)
-            self.camera_canvas = FigureCanvasTkAgg(self.camera_fig, master=self.camera_frame)
+            self.camera_canvas = FigureCanvasTkAgg(self.camera_fig, master=container_frame)
             
             # Initialize camera preview with black image
             self.camera_image = self.camera_ax.imshow(np.zeros((1080, 1920)), cmap='gray', vmin=0, vmax=255, 
@@ -367,9 +376,10 @@ class AdvancedPatternGenerator:
             # Pack the canvas
             self.camera_canvas.get_tk_widget().pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
             
-            # Create frame for camera controls
-            controls_frame = ttk.Frame(self.camera_frame)
+            # Create frame for camera controls with fixed width
+            controls_frame = ttk.Frame(container_frame, width=200)
             controls_frame.pack(side=tk.RIGHT, padx=10, pady=5, fill=tk.Y)
+            controls_frame.pack_propagate(False)  # Prevent the frame from shrinking
             
             # Create sections for different control groups
             buttons_frame = ttk.LabelFrame(controls_frame, text="Camera Controls", padding=5)
@@ -433,6 +443,9 @@ class AdvancedPatternGenerator:
                 note_frame.pack(fill=tk.X, pady=5)
                 ttk.Label(note_frame, text="Camera hardware not detected.\nControls will be enabled when\nrunning on Raspberry Pi.",
                          justify=tk.CENTER, wraplength=150).pack(fill=tk.X, pady=5)
+            
+            # Initial draw
+            self.camera_canvas.draw()
             
         except Exception as e:
             self.status_var.set(f"Error creating camera preview: {str(e)}")
