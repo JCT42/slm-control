@@ -242,7 +242,7 @@ class AdvancedPatternGenerator:
         
         # Tolerance
         ttk.Label(error_frame, text="Tolerance:").grid(row=0, column=0, padx=5, pady=5)
-        self.tolerance_var = tk.StringVar(value="1e-24")
+        self.tolerance_var = tk.StringVar(value="1e-4")
         ttk.Entry(error_frame, textvariable=self.tolerance_var, width=10).grid(row=0, column=1, padx=5, pady=5)
         
         # Show error plot checkbox
@@ -1310,16 +1310,31 @@ class PatternGenerator:
             if algorithm.lower() == 'gs':
                 # For GS, calculate normalized error over entire field (NMSE)
                 current_intensity = np.abs(field)**2
+                
+                # Normalize intensities before comparison
+                current_intensity_norm = current_intensity / np.max(current_intensity)
+                target_intensity_norm = self.target_intensity / np.max(self.target_intensity)
+                
                 # Normalized Mean Square Error
-                current_error = np.sum((current_intensity - self.target_intensity)**2) / np.sum(self.target_intensity**2)
+                current_error = np.sum((current_intensity_norm - target_intensity_norm)**2) / np.sum(target_intensity_norm**2)
             else:
                 # For MRAF, calculate normalized error only in signal region (NMSE)
                 sr_mask = self.signal_region_mask
                 current_intensity = np.abs(field)**2
+                
+                # Extract signal regions
                 target_sr = self.target_intensity[sr_mask == 1]
                 current_sr = current_intensity[sr_mask == 1]
-                # Normalized Mean Square Error in signal region
-                current_error = np.sum((current_sr - target_sr)**2) / np.sum(target_sr**2)
+                
+                # Normalize intensities before comparison
+                if np.max(current_sr) > 0:
+                    current_sr_norm = current_sr / np.max(current_sr)
+                    target_sr_norm = target_sr / np.max(target_sr)
+                    
+                    # Normalized Mean Square Error in signal region
+                    current_error = np.sum((current_sr_norm - target_sr_norm)**2) / np.sum(target_sr_norm**2)
+                else:
+                    current_error = 1.0  # Default error if signal region has no energy
             
             # Record error at every iteration
             error_history.append(current_error)
