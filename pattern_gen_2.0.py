@@ -54,6 +54,10 @@ class AdvancedPatternGenerator:
         self.amplitude_coupling = 0.1
         self.phase_coupling = 0.1
         
+        # Phase shift parameters for zero-order suppression
+        self.phase_shift_x = 0.0  # Phase shift in x-direction (cycles per image)
+        self.phase_shift_y = 0.0  # Phase shift in y-direction (cycles per image)
+        
         # Initialize camera state
         self.camera_active = False
         self.camera_paused = False
@@ -134,6 +138,9 @@ class AdvancedPatternGenerator:
         
         # Create preview area
         self.create_preview()
+        
+        # Add phase shift controls
+        self.create_phase_shift_controls()
         
         # Initialize camera
         self.initialize_camera()
@@ -281,6 +288,62 @@ class AdvancedPatternGenerator:
         # Generate button
         ttk.Button(self.control_frame, text="Generate Pattern", command=self.generate_pattern).pack(pady=10)
 
+    def create_phase_shift_controls(self):
+        """Create controls for adjusting phase shift to avoid zero-order diffraction"""
+        phase_shift_frame = ttk.LabelFrame(self.scrollable_frame, text="Zero-Order Diffraction Control", padding="10")
+        phase_shift_frame.pack(fill=tk.X, padx=5, pady=5)
+        
+        # X-direction phase shift
+        ttk.Label(phase_shift_frame, text="X-Shift (cycles):").grid(row=0, column=0, padx=5, pady=5)
+        self.phase_shift_x_var = tk.StringVar(value="0.0")
+        phase_shift_x_entry = ttk.Entry(phase_shift_frame, textvariable=self.phase_shift_x_var, width=8)
+        phase_shift_x_entry.grid(row=0, column=1, padx=5, pady=5)
+        
+        # X-direction phase shift slider
+        x_slider = ttk.Scale(phase_shift_frame, from_=-5.0, to=5.0, orient=tk.HORIZONTAL, length=200,
+                           command=lambda v: self.phase_shift_x_var.set(f"{float(v):.1f}"))
+        x_slider.set(0.0)
+        x_slider.grid(row=0, column=2, padx=5, pady=5)
+        
+        # Y-direction phase shift
+        ttk.Label(phase_shift_frame, text="Y-Shift (cycles):").grid(row=1, column=0, padx=5, pady=5)
+        self.phase_shift_y_var = tk.StringVar(value="0.0")
+        phase_shift_y_entry = ttk.Entry(phase_shift_frame, textvariable=self.phase_shift_y_var, width=8)
+        phase_shift_y_entry.grid(row=1, column=1, padx=5, pady=5)
+        
+        # Y-direction phase shift slider
+        y_slider = ttk.Scale(phase_shift_frame, from_=-5.0, to=5.0, orient=tk.HORIZONTAL, length=200,
+                           command=lambda v: self.phase_shift_y_var.set(f"{float(v):.1f}"))
+        y_slider.set(0.0)
+        y_slider.grid(row=1, column=2, padx=5, pady=5)
+        
+        # Apply button
+        apply_button = ttk.Button(phase_shift_frame, text="Apply Shift", 
+                                command=lambda: self.apply_phase_shift())
+        apply_button.grid(row=0, column=3, rowspan=2, padx=10, pady=5)
+        
+        # Help text
+        help_text = "Shift your image away from the zero-order (undiffracted) light by adding a linear phase ramp.\n"
+        help_text += "Positive values shift right/down, negative values shift left/up."
+        help_label = ttk.Label(phase_shift_frame, text=help_text, wraplength=500)
+        help_label.grid(row=2, column=0, columnspan=4, padx=5, pady=5)
+    
+    def apply_phase_shift(self):
+        """Apply the phase shift and regenerate the pattern"""
+        try:
+            # Update phase shift parameters
+            self.phase_shift_x = float(self.phase_shift_x_var.get())
+            self.phase_shift_y = float(self.phase_shift_y_var.get())
+            
+            # Regenerate pattern if one exists
+            if hasattr(self, 'pattern'):
+                self.generate_pattern()
+                self.status_var.set(f"Phase shift applied: X={self.phase_shift_x}, Y={self.phase_shift_y}")
+            else:
+                self.status_var.set("Generate a pattern first before applying phase shift")
+        except ValueError as e:
+            self.status_var.set(f"Invalid phase shift values: {str(e)}")
+    
     def create_preview(self):
         """Create preview area with matplotlib plots"""
         # Create figure and subplots with 2x2 grid
@@ -1025,6 +1088,21 @@ class AdvancedPatternGenerator:
             slm_field = self.pattern_generator.propagate(optimized_field)
             slm_phase = np.angle(slm_field)
             
+            # Apply phase shift to avoid zero-order diffraction
+            if self.phase_shift_x != 0 or self.phase_shift_y != 0:
+                # Create coordinate grids for the SLM plane
+                y, x = np.indices((self.padded_height, self.padded_width))
+                
+                # Normalize coordinates to [-0.5, 0.5] range
+                x_norm = (x - self.padded_width // 2) / self.padded_width
+                y_norm = (y - self.padded_height // 2) / self.padded_height
+                
+                # Calculate linear phase ramp
+                phase_ramp = 2 * np.pi * (self.phase_shift_x * x_norm + self.phase_shift_y * y_norm)
+                
+                # Add phase ramp to SLM phase
+                slm_phase = np.mod(slm_phase + phase_ramp, 2 * np.pi) - np.pi
+            
             # Calculate and store reconstruction for preview
             image_field = self.pattern_generator.inverse_propagate(np.exp(1j * slm_phase))
             self.reconstruction = np.abs(image_field)**2
@@ -1065,6 +1143,21 @@ class AdvancedPatternGenerator:
             slm_field = self.pattern_generator.propagate(optimized_field)
             slm_phase = np.angle(slm_field)
             
+            # Apply phase shift to avoid zero-order diffraction
+            if self.phase_shift_x != 0 or self.phase_shift_y != 0:
+                # Create coordinate grids for the SLM plane
+                y, x = np.indices((self.padded_height, self.padded_width))
+                
+                # Normalize coordinates to [-0.5, 0.5] range
+                x_norm = (x - self.padded_width // 2) / self.padded_width
+                y_norm = (y - self.padded_height // 2) / self.padded_height
+                
+                # Calculate linear phase ramp
+                phase_ramp = 2 * np.pi * (self.phase_shift_x * x_norm + self.phase_shift_y * y_norm)
+                
+                # Add phase ramp to SLM phase
+                slm_phase = np.mod(slm_phase + phase_ramp, 2 * np.pi) - np.pi
+            
             # Calculate and store reconstruction for preview
             image_field = self.pattern_generator.inverse_propagate(np.exp(1j * slm_phase))
             self.reconstruction = np.abs(image_field)**2
@@ -1104,6 +1197,21 @@ class AdvancedPatternGenerator:
             # Get SLM phase pattern
             slm_field = self.pattern_generator.propagate(optimized_field)
             slm_phase = np.angle(slm_field)
+            
+            # Apply phase shift to avoid zero-order diffraction
+            if self.phase_shift_x != 0 or self.phase_shift_y != 0:
+                # Create coordinate grids for the SLM plane
+                y, x = np.indices((self.padded_height, self.padded_width))
+                
+                # Normalize coordinates to [-0.5, 0.5] range
+                x_norm = (x - self.padded_width // 2) / self.padded_width
+                y_norm = (y - self.padded_height // 2) / self.padded_height
+                
+                # Calculate linear phase ramp
+                phase_ramp = 2 * np.pi * (self.phase_shift_x * x_norm + self.phase_shift_y * y_norm)
+                
+                # Add phase ramp to SLM phase
+                slm_phase = np.mod(slm_phase + phase_ramp, 2 * np.pi) - np.pi
             
             # Calculate and store reconstruction for preview
             image_field = self.pattern_generator.inverse_propagate(np.exp(1j * slm_phase))
