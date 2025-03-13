@@ -740,10 +740,14 @@ class AdvancedPatternGenerator:
                 end_y = start_y + self.height
                 start_x = (self.padded_width - self.width) // 2
                 end_x = start_x + self.width
+                
+                # Use logarithmic scale for better visualization of diffraction patterns
                 central_recon = self.reconstruction[start_y:end_y, start_x:end_x]
+                # Add small value to avoid log(0)
+                log_recon = np.log10(central_recon + 1e-10)
                 
                 # Display the central region of the reconstruction
-                self.ax3.imshow(central_recon, cmap='hot')  # Use hot colormap for intensity
+                self.ax3.imshow(log_recon, cmap='viridis')  # Use viridis colormap for better contrast
                 self.ax3.set_title('Simulated Reconstruction')
                 self.ax3.set_xticks([])
                 self.ax3.set_yticks([])
