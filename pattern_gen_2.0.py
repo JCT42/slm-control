@@ -873,7 +873,6 @@ class AdvancedPatternGenerator:
                 self.reconstruction = np.abs(image_field)**2
                 self.reconstruction = self.reconstruction / np.max(self.reconstruction)
             
-            self.error_history = self.pattern_generator.error_history
             self.status_var.set(f"Pattern generated using {self.modulation_mode} mode. Stopped due to: {stop_reason}")
             
             # Update the preview to show all plots
@@ -1254,12 +1253,15 @@ class AdvancedPatternGenerator:
             initial_field = input_beam * np.exp(1j * np.angle(field))
             
             # Run optimization with selected algorithm
-            optimized_field, self.error_history, stop_reason = self.pattern_generator.optimize(
+            optimized_field, error_history, stop_reason = self.pattern_generator.optimize(
                 initial_field=initial_field,
                 algorithm=algorithm,
                 max_iterations=iterations,
                 tolerance=tolerance
             )
+            
+            # Store error history for plotting
+            self.error_history = error_history
             
             # Get SLM phase pattern
             slm_field = self.pattern_generator.propagate(optimized_field)
@@ -1328,12 +1330,15 @@ class AdvancedPatternGenerator:
             initial_field = input_beam * np.exp(1j * np.angle(field))
             
             # Run optimization with selected algorithm
-            optimized_field, self.error_history, stop_reason = self.pattern_generator.optimize(
+            optimized_field, error_history, stop_reason = self.pattern_generator.optimize(
                 initial_field=initial_field,
                 algorithm=algorithm,
                 max_iterations=iterations,
                 tolerance=tolerance
             )
+            
+            # Store error history for plotting
+            self.error_history = error_history
             
             # Get SLM phase pattern
             slm_field = self.pattern_generator.propagate(optimized_field)
@@ -1402,12 +1407,15 @@ class AdvancedPatternGenerator:
             initial_field = input_beam * np.exp(1j * np.angle(field))
             
             # Run optimization with selected algorithm
-            optimized_field, self.error_history, stop_reason = self.pattern_generator.optimize(
+            optimized_field, error_history, stop_reason = self.pattern_generator.optimize(
                 initial_field=initial_field,
                 algorithm=algorithm,
                 max_iterations=iterations,
                 tolerance=tolerance
             )
+            
+            # Store error history for plotting
+            self.error_history = error_history
             
             # Get SLM phase pattern
             slm_field = self.pattern_generator.propagate(optimized_field)
