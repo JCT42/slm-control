@@ -58,6 +58,12 @@ class AdvancedPatternGenerator:
         self.phase_shift_x = 0.0  # Phase shift in x-direction (cycles per image)
         self.phase_shift_y = 0.0  # Phase shift in y-direction (cycles per image)
         
+        # Blazed grating parameters
+        self.use_blazed_grating = False  # Whether to use blazed grating instead of linear phase ramp
+        self.grating_period = 10  # Period of the blazed grating in pixels
+        self.grating_angle = 0.0  # Angle of the blazed grating in degrees
+        self.grating_depth = 1.0  # Depth of the blazed grating (0-1)
+        
         # Initialize camera state
         self.camera_active = False
         self.camera_paused = False
@@ -295,41 +301,152 @@ class AdvancedPatternGenerator:
         phase_shift_frame = ttk.LabelFrame(self.scrollable_frame, text="Zero-Order Diffraction Control", padding="10")
         phase_shift_frame.pack(fill=tk.X, padx=5, pady=5)
         
+        # Create notebook for different shift methods
+        shift_notebook = ttk.Notebook(phase_shift_frame)
+        shift_notebook.pack(fill=tk.X, padx=5, pady=5)
+        
+        # Linear phase ramp tab
+        linear_frame = ttk.Frame(shift_notebook)
+        shift_notebook.add(linear_frame, text="Linear Phase Ramp")
+        
         # X-direction phase shift
-        ttk.Label(phase_shift_frame, text="X-Shift (cycles):").grid(row=0, column=0, padx=5, pady=5)
+        ttk.Label(linear_frame, text="X-Shift (cycles):").grid(row=0, column=0, padx=5, pady=5)
         self.phase_shift_x_var = tk.StringVar(value="0.0")
-        phase_shift_x_entry = ttk.Entry(phase_shift_frame, textvariable=self.phase_shift_x_var, width=8)
+        phase_shift_x_entry = ttk.Entry(linear_frame, textvariable=self.phase_shift_x_var, width=8)
         phase_shift_x_entry.grid(row=0, column=1, padx=5, pady=5)
         
         # X-direction phase shift slider
-        x_slider = ttk.Scale(phase_shift_frame, from_=-5.0, to=5.0, orient=tk.HORIZONTAL, length=200,
+        x_slider = ttk.Scale(linear_frame, from_=-5.0, to=5.0, orient=tk.HORIZONTAL, length=200,
                            command=lambda v: self.phase_shift_x_var.set(f"{float(v):.1f}"))
         x_slider.set(0.0)
         x_slider.grid(row=0, column=2, padx=5, pady=5)
         
         # Y-direction phase shift
-        ttk.Label(phase_shift_frame, text="Y-Shift (cycles):").grid(row=1, column=0, padx=5, pady=5)
+        ttk.Label(linear_frame, text="Y-Shift (cycles):").grid(row=1, column=0, padx=5, pady=5)
         self.phase_shift_y_var = tk.StringVar(value="0.0")
-        phase_shift_y_entry = ttk.Entry(phase_shift_frame, textvariable=self.phase_shift_y_var, width=8)
+        phase_shift_y_entry = ttk.Entry(linear_frame, textvariable=self.phase_shift_y_var, width=8)
         phase_shift_y_entry.grid(row=1, column=1, padx=5, pady=5)
         
         # Y-direction phase shift slider
-        y_slider = ttk.Scale(phase_shift_frame, from_=-5.0, to=5.0, orient=tk.HORIZONTAL, length=200,
+        y_slider = ttk.Scale(linear_frame, from_=-5.0, to=5.0, orient=tk.HORIZONTAL, length=200,
                            command=lambda v: self.phase_shift_y_var.set(f"{float(v):.1f}"))
         y_slider.set(0.0)
         y_slider.grid(row=1, column=2, padx=5, pady=5)
         
-        # Apply button
-        apply_button = ttk.Button(phase_shift_frame, text="Apply Shift", 
+        # Apply linear phase button
+        apply_linear_button = ttk.Button(linear_frame, text="Apply Shift", 
                                 command=lambda: self.apply_phase_shift())
-        apply_button.grid(row=0, column=3, rowspan=2, padx=10, pady=5)
+        apply_linear_button.grid(row=0, column=3, rowspan=2, padx=10, pady=5)
+        
+        # Blazed grating tab
+        blazed_frame = ttk.Frame(shift_notebook)
+        shift_notebook.add(blazed_frame, text="Blazed Grating")
+        
+        # Grating period
+        ttk.Label(blazed_frame, text="Period (pixels):").grid(row=0, column=0, padx=5, pady=5)
+        self.grating_period_var = tk.StringVar(value="10")
+        grating_period_entry = ttk.Entry(blazed_frame, textvariable=self.grating_period_var, width=8)
+        grating_period_entry.grid(row=0, column=1, padx=5, pady=5)
+        
+        # Period slider
+        period_slider = ttk.Scale(blazed_frame, from_=3, to=50, orient=tk.HORIZONTAL, length=200,
+                                command=lambda v: self.grating_period_var.set(f"{int(float(v))}"))
+        period_slider.set(10)
+        period_slider.grid(row=0, column=2, padx=5, pady=5)
+        
+        # Grating angle
+        ttk.Label(blazed_frame, text="Angle (degrees):").grid(row=1, column=0, padx=5, pady=5)
+        self.grating_angle_var = tk.StringVar(value="0.0")
+        grating_angle_entry = ttk.Entry(blazed_frame, textvariable=self.grating_angle_var, width=8)
+        grating_angle_entry.grid(row=1, column=1, padx=5, pady=5)
+        
+        # Angle slider
+        angle_slider = ttk.Scale(blazed_frame, from_=0, to=359, orient=tk.HORIZONTAL, length=200,
+                               command=lambda v: self.grating_angle_var.set(f"{int(float(v))}"))
+        angle_slider.set(0)
+        angle_slider.grid(row=1, column=2, padx=5, pady=5)
+        
+        # Grating depth
+        ttk.Label(blazed_frame, text="Depth (0-1):").grid(row=2, column=0, padx=5, pady=5)
+        self.grating_depth_var = tk.StringVar(value="1.0")
+        grating_depth_entry = ttk.Entry(blazed_frame, textvariable=self.grating_depth_var, width=8)
+        grating_depth_entry.grid(row=2, column=1, padx=5, pady=5)
+        
+        # Depth slider
+        depth_slider = ttk.Scale(blazed_frame, from_=0.1, to=1.0, orient=tk.HORIZONTAL, length=200,
+                               command=lambda v: self.grating_depth_var.set(f"{float(v):.1f}"))
+        depth_slider.set(1.0)
+        depth_slider.grid(row=2, column=2, padx=5, pady=5)
+        
+        # Apply blazed grating button
+        apply_blazed_button = ttk.Button(blazed_frame, text="Apply Blazed Grating", 
+                                       command=lambda: self.apply_blazed_grating())
+        apply_blazed_button.grid(row=0, column=3, rowspan=3, padx=10, pady=5)
         
         # Help text
-        help_text = "Shift your image away from the zero-order (undiffracted) light by adding a linear phase ramp.\n"
-        help_text += "Positive values shift right/down, negative values shift left/up."
-        help_label = ttk.Label(phase_shift_frame, text=help_text, wraplength=500)
-        help_label.grid(row=2, column=0, columnspan=4, padx=5, pady=5)
-    
+        help_text = "Shift your image away from the zero-order (undiffracted) light using either:\n"
+        help_text += "1. Linear Phase Ramp: Simple shift with positive values moving right/down, negative values moving left/up.\n"
+        help_text += "2. Blazed Grating: More efficient for directing light to a specific diffraction order."
+        help_label = ttk.Label(phase_shift_frame, text=help_text, wraplength=600)
+        help_label.pack(padx=5, pady=5)
+
+    def apply_blazed_grating(self):
+        """Apply a blazed grating to the pattern to efficiently shift the image to a specific diffraction order"""
+        try:
+            # Get blazed grating parameters
+            period = int(self.grating_period_var.get())
+            angle_deg = float(self.grating_angle_var.get())
+            depth = float(self.grating_depth_var.get())
+            
+            # Convert angle to radians
+            angle_rad = np.radians(angle_deg)
+            
+            # Check if we have a pattern to apply the grating to
+            if hasattr(self, 'pattern') and hasattr(self, 'slm_phase'):
+                # Create coordinate grids for the SLM plane
+                y, x = np.indices((self.height, self.width))
+                
+                # Calculate rotated coordinates
+                x_rot = (x - self.width // 2) * np.cos(angle_rad) + (y - self.height // 2) * np.sin(angle_rad)
+                
+                # Create blazed grating
+                # The sawtooth function creates a pattern that goes from 0 to 1 repeatedly
+                blazed_grating = depth * 2 * np.pi * np.mod(x_rot / period, 1.0)
+                
+                # Apply blazed grating to existing SLM phase
+                self.slm_phase = np.mod(self.slm_phase + blazed_grating, 2 * np.pi) - np.pi
+                
+                # Convert to pattern (8-bit grayscale)
+                gamma = float(self.gamma_var.get())
+                normalized_phase = (self.slm_phase + np.pi) / (2 * np.pi)
+                self.pattern = (normalized_phase ** gamma * 255).astype(np.uint8)
+                
+                # Update reconstruction preview
+                # Create full-sized phase with the blazed grating
+                padded_phase = np.zeros((self.padded_height, self.padded_width))
+                start_y = (self.padded_height - self.height) // 2
+                end_y = start_y + self.height
+                start_x = (self.padded_width - self.width) // 2
+                end_x = start_x + self.width
+                padded_phase[start_y:end_y, start_x:end_x] = self.slm_phase
+                
+                # Calculate reconstruction with blazed grating
+                image_field = self.pattern_generator.inverse_propagate(np.exp(1j * padded_phase))
+                self.reconstruction = np.abs(image_field)**2
+                self.reconstruction = self.reconstruction / np.max(self.reconstruction)
+                
+                # Update preview
+                self.update_preview()
+                
+                self.status_var.set(f"Blazed grating applied: Period={period}px, Angle={angle_deg}°, Depth={depth}")
+            else:
+                self.status_var.set("Generate a pattern first before applying blazed grating")
+        except ValueError as e:
+            self.status_var.set(f"Invalid blazed grating values: {str(e)}")
+        except Exception as e:
+            self.status_var.set(f"Error applying blazed grating: {str(e)}")
+            print(f"Detailed error: {str(e)}")
+
     def apply_phase_shift(self):
         """Apply the phase shift and regenerate the pattern"""
         try:
@@ -722,39 +839,40 @@ class AdvancedPatternGenerator:
             end_x = start_x + self.width
             central_phase = slm_phase[start_y:end_y, start_x:end_x]
             
-            # Generate pattern based on mode
-            if self.modulation_mode == "Phase":
-                # Extract phase and normalize to [0, 1]
-                normalized_phase = (central_phase + np.pi) / (2 * np.pi)
-                self.pattern = (normalized_phase ** gamma * 255).astype(np.uint8)
-                
-            elif self.modulation_mode == "Amplitude":
-                # Extract amplitude and normalize
-                amplitude = np.abs(field)
-                normalized_amplitude = amplitude / np.max(amplitude)
-                self.pattern = (normalized_amplitude ** gamma * 255).astype(np.uint8)
-                
-            else:  # Combined mode
-                # Extract both amplitude and phase
-                amplitude = np.abs(field)
-                phase = np.angle(field)
-                
-                # Normalize both components
-                normalized_amplitude = amplitude / np.max(amplitude)
-                normalized_phase = (phase + np.pi) / (2 * np.pi)
-                
-                # Apply coupling parameters and combine
-                amp_component = normalized_amplitude ** self.amplitude_coupling
-                phase_component = normalized_phase ** self.phase_coupling
-                
-                # Weighted sum of components
-                combined = (amp_component + phase_component) / 2
-                
-                # Apply gamma correction and scale to 8-bit
-                self.pattern = (combined ** gamma * 255).astype(np.uint8)
+            # Store the original SLM phase for later modification
+            self.slm_phase = central_phase.copy()
             
-            # Update the preview with the full field for proper reconstruction
-            self.update_preview()
+            # Apply phase shift to avoid zero-order diffraction
+            if self.phase_shift_x != 0 or self.phase_shift_y != 0:
+                # Create coordinate grids for the SLM plane
+                y, x = np.indices((self.height, self.width))
+                
+                # Normalize coordinates to [-0.5, 0.5] range
+                x_norm = (x - self.width // 2) / self.width
+                y_norm = (y - self.height // 2) / self.height
+                
+                # Calculate linear phase ramp
+                phase_ramp = 2 * np.pi * (self.phase_shift_x * x_norm + self.phase_shift_y * y_norm)
+                
+                # Add phase ramp to SLM phase
+                self.slm_phase = np.mod(self.slm_phase + phase_ramp, 2 * np.pi) - np.pi
+            
+            # Extract phase and normalize to [0, 1]
+            gamma = float(self.gamma_var.get())
+            normalized_phase = (self.slm_phase + np.pi) / (2 * np.pi)
+            self.pattern = (normalized_phase ** gamma * 255).astype(np.uint8)
+            
+            # Calculate and store reconstruction for preview
+            # Create full-sized phase with the shift
+            padded_phase = np.zeros((self.padded_height, self.padded_width))
+            padded_phase[start_y:end_y, start_x:end_x] = self.slm_phase
+            
+            # Calculate reconstruction with shift
+            image_field = self.pattern_generator.inverse_propagate(np.exp(1j * padded_phase))
+            self.reconstruction = np.abs(image_field)**2
+            
+            # Normalize reconstruction for display
+            self.reconstruction = self.reconstruction / np.max(self.reconstruction)
             
             self.status_var.set(f"Pattern generated using {self.modulation_mode} mode. Stopped due to: {stop_reason}")
             
