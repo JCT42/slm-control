@@ -421,27 +421,22 @@ class AdvancedPatternGenerator:
                 normalized_phase = (self.slm_phase + np.pi) / (2 * np.pi)
                 self.pattern = (normalized_phase ** gamma * 255).astype(np.uint8)
                 
-                # Calculate and store reconstruction for preview
-                # Create full-sized phase with the blazed grating
-                padded_phase = np.zeros((self.padded_height, self.padded_width))
-                start_y = (self.padded_height - self.height) // 2
-                end_y = start_y + self.height
-                start_x = (self.padded_width - self.width) // 2
-                end_x = start_x + self.width
-                padded_phase[start_y:end_y, start_x:end_x] = self.slm_phase
+                # Update preview
+                self.update_preview()
                 
                 if hasattr(self, 'padded_target'):
                     # Create a temporary PatternGenerator instance for reconstruction calculation
                     temp_generator = PatternGenerator(target_intensity=self.padded_target)
+                    padded_phase = np.zeros((self.padded_height, self.padded_width))
+                    start_y = (self.padded_height - self.height) // 2
+                    end_y = start_y + self.height
+                    start_x = (self.padded_width - self.width) // 2
+                    end_x = start_x + self.width
+                    padded_phase[start_y:end_y, start_x:end_x] = self.slm_phase
                     image_field = temp_generator.inverse_propagate(np.exp(1j * padded_phase))
                     self.reconstruction = np.abs(image_field)**2
                     self.reconstruction = self.reconstruction / np.max(self.reconstruction)
-                else:
-                    self.status_var.set("Please load a target image first")
-                    return
-                
-                # Update preview
-                self.update_preview()
+                    self.update_preview()
                 
                 self.status_var.set(f"Blazed grating applied: Period={period}px, Angle={angle_deg}°, Depth={depth}")
             else:
@@ -479,27 +474,22 @@ class AdvancedPatternGenerator:
                 normalized_phase = (self.slm_phase + np.pi) / (2 * np.pi)
                 self.pattern = (normalized_phase ** gamma * 255).astype(np.uint8)
                 
-                # Calculate and store reconstruction for preview
-                # Create full-sized phase with the shift
-                padded_phase = np.zeros((self.padded_height, self.padded_width))
-                start_y = (self.padded_height - self.height) // 2
-                end_y = start_y + self.height
-                start_x = (self.padded_width - self.width) // 2
-                end_x = start_x + self.width
-                padded_phase[start_y:end_y, start_x:end_x] = self.slm_phase
+                # Update preview
+                self.update_preview()
                 
                 if hasattr(self, 'padded_target'):
                     # Create a temporary PatternGenerator instance for reconstruction calculation
                     temp_generator = PatternGenerator(target_intensity=self.padded_target)
+                    padded_phase = np.zeros((self.padded_height, self.padded_width))
+                    start_y = (self.padded_height - self.height) // 2
+                    end_y = start_y + self.height
+                    start_x = (self.padded_width - self.width) // 2
+                    end_x = start_x + self.width
+                    padded_phase[start_y:end_y, start_x:end_x] = self.slm_phase
                     image_field = temp_generator.inverse_propagate(np.exp(1j * padded_phase))
                     self.reconstruction = np.abs(image_field)**2
                     self.reconstruction = self.reconstruction / np.max(self.reconstruction)
-                else:
-                    self.status_var.set("Please load a target image first")
-                    return
-                
-                # Update preview
-                self.update_preview()
+                    self.update_preview()
                 
                 self.status_var.set(f"Phase shift applied: X={self.phase_shift_x}, Y={self.phase_shift_y}")
             else:
@@ -876,12 +866,11 @@ class AdvancedPatternGenerator:
             padded_phase = np.zeros((self.padded_height, self.padded_width))
             padded_phase[start_y:end_y, start_x:end_x] = self.slm_phase
             
-            # Calculate reconstruction with shift
-            image_field = self.pattern_generator.inverse_propagate(np.exp(1j * padded_phase))
-            self.reconstruction = np.abs(image_field)**2
-            
-            # Normalize reconstruction for display
-            self.reconstruction = self.reconstruction / np.max(self.reconstruction)
+            if hasattr(self, 'padded_target'):
+                # Calculate reconstruction with shift
+                image_field = self.pattern_generator.inverse_propagate(np.exp(1j * padded_phase))
+                self.reconstruction = np.abs(image_field)**2
+                self.reconstruction = self.reconstruction / np.max(self.reconstruction)
             
             self.status_var.set(f"Pattern generated using {self.modulation_mode} mode. Stopped due to: {stop_reason}")
             
@@ -1306,12 +1295,11 @@ class AdvancedPatternGenerator:
             padded_phase = np.zeros((self.padded_height, self.padded_width))
             padded_phase[start_y:end_y, start_x:end_x] = self.slm_phase
             
-            # Calculate reconstruction with shift
-            image_field = self.pattern_generator.inverse_propagate(np.exp(1j * padded_phase))
-            self.reconstruction = np.abs(image_field)**2
-            
-            # Normalize reconstruction for display
-            self.reconstruction = self.reconstruction / np.max(self.reconstruction)
+            if hasattr(self, 'padded_target'):
+                # Calculate reconstruction with shift
+                image_field = self.pattern_generator.inverse_propagate(np.exp(1j * padded_phase))
+                self.reconstruction = np.abs(image_field)**2
+                self.reconstruction = self.reconstruction / np.max(self.reconstruction)
             
             self.status_var.set(f"Phase pattern generated using {algorithm.upper()} algorithm")
             return optimized_field, slm_phase, stop_reason
@@ -1381,12 +1369,11 @@ class AdvancedPatternGenerator:
             padded_phase = np.zeros((self.padded_height, self.padded_width))
             padded_phase[start_y:end_y, start_x:end_x] = self.slm_phase
             
-            # Calculate reconstruction with shift
-            image_field = self.pattern_generator.inverse_propagate(np.exp(1j * padded_phase))
-            self.reconstruction = np.abs(image_field)**2
-            
-            # Normalize reconstruction for display
-            self.reconstruction = self.reconstruction / np.max(self.reconstruction)
+            if hasattr(self, 'padded_target'):
+                # Calculate reconstruction with shift
+                image_field = self.pattern_generator.inverse_propagate(np.exp(1j * padded_phase))
+                self.reconstruction = np.abs(image_field)**2
+                self.reconstruction = self.reconstruction / np.max(self.reconstruction)
             
             self.status_var.set(f"Amplitude pattern generated using {algorithm.upper()} algorithm")
             return optimized_field, slm_phase, stop_reason
@@ -1456,12 +1443,11 @@ class AdvancedPatternGenerator:
             padded_phase = np.zeros((self.padded_height, self.padded_width))
             padded_phase[start_y:end_y, start_x:end_x] = self.slm_phase
             
-            # Calculate reconstruction with shift
-            image_field = self.pattern_generator.inverse_propagate(np.exp(1j * padded_phase))
-            self.reconstruction = np.abs(image_field)**2
-            
-            # Normalize reconstruction for display
-            self.reconstruction = self.reconstruction / np.max(self.reconstruction)
+            if hasattr(self, 'padded_target'):
+                # Calculate reconstruction with shift
+                image_field = self.pattern_generator.inverse_propagate(np.exp(1j * padded_phase))
+                self.reconstruction = np.abs(image_field)**2
+                self.reconstruction = self.reconstruction / np.max(self.reconstruction)
             
             self.status_var.set(f"Combined pattern generated using {algorithm.upper()} algorithm")
             return optimized_field, slm_phase, stop_reason
