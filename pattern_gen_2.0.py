@@ -147,6 +147,8 @@ class AdvancedPatternGenerator:
         
         # Bind ESC key to quit
         self.root.bind('<Escape>', lambda e: self.quit_application())
+        # Also bind using protocol for window close button
+        self.root.protocol("WM_DELETE_WINDOW", self.quit_application)
         
         # Bind mouse wheel to scrolling
         self.root.bind("<MouseWheel>", self._on_mousewheel)
@@ -335,15 +337,52 @@ class AdvancedPatternGenerator:
             self.phase_shift_x = float(self.phase_shift_x_var.get())
             self.phase_shift_y = float(self.phase_shift_y_var.get())
             
-            # Regenerate pattern if one exists
-            if hasattr(self, 'pattern'):
-                self.generate_pattern()
+            # If we have a pattern already, apply the phase shift directly
+            if hasattr(self, 'pattern') and hasattr(self, 'slm_phase'):
+                # Create coordinate grids for the SLM plane
+                y, x = np.indices((self.height, self.width))
+                
+                # Normalize coordinates to [-0.5, 0.5] range
+                x_norm = (x - self.width // 2) / self.width
+                y_norm = (y - self.height // 2) / self.height
+                
+                # Calculate linear phase ramp
+                phase_ramp = 2 * np.pi * (self.phase_shift_x * x_norm + self.phase_shift_y * y_norm)
+                
+                # Apply phase ramp to existing SLM phase
+                self.slm_phase = np.mod(self.slm_phase + phase_ramp, 2 * np.pi) - np.pi
+                
+                # Convert to pattern (8-bit grayscale)
+                gamma = float(self.gamma_var.get())
+                normalized_phase = (self.slm_phase + np.pi) / (2 * np.pi)
+                self.pattern = (normalized_phase ** gamma * 255).astype(np.uint8)
+                
+                # Update reconstruction preview
+                # Create full-sized phase with the shift
+                padded_phase = np.zeros((self.padded_height, self.padded_width))
+                start_y = (self.padded_height - self.height) // 2
+                end_y = start_y + self.height
+                start_x = (self.padded_width - self.width) // 2
+                end_x = start_x + self.width
+                padded_phase[start_y:end_y, start_x:end_x] = self.slm_phase
+                
+                # Calculate reconstruction with shift
+                image_field = self.pattern_generator.inverse_propagate(np.exp(1j * padded_phase))
+                self.reconstruction = np.abs(image_field)**2
+                self.reconstruction = self.reconstruction / np.max(self.reconstruction)
+                
+                # Update preview
+                self.update_preview()
+                
                 self.status_var.set(f"Phase shift applied: X={self.phase_shift_x}, Y={self.phase_shift_y}")
             else:
                 self.status_var.set("Generate a pattern first before applying phase shift")
         except ValueError as e:
             self.status_var.set(f"Invalid phase shift values: {str(e)}")
-    
+        except Exception as e:
+            self.status_var.set(f"Error applying phase shift: {str(e)}")
+            print(f"Detailed error: {str(e)}")
+
     def create_preview(self):
         """Create preview area with matplotlib plots"""
         # Create figure and subplots with 2x2 grid
@@ -845,12 +884,29 @@ class AdvancedPatternGenerator:
 
     def quit_application(self):
         """Clean up and quit the application"""
-        if self.camera_active:
-            self.camera_active = False
-            self.picam.stop()
-            self.picam.close()
-        cv2.destroyAllWindows()
-        self.root.quit()
+        print("Quitting application...")
+        try:
+            # Clean up camera if active
+            if self.camera_active:
+                self.camera_active = False
+                self.picam.stop()
+                self.picam.close()
+            
+            # Clean up any OpenCV windows
+            cv2.destroyAllWindows()
+            
+            # Clean up pygame if initialized
+            if pygame.display.get_init():
+                pygame.display.quit()
+            
+            # Destroy and quit Tkinter
+            self.root.destroy()
+            
+        except Exception as e:
+            print(f"Error during application shutdown: {str(e)}")
+            # Force exit if needed
+            import sys
+            sys.exit(0)
         
     def load_image(self):
         """Load and display target image"""
@@ -1088,23 +1144,43 @@ class AdvancedPatternGenerator:
             slm_field = self.pattern_generator.propagate(optimized_field)
             slm_phase = np.angle(slm_field)
             
+            # Extract central region
+            start_y = (self.padded_height - self.height) // 2
+            end_y = start_y + self.height
+            start_x = (self.padded_width - self.width) // 2
+            end_x = start_x + self.width
+            central_phase = slm_phase[start_y:end_y, start_x:end_x]
+            
+            # Store the original SLM phase for later modification
+            self.slm_phase = central_phase.copy()
+            
             # Apply phase shift to avoid zero-order diffraction
             if self.phase_shift_x != 0 or self.phase_shift_y != 0:
                 # Create coordinate grids for the SLM plane
-                y, x = np.indices((self.padded_height, self.padded_width))
+                y, x = np.indices((self.height, self.width))
                 
                 # Normalize coordinates to [-0.5, 0.5] range
-                x_norm = (x - self.padded_width // 2) / self.padded_width
-                y_norm = (y - self.padded_height // 2) / self.padded_height
+                x_norm = (x - self.width // 2) / self.width
+                y_norm = (y - self.height // 2) / self.height
                 
                 # Calculate linear phase ramp
                 phase_ramp = 2 * np.pi * (self.phase_shift_x * x_norm + self.phase_shift_y * y_norm)
                 
                 # Add phase ramp to SLM phase
-                slm_phase = np.mod(slm_phase + phase_ramp, 2 * np.pi) - np.pi
+                self.slm_phase = np.mod(self.slm_phase + phase_ramp, 2 * np.pi) - np.pi
+            
+            # Extract phase and normalize to [0, 1]
+            gamma = float(self.gamma_var.get())
+            normalized_phase = (self.slm_phase + np.pi) / (2 * np.pi)
+            self.pattern = (normalized_phase ** gamma * 255).astype(np.uint8)
             
             # Calculate and store reconstruction for preview
-            image_field = self.pattern_generator.inverse_propagate(np.exp(1j * slm_phase))
+            # Create full-sized phase with the shift
+            padded_phase = np.zeros((self.padded_height, self.padded_width))
+            padded_phase[start_y:end_y, start_x:end_x] = self.slm_phase
+            
+            # Calculate reconstruction with shift
+            image_field = self.pattern_generator.inverse_propagate(np.exp(1j * padded_phase))
             self.reconstruction = np.abs(image_field)**2
             
             # Normalize reconstruction for display
@@ -1143,23 +1219,43 @@ class AdvancedPatternGenerator:
             slm_field = self.pattern_generator.propagate(optimized_field)
             slm_phase = np.angle(slm_field)
             
+            # Extract central region
+            start_y = (self.padded_height - self.height) // 2
+            end_y = start_y + self.height
+            start_x = (self.padded_width - self.width) // 2
+            end_x = start_x + self.width
+            central_phase = slm_phase[start_y:end_y, start_x:end_x]
+            
+            # Store the original SLM phase for later modification
+            self.slm_phase = central_phase.copy()
+            
             # Apply phase shift to avoid zero-order diffraction
             if self.phase_shift_x != 0 or self.phase_shift_y != 0:
                 # Create coordinate grids for the SLM plane
-                y, x = np.indices((self.padded_height, self.padded_width))
+                y, x = np.indices((self.height, self.width))
                 
                 # Normalize coordinates to [-0.5, 0.5] range
-                x_norm = (x - self.padded_width // 2) / self.padded_width
-                y_norm = (y - self.padded_height // 2) / self.padded_height
+                x_norm = (x - self.width // 2) / self.width
+                y_norm = (y - self.height // 2) / self.height
                 
                 # Calculate linear phase ramp
                 phase_ramp = 2 * np.pi * (self.phase_shift_x * x_norm + self.phase_shift_y * y_norm)
                 
                 # Add phase ramp to SLM phase
-                slm_phase = np.mod(slm_phase + phase_ramp, 2 * np.pi) - np.pi
+                self.slm_phase = np.mod(self.slm_phase + phase_ramp, 2 * np.pi) - np.pi
+            
+            # Extract amplitude and normalize
+            gamma = float(self.gamma_var.get())
+            normalized_phase = (self.slm_phase + np.pi) / (2 * np.pi)
+            self.pattern = (normalized_phase ** gamma * 255).astype(np.uint8)
             
             # Calculate and store reconstruction for preview
-            image_field = self.pattern_generator.inverse_propagate(np.exp(1j * slm_phase))
+            # Create full-sized phase with the shift
+            padded_phase = np.zeros((self.padded_height, self.padded_width))
+            padded_phase[start_y:end_y, start_x:end_x] = self.slm_phase
+            
+            # Calculate reconstruction with shift
+            image_field = self.pattern_generator.inverse_propagate(np.exp(1j * padded_phase))
             self.reconstruction = np.abs(image_field)**2
             
             # Normalize reconstruction for display
@@ -1198,23 +1294,43 @@ class AdvancedPatternGenerator:
             slm_field = self.pattern_generator.propagate(optimized_field)
             slm_phase = np.angle(slm_field)
             
+            # Extract central region
+            start_y = (self.padded_height - self.height) // 2
+            end_y = start_y + self.height
+            start_x = (self.padded_width - self.width) // 2
+            end_x = start_x + self.width
+            central_phase = slm_phase[start_y:end_y, start_x:end_x]
+            
+            # Store the original SLM phase for later modification
+            self.slm_phase = central_phase.copy()
+            
             # Apply phase shift to avoid zero-order diffraction
             if self.phase_shift_x != 0 or self.phase_shift_y != 0:
                 # Create coordinate grids for the SLM plane
-                y, x = np.indices((self.padded_height, self.padded_width))
+                y, x = np.indices((self.height, self.width))
                 
                 # Normalize coordinates to [-0.5, 0.5] range
-                x_norm = (x - self.padded_width // 2) / self.padded_width
-                y_norm = (y - self.padded_height // 2) / self.padded_height
+                x_norm = (x - self.width // 2) / self.width
+                y_norm = (y - self.height // 2) / self.height
                 
                 # Calculate linear phase ramp
                 phase_ramp = 2 * np.pi * (self.phase_shift_x * x_norm + self.phase_shift_y * y_norm)
                 
                 # Add phase ramp to SLM phase
-                slm_phase = np.mod(slm_phase + phase_ramp, 2 * np.pi) - np.pi
+                self.slm_phase = np.mod(self.slm_phase + phase_ramp, 2 * np.pi) - np.pi
+            
+            # Extract both amplitude and phase
+            gamma = float(self.gamma_var.get())
+            normalized_phase = (self.slm_phase + np.pi) / (2 * np.pi)
+            self.pattern = (normalized_phase ** gamma * 255).astype(np.uint8)
             
             # Calculate and store reconstruction for preview
-            image_field = self.pattern_generator.inverse_propagate(np.exp(1j * slm_phase))
+            # Create full-sized phase with the shift
+            padded_phase = np.zeros((self.padded_height, self.padded_width))
+            padded_phase[start_y:end_y, start_x:end_x] = self.slm_phase
+            
+            # Calculate reconstruction with shift
+            image_field = self.pattern_generator.inverse_propagate(np.exp(1j * padded_phase))
             self.reconstruction = np.abs(image_field)**2
             
             # Normalize reconstruction for display
