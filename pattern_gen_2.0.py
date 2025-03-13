@@ -419,6 +419,7 @@ class AdvancedPatternGenerator:
                 # Convert to pattern (8-bit grayscale)
                 gamma = float(self.gamma_var.get())
                 normalized_phase = self.slm_phase / (2 * np.pi)
+                normalized_phase = np.clip(normalized_phase, 0.0, 1.0)
                 self.pattern = (normalized_phase ** gamma * 255).astype(np.uint8)
                 
                 # Update preview
@@ -472,6 +473,7 @@ class AdvancedPatternGenerator:
                 # Convert to pattern (8-bit grayscale)
                 gamma = float(self.gamma_var.get())
                 normalized_phase = self.slm_phase / (2 * np.pi)
+                normalized_phase = np.clip(normalized_phase, 0.0, 1.0)
                 self.pattern = (normalized_phase ** gamma * 255).astype(np.uint8)
                 
                 # Update preview
@@ -860,6 +862,7 @@ class AdvancedPatternGenerator:
             # Extract phase and normalize to [0, 1]
             gamma = float(self.gamma_var.get())
             normalized_phase = self.slm_phase / (2 * np.pi)
+            normalized_phase = np.clip(normalized_phase, 0.0, 1.0)
             self.pattern = (normalized_phase ** gamma * 255).astype(np.uint8)
             
             # Calculate and store reconstruction for preview
@@ -873,7 +876,7 @@ class AdvancedPatternGenerator:
                 self.reconstruction = np.abs(image_field)**2
                 self.reconstruction = self.reconstruction / np.max(self.reconstruction)
             
-            self.error_history = self.pattern_generator.error_history
+            self.error_history = self.pattern_generator.error_history if hasattr(self.pattern_generator, 'error_history') else []
             self.status_var.set(f"Pattern generated using {self.modulation_mode} mode. Stopped due to: {stop_reason}")
             
             # Update the preview to show all plots
@@ -1293,6 +1296,7 @@ class AdvancedPatternGenerator:
             # Extract phase and normalize to [0, 1]
             gamma = float(self.gamma_var.get())
             normalized_phase = self.slm_phase / (2 * np.pi)
+            normalized_phase = np.clip(normalized_phase, 0.0, 1.0)
             self.pattern = (normalized_phase ** gamma * 255).astype(np.uint8)
             
             # Calculate and store reconstruction for preview
@@ -1367,6 +1371,7 @@ class AdvancedPatternGenerator:
             # Extract amplitude and normalize
             gamma = float(self.gamma_var.get())
             normalized_phase = self.slm_phase / (2 * np.pi)
+            normalized_phase = np.clip(normalized_phase, 0.0, 1.0)
             self.pattern = (normalized_phase ** gamma * 255).astype(np.uint8)
             
             # Calculate and store reconstruction for preview
@@ -1441,6 +1446,7 @@ class AdvancedPatternGenerator:
             # Extract both amplitude and phase
             gamma = float(self.gamma_var.get())
             normalized_phase = self.slm_phase / (2 * np.pi)
+            normalized_phase = np.clip(normalized_phase, 0.0, 1.0)
             self.pattern = (normalized_phase ** gamma * 255).astype(np.uint8)
             
             # Calculate and store reconstruction for preview
