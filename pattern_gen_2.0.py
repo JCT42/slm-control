@@ -414,12 +414,11 @@ class AdvancedPatternGenerator:
                 blazed_grating = depth * 2 * np.pi * np.mod(x_rot / period, 1.0)
                 
                 # Apply blazed grating to existing SLM phase
-                self.slm_phase = np.mod(self.slm_phase + blazed_grating, 2 * np.pi)
+                self.slm_phase = np.mod(self.slm_phase + blazed_grating, 2 * np.pi) - np.pi
                 
                 # Convert to pattern (8-bit grayscale)
                 gamma = float(self.gamma_var.get())
-                normalized_phase = self.slm_phase / (2 * np.pi)
-                normalized_phase = np.clip(normalized_phase, 0.0, 1.0)
+                normalized_phase = (self.slm_phase + np.pi) / (2 * np.pi)
                 self.pattern = (normalized_phase ** gamma * 255).astype(np.uint8)
                 
                 # Update preview
@@ -468,12 +467,11 @@ class AdvancedPatternGenerator:
                 phase_ramp = 2 * np.pi * (self.phase_shift_x * x_norm + self.phase_shift_y * y_norm)
                 
                 # Apply phase ramp to existing SLM phase
-                self.slm_phase = np.mod(self.slm_phase + phase_ramp, 2 * np.pi)
+                self.slm_phase = np.mod(self.slm_phase + phase_ramp, 2 * np.pi) - np.pi
                 
                 # Convert to pattern (8-bit grayscale)
                 gamma = float(self.gamma_var.get())
-                normalized_phase = self.slm_phase / (2 * np.pi)
-                normalized_phase = np.clip(normalized_phase, 0.0, 1.0)
+                normalized_phase = (self.slm_phase + np.pi) / (2 * np.pi)
                 self.pattern = (normalized_phase ** gamma * 255).astype(np.uint8)
                 
                 # Update preview
@@ -857,12 +855,11 @@ class AdvancedPatternGenerator:
                 phase_ramp = 2 * np.pi * (self.phase_shift_x * x_norm + self.phase_shift_y * y_norm)
                 
                 # Add phase ramp to SLM phase
-                self.slm_phase = np.mod(self.slm_phase + phase_ramp, 2 * np.pi)
+                self.slm_phase = np.mod(self.slm_phase + phase_ramp, 2 * np.pi) - np.pi
             
             # Extract phase and normalize to [0, 1]
             gamma = float(self.gamma_var.get())
-            normalized_phase = self.slm_phase / (2 * np.pi)
-            normalized_phase = np.clip(normalized_phase, 0.0, 1.0)
+            normalized_phase = (self.slm_phase + np.pi) / (2 * np.pi)
             self.pattern = (normalized_phase ** gamma * 255).astype(np.uint8)
             
             # Calculate and store reconstruction for preview
@@ -876,7 +873,7 @@ class AdvancedPatternGenerator:
                 self.reconstruction = np.abs(image_field)**2
                 self.reconstruction = self.reconstruction / np.max(self.reconstruction)
             
-            self.error_history = self.pattern_generator.error_history if hasattr(self.pattern_generator, 'error_history') else []
+            self.error_history = self.pattern_generator.error_history
             self.status_var.set(f"Pattern generated using {self.modulation_mode} mode. Stopped due to: {stop_reason}")
             
             # Update the preview to show all plots
@@ -912,7 +909,7 @@ class AdvancedPatternGenerator:
                 pattern = cv2.resize(pattern, (800, 600))
             
             self.pattern = pattern
-            self.slm_phase = (pattern.astype(float) / 255.0 * 2 * np.pi)
+            self.slm_phase = (pattern.astype(float) / 255.0 * 2 * np.pi - np.pi)
             
             # Update preview
             self.ax2.clear()
@@ -1291,12 +1288,11 @@ class AdvancedPatternGenerator:
                 phase_ramp = 2 * np.pi * (self.phase_shift_x * x_norm + self.phase_shift_y * y_norm)
                 
                 # Add phase ramp to SLM phase
-                self.slm_phase = np.mod(self.slm_phase + phase_ramp, 2 * np.pi)
+                self.slm_phase = np.mod(self.slm_phase + phase_ramp, 2 * np.pi) - np.pi
             
             # Extract phase and normalize to [0, 1]
             gamma = float(self.gamma_var.get())
-            normalized_phase = self.slm_phase / (2 * np.pi)
-            normalized_phase = np.clip(normalized_phase, 0.0, 1.0)
+            normalized_phase = (self.slm_phase + np.pi) / (2 * np.pi)
             self.pattern = (normalized_phase ** gamma * 255).astype(np.uint8)
             
             # Calculate and store reconstruction for preview
@@ -1366,12 +1362,11 @@ class AdvancedPatternGenerator:
                 phase_ramp = 2 * np.pi * (self.phase_shift_x * x_norm + self.phase_shift_y * y_norm)
                 
                 # Add phase ramp to SLM phase
-                self.slm_phase = np.mod(self.slm_phase + phase_ramp, 2 * np.pi)
+                self.slm_phase = np.mod(self.slm_phase + phase_ramp, 2 * np.pi) - np.pi
             
             # Extract amplitude and normalize
             gamma = float(self.gamma_var.get())
-            normalized_phase = self.slm_phase / (2 * np.pi)
-            normalized_phase = np.clip(normalized_phase, 0.0, 1.0)
+            normalized_phase = (self.slm_phase + np.pi) / (2 * np.pi)
             self.pattern = (normalized_phase ** gamma * 255).astype(np.uint8)
             
             # Calculate and store reconstruction for preview
@@ -1441,12 +1436,11 @@ class AdvancedPatternGenerator:
                 phase_ramp = 2 * np.pi * (self.phase_shift_x * x_norm + self.phase_shift_y * y_norm)
                 
                 # Add phase ramp to SLM phase
-                self.slm_phase = np.mod(self.slm_phase + phase_ramp, 2 * np.pi)
+                self.slm_phase = np.mod(self.slm_phase + phase_ramp, 2 * np.pi) - np.pi
             
             # Extract both amplitude and phase
             gamma = float(self.gamma_var.get())
-            normalized_phase = self.slm_phase / (2 * np.pi)
-            normalized_phase = np.clip(normalized_phase, 0.0, 1.0)
+            normalized_phase = (self.slm_phase + np.pi) / (2 * np.pi)
             self.pattern = (normalized_phase ** gamma * 255).astype(np.uint8)
             
             # Calculate and store reconstruction for preview
