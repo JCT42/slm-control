@@ -635,8 +635,7 @@ class AdvancedPatternGenerator:
                 self.ax3.set_title('Simulated Reconstruction')
                 self.ax3.set_xticks([])
                 self.ax3.set_yticks([])
-                self.ax3.set_yscale('log')  # Logarithmic scaling for better visualization
-                
+            
             # Plot error history if available and enabled
             if hasattr(self, 'error_history') and self.show_error_plot_var.get():
                 iterations = range(0, len(self.error_history))
@@ -646,18 +645,6 @@ class AdvancedPatternGenerator:
                 self.ax4.set_ylabel('Error')
                 self.ax4.grid(True)
                 
-                # Use log scale if the error values span multiple orders of magnitude
-                if len(self.error_history) > 1:
-                    max_error = max(self.error_history)
-                    min_error = min(self.error_history)
-                    if max_error / min_error > 100:  # More than 2 orders of magnitude
-                        self.ax4.set_yscale('log')
-            else:
-                self.ax4.set_title('Optimization Error')
-                self.ax4.set_xlabel('Iteration')
-                self.ax4.set_ylabel('Error')
-                self.ax4.grid(True)
-            
             # Update canvas
             self.preview_canvas.draw()
             
@@ -1179,22 +1166,43 @@ class AdvancedPatternGenerator:
             try:
                 # Create full-sized phase with the shift
                 padded_phase = np.zeros((self.padded_height, self.padded_width))
+                start_y = (self.padded_height - self.height) // 2
+                end_y = start_y + self.height
+                start_x = (self.padded_width - self.width) // 2
+                end_x = start_x + self.width
                 padded_phase[start_y:end_y, start_x:end_x] = self.slm_phase
                 
-                # Calculate reconstruction with shift
+                # Calculate reconstruction with shift - direct FFT approach
                 slm_field = np.exp(1j * padded_phase)
-                image_field = np.fft.fftshift(np.fft.ifft2(np.fft.ifftshift(slm_field)))
+                
+                # Apply window function to reduce edge artifacts
+                y, x = np.indices((self.padded_height, self.padded_width))
+                center_y, center_x = self.padded_height // 2, self.padded_width // 2
+                r = np.sqrt((x - center_x)**2 + (y - center_y)**2)
+                r_max = min(center_x, center_y)
+                window = np.exp(-(r / r_max)**8)  # Super-Gaussian window
+                
+                # Apply window and calculate diffraction
+                windowed_field = slm_field * window
+                image_field = np.fft.fftshift(np.fft.ifft2(np.fft.ifftshift(windowed_field)))
+                
+                # Calculate intensity
                 self.reconstruction = np.abs(image_field)**2
+                
+                # Apply DC filter to reduce zero-order diffraction
+                dc_size = int(min(self.padded_height, self.padded_width) * 0.01)
+                self.reconstruction[center_y-dc_size:center_y+dc_size, center_x-dc_size:center_x+dc_size] *= 0.1
                 
                 # Normalize reconstruction for display
                 if np.max(self.reconstruction) > 0:
                     self.reconstruction = self.reconstruction / np.max(self.reconstruction)
-                    
-                # Apply logarithmic scaling to better visualize dynamic range
-                # Add small constant to avoid log(0)
+                
+                # Apply logarithmic scaling for better visualization
                 self.reconstruction = np.log1p(self.reconstruction * 100) / np.log1p(100)
+                
             except Exception as e:
                 print(f"Warning: Error calculating reconstruction: {str(e)}")
+                traceback.print_exc()
                 # Create a fallback reconstruction
                 self.reconstruction = np.ones((self.padded_height, self.padded_width)) * 0.1
                 self.reconstruction[start_y:end_y, start_x:end_x] = self.target
@@ -1294,20 +1302,37 @@ class AdvancedPatternGenerator:
                 padded_phase = np.zeros((self.padded_height, self.padded_width))
                 padded_phase[start_y:end_y, start_x:end_x] = self.slm_phase
                 
-                # Calculate reconstruction with shift
+                # Calculate reconstruction with shift - direct FFT approach
                 slm_field = np.exp(1j * padded_phase)
-                image_field = np.fft.fftshift(np.fft.ifft2(np.fft.ifftshift(slm_field)))
+                
+                # Apply window function to reduce edge artifacts
+                y, x = np.indices((self.padded_height, self.padded_width))
+                center_y, center_x = self.padded_height // 2, self.padded_width // 2
+                r = np.sqrt((x - center_x)**2 + (y - center_y)**2)
+                r_max = min(center_x, center_y)
+                window = np.exp(-(r / r_max)**8)  # Super-Gaussian window
+                
+                # Apply window and calculate diffraction
+                windowed_field = slm_field * window
+                image_field = np.fft.fftshift(np.fft.ifft2(np.fft.ifftshift(windowed_field)))
+                
+                # Calculate intensity
                 self.reconstruction = np.abs(image_field)**2
+                
+                # Apply DC filter to reduce zero-order diffraction
+                dc_size = int(min(self.padded_height, self.padded_width) * 0.01)
+                self.reconstruction[center_y-dc_size:center_y+dc_size, center_x-dc_size:center_x+dc_size] *= 0.1
                 
                 # Normalize reconstruction for display
                 if np.max(self.reconstruction) > 0:
                     self.reconstruction = self.reconstruction / np.max(self.reconstruction)
-                    
-                # Apply logarithmic scaling to better visualize dynamic range
-                # Add small constant to avoid log(0)
+                
+                # Apply logarithmic scaling for better visualization
                 self.reconstruction = np.log1p(self.reconstruction * 100) / np.log1p(100)
+                
             except Exception as e:
                 print(f"Warning: Error calculating reconstruction: {str(e)}")
+                traceback.print_exc()
                 # Create a fallback reconstruction
                 self.reconstruction = np.ones((self.padded_height, self.padded_width)) * 0.1
                 self.reconstruction[start_y:end_y, start_x:end_x] = self.target
@@ -1407,20 +1432,37 @@ class AdvancedPatternGenerator:
                 padded_phase = np.zeros((self.padded_height, self.padded_width))
                 padded_phase[start_y:end_y, start_x:end_x] = self.slm_phase
                 
-                # Calculate reconstruction with shift
+                # Calculate reconstruction with shift - direct FFT approach
                 slm_field = np.exp(1j * padded_phase)
-                image_field = np.fft.fftshift(np.fft.ifft2(np.fft.ifftshift(slm_field)))
+                
+                # Apply window function to reduce edge artifacts
+                y, x = np.indices((self.padded_height, self.padded_width))
+                center_y, center_x = self.padded_height // 2, self.padded_width // 2
+                r = np.sqrt((x - center_x)**2 + (y - center_y)**2)
+                r_max = min(center_x, center_y)
+                window = np.exp(-(r / r_max)**8)  # Super-Gaussian window
+                
+                # Apply window and calculate diffraction
+                windowed_field = slm_field * window
+                image_field = np.fft.fftshift(np.fft.ifft2(np.fft.ifftshift(windowed_field)))
+                
+                # Calculate intensity
                 self.reconstruction = np.abs(image_field)**2
+                
+                # Apply DC filter to reduce zero-order diffraction
+                dc_size = int(min(self.padded_height, self.padded_width) * 0.01)
+                self.reconstruction[center_y-dc_size:center_y+dc_size, center_x-dc_size:center_x+dc_size] *= 0.1
                 
                 # Normalize reconstruction for display
                 if np.max(self.reconstruction) > 0:
                     self.reconstruction = self.reconstruction / np.max(self.reconstruction)
-                    
-                # Apply logarithmic scaling to better visualize dynamic range
-                # Add small constant to avoid log(0)
+                
+                # Apply logarithmic scaling for better visualization
                 self.reconstruction = np.log1p(self.reconstruction * 100) / np.log1p(100)
+                
             except Exception as e:
                 print(f"Warning: Error calculating reconstruction: {str(e)}")
+                traceback.print_exc()
                 # Create a fallback reconstruction
                 self.reconstruction = np.ones((self.padded_height, self.padded_width)) * 0.1
                 self.reconstruction[start_y:end_y, start_x:end_x] = self.target
