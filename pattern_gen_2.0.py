@@ -1172,35 +1172,15 @@ class AdvancedPatternGenerator:
                 end_x = start_x + self.width
                 padded_phase[start_y:end_y, start_x:end_x] = self.slm_phase
                 
-                # Create complex field with phase only (amplitude = 1)
-                slm_field = np.exp(1j * padded_phase)
-                
-                # Apply input beam profile if available
-                if hasattr(self, 'input_beam') and self.input_beam is not None:
-                    # Resize input beam to match padded dimensions if needed
-                    if self.input_beam.shape != (self.padded_height, self.padded_width):
-                        resized_beam = np.zeros((self.padded_height, self.padded_width))
-                        resized_beam[start_y:end_y, start_x:end_x] = self.input_beam
-                        slm_field = slm_field * resized_beam
-                
-                # Perform FFT-based diffraction simulation
-                # First, apply FFT shift to center the pattern
-                shifted_field = np.fft.ifftshift(slm_field)
-                
-                # Perform FFT to simulate diffraction
-                fft_field = np.fft.fft2(shifted_field)
-                
-                # Shift the result back
-                image_field = np.fft.fftshift(fft_field)
-                
-                # Calculate intensity (absolute square of the field)
+                # Calculate reconstruction with shift
+                image_field = self.pattern_generator.inverse_propagate(np.exp(1j * padded_phase))
                 self.reconstruction = np.abs(image_field)**2
                 
                 # Normalize reconstruction for display
                 if np.max(self.reconstruction) > 0:
                     self.reconstruction = self.reconstruction / np.max(self.reconstruction)
-                
-                # Apply logarithmic scaling for better visualization of dynamic range
+                    
+                # Apply logarithmic scaling for better visualization
                 self.reconstruction = np.log1p(self.reconstruction * 100) / np.log1p(100)
                 
             except Exception as e:
@@ -1305,35 +1285,15 @@ class AdvancedPatternGenerator:
                 padded_phase = np.zeros((self.padded_height, self.padded_width))
                 padded_phase[start_y:end_y, start_x:end_x] = self.slm_phase
                 
-                # Create complex field with phase only (amplitude = 1)
-                slm_field = np.exp(1j * padded_phase)
-                
-                # Apply input beam profile if available
-                if hasattr(self, 'input_beam') and self.input_beam is not None:
-                    # Resize input beam to match padded dimensions if needed
-                    if self.input_beam.shape != (self.padded_height, self.padded_width):
-                        resized_beam = np.zeros((self.padded_height, self.padded_width))
-                        resized_beam[start_y:end_y, start_x:end_x] = self.input_beam
-                        slm_field = slm_field * resized_beam
-                
-                # Perform FFT-based diffraction simulation
-                # First, apply FFT shift to center the pattern
-                shifted_field = np.fft.ifftshift(slm_field)
-                
-                # Perform FFT to simulate diffraction
-                fft_field = np.fft.fft2(shifted_field)
-                
-                # Shift the result back
-                image_field = np.fft.fftshift(fft_field)
-                
-                # Calculate intensity (absolute square of the field)
+                # Calculate reconstruction with shift
+                image_field = self.pattern_generator.inverse_propagate(np.exp(1j * padded_phase))
                 self.reconstruction = np.abs(image_field)**2
                 
                 # Normalize reconstruction for display
                 if np.max(self.reconstruction) > 0:
                     self.reconstruction = self.reconstruction / np.max(self.reconstruction)
-                
-                # Apply logarithmic scaling for better visualization of dynamic range
+                    
+                # Apply logarithmic scaling for better visualization
                 self.reconstruction = np.log1p(self.reconstruction * 100) / np.log1p(100)
                 
             except Exception as e:
@@ -1438,35 +1398,15 @@ class AdvancedPatternGenerator:
                 padded_phase = np.zeros((self.padded_height, self.padded_width))
                 padded_phase[start_y:end_y, start_x:end_x] = self.slm_phase
                 
-                # Create complex field with phase only (amplitude = 1)
-                slm_field = np.exp(1j * padded_phase)
-                
-                # Apply input beam profile if available
-                if hasattr(self, 'input_beam') and self.input_beam is not None:
-                    # Resize input beam to match padded dimensions if needed
-                    if self.input_beam.shape != (self.padded_height, self.padded_width):
-                        resized_beam = np.zeros((self.padded_height, self.padded_width))
-                        resized_beam[start_y:end_y, start_x:end_x] = self.input_beam
-                        slm_field = slm_field * resized_beam
-                
-                # Perform FFT-based diffraction simulation
-                # First, apply FFT shift to center the pattern
-                shifted_field = np.fft.ifftshift(slm_field)
-                
-                # Perform FFT to simulate diffraction
-                fft_field = np.fft.fft2(shifted_field)
-                
-                # Shift the result back
-                image_field = np.fft.fftshift(fft_field)
-                
-                # Calculate intensity (absolute square of the field)
+                # Calculate reconstruction with shift
+                image_field = self.pattern_generator.inverse_propagate(np.exp(1j * padded_phase))
                 self.reconstruction = np.abs(image_field)**2
                 
                 # Normalize reconstruction for display
                 if np.max(self.reconstruction) > 0:
                     self.reconstruction = self.reconstruction / np.max(self.reconstruction)
-                
-                # Apply logarithmic scaling for better visualization of dynamic range
+                    
+                # Apply logarithmic scaling for better visualization
                 self.reconstruction = np.log1p(self.reconstruction * 100) / np.log1p(100)
                 
             except Exception as e:
