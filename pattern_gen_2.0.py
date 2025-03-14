@@ -1172,14 +1172,34 @@ class AdvancedPatternGenerator:
                 end_x = start_x + self.width
                 padded_phase[start_y:end_y, start_x:end_x] = self.slm_phase
                 
-                # Create SLM field with phase only
+                # Create complex field with phase only (amplitude = 1)
                 slm_field = np.exp(1j * padded_phase)
                 
-                # Use the pattern generator's inverse_propagate method for accurate simulation
-                image_field = self.pattern_generator.inverse_propagate(slm_field)
+                # Apply input beam profile if available
+                if hasattr(self, 'input_beam') and self.input_beam is not None:
+                    # Resize input beam to match padded dimensions if needed
+                    if self.input_beam.shape != (self.padded_height, self.padded_width):
+                        resized_beam = np.zeros((self.padded_height, self.padded_width))
+                        resized_beam[start_y:end_y, start_x:end_x] = self.input_beam
+                        slm_field = slm_field * resized_beam
                 
-                # Calculate intensity
+                # Perform FFT-based diffraction simulation
+                # First, apply FFT shift to center the pattern
+                shifted_field = np.fft.ifftshift(slm_field)
+                
+                # Perform FFT to simulate diffraction
+                fft_field = np.fft.fft2(shifted_field)
+                
+                # Shift the result back
+                image_field = np.fft.fftshift(fft_field)
+                
+                # Calculate intensity (absolute square of the field)
                 self.reconstruction = np.abs(image_field)**2
+                
+                # Apply DC filter to reduce zero-order spot
+                center_y, center_x = self.padded_height // 2, self.padded_width // 2
+                dc_size = int(min(self.padded_height, self.padded_width) * 0.01)
+                self.reconstruction[center_y-dc_size:center_y+dc_size, center_x-dc_size:center_x+dc_size] *= 0.1
                 
                 # Normalize reconstruction for display
                 if np.max(self.reconstruction) > 0:
@@ -1290,14 +1310,34 @@ class AdvancedPatternGenerator:
                 padded_phase = np.zeros((self.padded_height, self.padded_width))
                 padded_phase[start_y:end_y, start_x:end_x] = self.slm_phase
                 
-                # Create SLM field with phase only
+                # Create complex field with phase only (amplitude = 1)
                 slm_field = np.exp(1j * padded_phase)
                 
-                # Use the pattern generator's inverse_propagate method for accurate simulation
-                image_field = self.pattern_generator.inverse_propagate(slm_field)
+                # Apply input beam profile if available
+                if hasattr(self, 'input_beam') and self.input_beam is not None:
+                    # Resize input beam to match padded dimensions if needed
+                    if self.input_beam.shape != (self.padded_height, self.padded_width):
+                        resized_beam = np.zeros((self.padded_height, self.padded_width))
+                        resized_beam[start_y:end_y, start_x:end_x] = self.input_beam
+                        slm_field = slm_field * resized_beam
                 
-                # Calculate intensity
+                # Perform FFT-based diffraction simulation
+                # First, apply FFT shift to center the pattern
+                shifted_field = np.fft.ifftshift(slm_field)
+                
+                # Perform FFT to simulate diffraction
+                fft_field = np.fft.fft2(shifted_field)
+                
+                # Shift the result back
+                image_field = np.fft.fftshift(fft_field)
+                
+                # Calculate intensity (absolute square of the field)
                 self.reconstruction = np.abs(image_field)**2
+                
+                # Apply DC filter to reduce zero-order spot
+                center_y, center_x = self.padded_height // 2, self.padded_width // 2
+                dc_size = int(min(self.padded_height, self.padded_width) * 0.01)
+                self.reconstruction[center_y-dc_size:center_y+dc_size, center_x-dc_size:center_x+dc_size] *= 0.1
                 
                 # Normalize reconstruction for display
                 if np.max(self.reconstruction) > 0:
@@ -1408,14 +1448,34 @@ class AdvancedPatternGenerator:
                 padded_phase = np.zeros((self.padded_height, self.padded_width))
                 padded_phase[start_y:end_y, start_x:end_x] = self.slm_phase
                 
-                # Create SLM field with phase only
+                # Create complex field with phase only (amplitude = 1)
                 slm_field = np.exp(1j * padded_phase)
                 
-                # Use the pattern generator's inverse_propagate method for accurate simulation
-                image_field = self.pattern_generator.inverse_propagate(slm_field)
+                # Apply input beam profile if available
+                if hasattr(self, 'input_beam') and self.input_beam is not None:
+                    # Resize input beam to match padded dimensions if needed
+                    if self.input_beam.shape != (self.padded_height, self.padded_width):
+                        resized_beam = np.zeros((self.padded_height, self.padded_width))
+                        resized_beam[start_y:end_y, start_x:end_x] = self.input_beam
+                        slm_field = slm_field * resized_beam
                 
-                # Calculate intensity
+                # Perform FFT-based diffraction simulation
+                # First, apply FFT shift to center the pattern
+                shifted_field = np.fft.ifftshift(slm_field)
+                
+                # Perform FFT to simulate diffraction
+                fft_field = np.fft.fft2(shifted_field)
+                
+                # Shift the result back
+                image_field = np.fft.fftshift(fft_field)
+                
+                # Calculate intensity (absolute square of the field)
                 self.reconstruction = np.abs(image_field)**2
+                
+                # Apply DC filter to reduce zero-order spot
+                center_y, center_x = self.padded_height // 2, self.padded_width // 2
+                dc_size = int(min(self.padded_height, self.padded_width) * 0.01)
+                self.reconstruction[center_y-dc_size:center_y+dc_size, center_x-dc_size:center_x+dc_size] *= 0.1
                 
                 # Normalize reconstruction for display
                 if np.max(self.reconstruction) > 0:
