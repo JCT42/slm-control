@@ -31,6 +31,7 @@ from libcamera import controls
 import pygame
 from tqdm import tqdm
 import scipy.special
+import traceback
 
 class AdvancedPatternGenerator:
     def __init__(self):
@@ -1132,12 +1133,19 @@ class AdvancedPatternGenerator:
             # Apply input beam to initial field
             initial_field = input_beam * np.exp(1j * np.angle(field))
             
+            # Create pattern generator with target intensity
+            self.pattern_generator = PatternGenerator(
+                target_intensity=self.padded_target,
+                signal_region_mask=None if algorithm.lower() == 'gs' else self.signal_region_mask,
+                mixing_parameter=float(self.mixing_parameter_var.get())
+            )
+            
             # Run optimization with selected algorithm
             optimized_field, self.error_history, stop_reason = self.pattern_generator.optimize(
                 initial_field=initial_field,
                 algorithm=algorithm,
                 max_iterations=iterations,
-                tolerance=tolerance
+                tolerance=float(self.tolerance_var.get())
             )
             
             # Get SLM phase pattern
@@ -1175,23 +1183,34 @@ class AdvancedPatternGenerator:
             self.pattern = (normalized_phase ** gamma * 255).astype(np.uint8)
             
             # Calculate and store reconstruction for preview
-            # Create full-sized phase with the shift
-            padded_phase = np.zeros((self.padded_height, self.padded_width))
-            padded_phase[start_y:end_y, start_x:end_x] = self.slm_phase
+            try:
+                # Create full-sized phase with the shift
+                padded_phase = np.zeros((self.padded_height, self.padded_width))
+                padded_phase[start_y:end_y, start_x:end_x] = self.slm_phase
+                
+                # Calculate reconstruction with shift
+                slm_field = np.exp(1j * padded_phase)
+                image_field = self.pattern_generator.inverse_propagate(slm_field)
+                self.reconstruction = np.abs(image_field)**2
+                
+                # Normalize reconstruction for display
+                if np.max(self.reconstruction) > 0:
+                    self.reconstruction = self.reconstruction / np.max(self.reconstruction)
+            except Exception as e:
+                print(f"Warning: Error calculating reconstruction: {str(e)}")
+                # Create a fallback reconstruction
+                self.reconstruction = np.ones((self.padded_height, self.padded_width)) * 0.1
+                self.reconstruction[start_y:end_y, start_x:end_x] = self.target
             
-            # Calculate reconstruction with shift
-            image_field = self.pattern_generator.inverse_propagate(np.exp(1j * padded_phase))
-            self.reconstruction = np.abs(image_field)**2
+            self.status_var.set(f"Pattern generated using {algorithm.upper()} algorithm. Stopped due to: {stop_reason}")
             
-            # Normalize reconstruction for display
-            self.reconstruction = self.reconstruction / np.max(self.reconstruction)
-            
-            self.status_var.set(f"Phase pattern generated using {algorithm.upper()} algorithm")
-            return optimized_field, slm_phase, stop_reason
+            # Update the preview to show all plots
+            self.update_preview()
             
         except Exception as e:
-            self.status_var.set(f"Error in pattern generation: {str(e)}")
+            self.status_var.set(f"Error generating pattern: {str(e)}")
             print(f"Detailed error: {str(e)}")
+            traceback.print_exc()
             return None, None, "Error in pattern generation"
 
     def generate_amplitude_pattern(self, iterations, algorithm='gs', tolerance=1e-6):
@@ -1207,12 +1226,19 @@ class AdvancedPatternGenerator:
             # Apply input beam to initial field
             initial_field = input_beam * np.exp(1j * np.angle(field))
             
+            # Create pattern generator with target intensity
+            self.pattern_generator = PatternGenerator(
+                target_intensity=self.padded_target,
+                signal_region_mask=None if algorithm.lower() == 'gs' else self.signal_region_mask,
+                mixing_parameter=float(self.mixing_parameter_var.get())
+            )
+            
             # Run optimization with selected algorithm
             optimized_field, self.error_history, stop_reason = self.pattern_generator.optimize(
                 initial_field=initial_field,
                 algorithm=algorithm,
                 max_iterations=iterations,
-                tolerance=tolerance
+                tolerance=float(self.tolerance_var.get())
             )
             
             # Get SLM phase pattern
@@ -1250,24 +1276,35 @@ class AdvancedPatternGenerator:
             self.pattern = (normalized_phase ** gamma * 255).astype(np.uint8)
             
             # Calculate and store reconstruction for preview
-            # Create full-sized phase with the shift
-            padded_phase = np.zeros((self.padded_height, self.padded_width))
-            padded_phase[start_y:end_y, start_x:end_x] = self.slm_phase
+            try:
+                # Create full-sized phase with the shift
+                padded_phase = np.zeros((self.padded_height, self.padded_width))
+                padded_phase[start_y:end_y, start_x:end_x] = self.slm_phase
+                
+                # Calculate reconstruction with shift
+                slm_field = np.exp(1j * padded_phase)
+                image_field = self.pattern_generator.inverse_propagate(slm_field)
+                self.reconstruction = np.abs(image_field)**2
+                
+                # Normalize reconstruction for display
+                if np.max(self.reconstruction) > 0:
+                    self.reconstruction = self.reconstruction / np.max(self.reconstruction)
+            except Exception as e:
+                print(f"Warning: Error calculating reconstruction: {str(e)}")
+                # Create a fallback reconstruction
+                self.reconstruction = np.ones((self.padded_height, self.padded_width)) * 0.1
+                self.reconstruction[start_y:end_y, start_x:end_x] = self.target
             
-            # Calculate reconstruction with shift
-            image_field = self.pattern_generator.inverse_propagate(np.exp(1j * padded_phase))
-            self.reconstruction = np.abs(image_field)**2
+            self.status_var.set(f"Pattern generated using {algorithm.upper()} algorithm. Stopped due to: {stop_reason}")
             
-            # Normalize reconstruction for display
-            self.reconstruction = self.reconstruction / np.max(self.reconstruction)
-            
-            self.status_var.set(f"Amplitude pattern generated using {algorithm.upper()} algorithm")
-            return optimized_field, slm_phase, stop_reason
+            # Update the preview to show all plots
+            self.update_preview()
             
         except Exception as e:
-            self.status_var.set(f"Error in amplitude pattern generation: {str(e)}")
+            self.status_var.set(f"Error generating pattern: {str(e)}")
             print(f"Detailed error: {str(e)}")
-            return None, None, "Error in amplitude pattern generation"
+            traceback.print_exc()
+            return None, None, "Error in pattern generation"
 
     def generate_combined_pattern(self, iterations, algorithm='gs', tolerance=1e-6):
         """Generate combined amplitude and phase pattern"""
@@ -1282,12 +1319,19 @@ class AdvancedPatternGenerator:
             # Apply input beam to initial field
             initial_field = input_beam * np.exp(1j * np.angle(field))
             
+            # Create pattern generator with target intensity
+            self.pattern_generator = PatternGenerator(
+                target_intensity=self.padded_target,
+                signal_region_mask=None if algorithm.lower() == 'gs' else self.signal_region_mask,
+                mixing_parameter=float(self.mixing_parameter_var.get())
+            )
+            
             # Run optimization with selected algorithm
             optimized_field, self.error_history, stop_reason = self.pattern_generator.optimize(
                 initial_field=initial_field,
                 algorithm=algorithm,
                 max_iterations=iterations,
-                tolerance=tolerance
+                tolerance=float(self.tolerance_var.get())
             )
             
             # Get SLM phase pattern
@@ -1325,24 +1369,35 @@ class AdvancedPatternGenerator:
             self.pattern = (normalized_phase ** gamma * 255).astype(np.uint8)
             
             # Calculate and store reconstruction for preview
-            # Create full-sized phase with the shift
-            padded_phase = np.zeros((self.padded_height, self.padded_width))
-            padded_phase[start_y:end_y, start_x:end_x] = self.slm_phase
+            try:
+                # Create full-sized phase with the shift
+                padded_phase = np.zeros((self.padded_height, self.padded_width))
+                padded_phase[start_y:end_y, start_x:end_x] = self.slm_phase
+                
+                # Calculate reconstruction with shift
+                slm_field = np.exp(1j * padded_phase)
+                image_field = self.pattern_generator.inverse_propagate(slm_field)
+                self.reconstruction = np.abs(image_field)**2
+                
+                # Normalize reconstruction for display
+                if np.max(self.reconstruction) > 0:
+                    self.reconstruction = self.reconstruction / np.max(self.reconstruction)
+            except Exception as e:
+                print(f"Warning: Error calculating reconstruction: {str(e)}")
+                # Create a fallback reconstruction
+                self.reconstruction = np.ones((self.padded_height, self.padded_width)) * 0.1
+                self.reconstruction[start_y:end_y, start_x:end_x] = self.target
             
-            # Calculate reconstruction with shift
-            image_field = self.pattern_generator.inverse_propagate(np.exp(1j * padded_phase))
-            self.reconstruction = np.abs(image_field)**2
+            self.status_var.set(f"Pattern generated using {algorithm.upper()} algorithm. Stopped due to: {stop_reason}")
             
-            # Normalize reconstruction for display
-            self.reconstruction = self.reconstruction / np.max(self.reconstruction)
-            
-            self.status_var.set(f"Combined pattern generated using {algorithm.upper()} algorithm")
-            return optimized_field, slm_phase, stop_reason
+            # Update the preview to show all plots
+            self.update_preview()
             
         except Exception as e:
-            self.status_var.set(f"Error in combined pattern generation: {str(e)}")
+            self.status_var.set(f"Error generating pattern: {str(e)}")
             print(f"Detailed error: {str(e)}")
-            return None, None, "Error in combined pattern generation"
+            traceback.print_exc()
+            return None, None, "Error in pattern generation"
 
     def pause_camera(self):
         """Pause or resume the camera feed"""
@@ -1436,9 +1491,9 @@ class AdvancedPatternGenerator:
     def _on_algorithm_change(self, *args):
         """Handle algorithm selection change"""
         if self.algorithm_var.get() == "mraf":
-            self.mraf_frame.pack(fill=tk.X, padx=5, pady=5)
+            self.mraf_frame.grid(row=1, column=0, columnspan=8, padx=5, pady=5)
         else:
-            self.mraf_frame.pack_forget()
+            self.mraf_frame.grid_remove()
 
 class PatternGenerator:
     def __init__(self, target_intensity, signal_region_mask=None, mixing_parameter=0.4):
