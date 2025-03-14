@@ -13,7 +13,7 @@ Advanced Features:
 - Multiple modulation modes (Amplitude, Phase, Combined)
 - Advanced pattern generation algorithms
 - Amplitude and phase coupling compensation
-- Real-time pattern optimization
+
 """
 
 import numpy as np
@@ -232,7 +232,7 @@ class AdvancedPatternGenerator:
         
         # Number of iterations
         ttk.Label(algo_frame, text="Iterations:").grid(row=0, column=2, padx=5, pady=5)
-        self.iterations_var = tk.StringVar(value="100")
+        self.iterations_var = tk.StringVar(value="10")
         ttk.Entry(algo_frame, textvariable=self.iterations_var, width=10).grid(row=0, column=3, padx=5, pady=5)
         
         # MRAF parameters frame (initially hidden)
@@ -255,7 +255,7 @@ class AdvancedPatternGenerator:
         
         # Tolerance
         ttk.Label(error_frame, text="Tolerance:").grid(row=0, column=0, padx=5, pady=5)
-        self.tolerance_var = tk.StringVar(value="1e-24")
+        self.tolerance_var = tk.StringVar(value="1e-35")
         ttk.Entry(error_frame, textvariable=self.tolerance_var, width=10).grid(row=0, column=1, padx=5, pady=5)
         
         # Show error plot checkbox
