@@ -665,60 +665,43 @@ class AdvancedPatternGenerator:
             print(f"Detailed error: {str(e)}")
 
     def generate_pattern(self):
-        """Generate pattern based on selected modulation mode"""
-        if not hasattr(self, 'target'):
-            self.status_var.set("Please load a target image first")
-            return
-            
+        """Generate pattern based on current settings"""
         try:
-            # Get parameters from GUI
-            self.modulation_mode = self.mode_var.get()
-            self.amplitude_coupling = float(self.amp_coupling_var.get())
-            self.phase_coupling = float(self.phase_coupling_var.get())
+            # Get parameters from UI
             iterations = int(self.iterations_var.get())
             gamma = float(self.gamma_var.get())
-            phase_range = float(self.phase_range_var.get()) * np.pi
             algorithm = self.algorithm_var.get()
             tolerance = float(self.tolerance_var.get())
             
-            # Create signal region mask for MRAF if needed
-            if algorithm == "mraf":
-                try:
-                    mixing_parameter = float(self.mixing_parameter_var.get())
-                    signal_region_ratio = float(self.signal_region_ratio_var.get())
-                    
-                    # Create circular signal region mask
-                    y, x = np.ogrid[:self.padded_height, :self.padded_width]
-                    center_y, center_x = self.padded_height // 2, self.padded_width // 2
-                    radius = min(center_x, center_y) * signal_region_ratio
-                    signal_mask = ((x - center_x)**2 + (y - center_y)**2 <= radius**2).astype(float)
-                    
-                    # Initialize PatternGenerator with MRAF parameters
-                    self.pattern_generator = PatternGenerator(
-                        target_intensity=self.padded_target,
-                        signal_region_mask=signal_mask,
-                        mixing_parameter=mixing_parameter
-                    )
-                except ValueError as e:
-                    self.status_var.set(f"Invalid MRAF parameters: {str(e)}")
-                    return
-            else:
-                # Initialize PatternGenerator without MRAF parameters
-                self.pattern_generator = PatternGenerator(
-                    target_intensity=self.padded_target
-                )
+            # Check if target image is loaded
+            if self.target is None:
+                self.status_var.set("Please load a target image first")
+                return
+                
+            # Create padded target array
+            self.padded_target = np.zeros((self.padded_height, self.padded_width))
+            start_y = (self.padded_height - self.height) // 2
+            end_y = start_y + self.height
+            start_x = (self.padded_width - self.width) // 2
+            end_x = start_x + self.width
+            self.padded_target[start_y:end_y, start_x:end_x] = self.target
             
             # Generate pattern based on mode
             if self.modulation_mode == "Phase":
-                field, slm_phase, stop_reason = self.generate_phase_pattern(iterations, algorithm, tolerance)
-            elif self.modulation_mode == "Amplitude":
-                field, slm_phase, stop_reason = self.generate_amplitude_pattern(iterations, algorithm, tolerance)
-            else:  # Combined mode
-                field, slm_phase, stop_reason = self.generate_combined_pattern(iterations, algorithm, tolerance)
-            
-            if field is None:
-                return
+                # Generate phase pattern
+                optimized_field, slm_phase, stop_reason = self.generate_phase_pattern(iterations, algorithm, tolerance)
                 
+            elif self.modulation_mode == "Amplitude":
+                # Generate amplitude pattern
+                optimized_field, slm_phase, stop_reason = self.generate_amplitude_pattern(iterations, algorithm, tolerance)
+                
+            else:  # Combined mode
+                # Generate combined pattern
+                optimized_field, slm_phase, stop_reason = self.generate_combined_pattern(iterations, algorithm, tolerance)
+            
+            if optimized_field is None:
+                return
+            
             # Extract central region
             start_y = (self.padded_height - self.height) // 2
             end_y = start_y + self.height
@@ -734,14 +717,14 @@ class AdvancedPatternGenerator:
                 
             elif self.modulation_mode == "Amplitude":
                 # Extract amplitude and normalize
-                amplitude = np.abs(field)
+                amplitude = np.abs(optimized_field)
                 normalized_amplitude = amplitude / np.max(amplitude)
                 self.pattern = (normalized_amplitude ** gamma * 255).astype(np.uint8)
                 
             else:  # Combined mode
                 # Extract both amplitude and phase
-                amplitude = np.abs(field)
-                phase = np.angle(field)
+                amplitude = np.abs(optimized_field)
+                phase = np.angle(optimized_field)
                 
                 # Normalize both components
                 normalized_amplitude = amplitude / np.max(amplitude)
@@ -765,6 +748,7 @@ class AdvancedPatternGenerator:
         except Exception as e:
             self.status_var.set(f"Error generating pattern: {str(e)}")
             print(f"Detailed error: {str(e)}")
+            traceback.print_exc()
 
     def load_pattern(self):
         """Load a pattern from file"""
@@ -941,14 +925,6 @@ class AdvancedPatternGenerator:
             # Store original image and normalize
             self.target = img.astype(float) / 255.0
             
-            # Create padded target for Gerchberg-Saxton
-            self.padded_target = np.zeros((self.padded_height, self.padded_width))
-            start_y = (self.padded_height - self.height) // 2
-            end_y = start_y + self.height
-            start_x = (self.padded_width - self.width) // 2
-            end_x = start_x + self.width
-            self.padded_target[start_y:end_y, start_x:end_x] = self.target
-            
             # Update preview plots
             self.ax1.clear()
             self.ax1.imshow(self.target, cmap='gray')
@@ -986,7 +962,7 @@ class AdvancedPatternGenerator:
             timestamp = time.strftime("%Y%m%d_%H%M%S")
             default_name = f"pattern_{timestamp}.png"
             
-            # Use zenity file save dialog
+            # Use zenity file dialog
             cmd = ['zenity', '--file-selection', '--save',
                    '--filename=' + default_name,
                    '--file-filter=Images | *.png *.jpg *.jpeg *.bmp *.tif *.tiff',
@@ -1002,8 +978,8 @@ class AdvancedPatternGenerator:
             if not save_path:
                 return
                 
-            # Ensure .png extension
-            if not save_path.lower().endswith('.png'):
+            # Add extension if not present
+            if not save_path.lower().endswith(('.png', '.jpg', '.jpeg')):
                 save_path += '.png'
             
             # Save the pattern
@@ -1012,7 +988,7 @@ class AdvancedPatternGenerator:
             
         except Exception as e:
             self.status_var.set(f"Error saving pattern: {str(e)}")
-        
+
     def generate_input_beam(self):
         """Generate input beam profile based on selected type"""
         try:
@@ -1223,6 +1199,9 @@ class AdvancedPatternGenerator:
             # Update the preview to show all plots
             self.update_preview()
             
+            # Return the results
+            return optimized_field, slm_phase, stop_reason
+            
         except Exception as e:
             self.status_var.set(f"Error generating pattern: {str(e)}")
             print(f"Detailed error: {str(e)}")
@@ -1329,6 +1308,9 @@ class AdvancedPatternGenerator:
             # Update the preview to show all plots
             self.update_preview()
             
+            # Return the results
+            return optimized_field, slm_phase, stop_reason
+            
         except Exception as e:
             self.status_var.set(f"Error generating pattern: {str(e)}")
             print(f"Detailed error: {str(e)}")
@@ -1434,6 +1416,9 @@ class AdvancedPatternGenerator:
             
             # Update the preview to show all plots
             self.update_preview()
+            
+            # Return the results
+            return optimized_field, slm_phase, stop_reason
             
         except Exception as e:
             self.status_var.set(f"Error generating pattern: {str(e)}")
@@ -1712,6 +1697,7 @@ class PatternGenerator:
         improvement = initial_error / final_error if final_error > 0 else float('inf')
         print(f"Final error: {final_error:.3e}, Improvement: {improvement:.2f}x")
         
+        # Return the results
         return field, error_history, stop_reason
     
     def calculate_error(self, field, algorithm):
