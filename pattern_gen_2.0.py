@@ -1592,14 +1592,26 @@ class PatternGenerator:
             self.signal_region_mask = signal_region_mask
             
         self.mixing_parameter = mixing_parameter
+        
+        # Create a smooth window function to reduce artifacts
+        h, w = target_intensity.shape
+        y, x = np.ogrid[-h//2:h//2, -w//2:w//2]
+        # Create a super-Gaussian window (smoother than regular Gaussian)
+        self.window = np.exp(-0.5 * ((x/(w*0.4))**4 + (y/(h*0.4))**4))
     
     def propagate(self, field):
         """Propagate field from image plane to SLM plane"""
-        return np.fft.fftshift(np.fft.fft2(np.fft.ifftshift(field)))
+        # Apply window function to reduce edge artifacts
+        windowed_field = field * self.window
+        # Use proper FFT shifting for optical propagation
+        return np.fft.fftshift(np.fft.fft2(np.fft.ifftshift(windowed_field)))
     
     def inverse_propagate(self, field):
         """Propagate field from SLM plane to image plane"""
-        return np.fft.fftshift(np.fft.ifft2(np.fft.ifftshift(field)))
+        # Use proper FFT shifting for optical propagation
+        result = np.fft.fftshift(np.fft.ifft2(np.fft.ifftshift(field)))
+        # No need to apply window on the way back as we want to see the full reconstruction
+        return result
     
     def gs_iteration(self, field):
         """Single iteration of Gerchberg-Saxton algorithm"""
