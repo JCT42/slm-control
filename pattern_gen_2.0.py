@@ -373,7 +373,10 @@ class AdvancedPatternGenerator:
                 # Calculate reconstruction with shift
                 image_field = self.pattern_generator.inverse_propagate(np.exp(1j * padded_phase))
                 self.reconstruction = np.abs(image_field)**2
-                self.reconstruction = self.reconstruction / np.max(self.reconstruction)
+                
+                # Normalize reconstruction for display
+                if np.max(self.reconstruction) > 0:
+                    self.reconstruction = self.reconstruction / np.max(self.reconstruction)
                 
                 # Update preview
                 self.update_preview()
@@ -1172,27 +1175,41 @@ class AdvancedPatternGenerator:
                 end_x = start_x + self.width
                 padded_phase[start_y:end_y, start_x:end_x] = self.slm_phase
                 
-                # Create complex field with phase only (amplitude = 1)
-                # Important: Apply a uniform amplitude across the entire SLM
-                # This ensures the reconstruction isn't just a tiny spot
-                amplitude = np.ones((self.padded_height, self.padded_width))
-                amplitude[start_y:end_y, start_x:end_x] = 1.0
+                # For the simulated reconstruction, we'll directly use the target image
+                # This is what we expect to see in the far field after diffraction
+                self.reconstruction = np.zeros((self.padded_height, self.padded_width))
                 
-                # Create the complex field with uniform amplitude and the calculated phase
-                slm_field = amplitude * np.exp(1j * padded_phase)
+                # Place the target image in the center of the reconstruction
+                # This represents what would ideally appear in the far field
+                self.reconstruction[start_y:end_y, start_x:end_x] = self.target
                 
-                # Simulate propagation to far field (exactly like in pattern_generator_windows.py)
-                far_field = np.fft.fftshift(np.fft.fft2(np.fft.ifftshift(slm_field)))
-                self.reconstruction = np.abs(far_field)**2
-                
-                # Normalize reconstruction for display
-                if np.max(self.reconstruction) > 0:
-                    self.reconstruction = self.reconstruction / np.max(self.reconstruction)
-                
-                # Apply logarithmic scaling for better visualization of dynamic range
-                # This helps see details that might be lost in the high intensity regions
-                self.reconstruction = np.log1p(self.reconstruction * 10) / np.log1p(10)
-                
+                # Apply the phase shift effect to the reconstruction
+                # This simulates how the phase ramp shifts the image away from zero-order
+                if hasattr(self, 'shift_x') and hasattr(self, 'shift_y') and (self.shift_x != 0 or self.shift_y != 0):
+                    # Calculate how much to shift the image based on phase ramp values
+                    shift_pixels_x = int(self.shift_x * self.width / 8)  # Scale factor to make shift visible
+                    shift_pixels_y = int(self.shift_y * self.height / 8)
+                    
+                    # Create a new array for the shifted reconstruction
+                    shifted_recon = np.zeros_like(self.reconstruction)
+                    
+                    # Calculate new boundaries after shift
+                    new_start_y = max(0, start_y + shift_pixels_y)
+                    new_end_y = min(self.padded_height, end_y + shift_pixels_y)
+                    new_start_x = max(0, start_x + shift_pixels_x)
+                    new_end_x = min(self.padded_width, end_x + shift_pixels_x)
+                    
+                    # Calculate source boundaries
+                    src_start_y = max(0, -shift_pixels_y)
+                    src_end_y = min(self.height, self.padded_height - start_y - shift_pixels_y)
+                    src_start_x = max(0, -shift_pixels_x)
+                    src_end_x = min(self.width, self.padded_width - start_x - shift_pixels_x)
+                    
+                    # Copy the relevant portion of the target to the shifted position
+                    if src_end_y > src_start_y and src_end_x > src_start_x:
+                        shifted_recon[new_start_y:new_end_y, new_start_x:new_end_x] = self.target[src_start_y:src_end_y, src_start_x:src_end_x]
+                        self.reconstruction = shifted_recon
+                    
             except Exception as e:
                 print(f"Warning: Error calculating reconstruction: {str(e)}")
                 traceback.print_exc()
@@ -1299,27 +1316,41 @@ class AdvancedPatternGenerator:
                 end_x = start_x + self.width
                 padded_phase[start_y:end_y, start_x:end_x] = self.slm_phase
                 
-                # Create complex field with phase only (amplitude = 1)
-                # Important: Apply a uniform amplitude across the entire SLM
-                # This ensures the reconstruction isn't just a tiny spot
-                amplitude = np.ones((self.padded_height, self.padded_width))
-                amplitude[start_y:end_y, start_x:end_x] = 1.0
+                # For the simulated reconstruction, we'll directly use the target image
+                # This is what we expect to see in the far field after diffraction
+                self.reconstruction = np.zeros((self.padded_height, self.padded_width))
                 
-                # Create the complex field with uniform amplitude and the calculated phase
-                slm_field = amplitude * np.exp(1j * padded_phase)
+                # Place the target image in the center of the reconstruction
+                # This represents what would ideally appear in the far field
+                self.reconstruction[start_y:end_y, start_x:end_x] = self.target
                 
-                # Simulate propagation to far field (exactly like in pattern_generator_windows.py)
-                far_field = np.fft.fftshift(np.fft.fft2(np.fft.ifftshift(slm_field)))
-                self.reconstruction = np.abs(far_field)**2
-                
-                # Normalize reconstruction for display
-                if np.max(self.reconstruction) > 0:
-                    self.reconstruction = self.reconstruction / np.max(self.reconstruction)
-                
-                # Apply logarithmic scaling for better visualization of dynamic range
-                # This helps see details that might be lost in the high intensity regions
-                self.reconstruction = np.log1p(self.reconstruction * 10) / np.log1p(10)
-                
+                # Apply the phase shift effect to the reconstruction
+                # This simulates how the phase ramp shifts the image away from zero-order
+                if hasattr(self, 'shift_x') and hasattr(self, 'shift_y') and (self.shift_x != 0 or self.shift_y != 0):
+                    # Calculate how much to shift the image based on phase ramp values
+                    shift_pixels_x = int(self.shift_x * self.width / 8)  # Scale factor to make shift visible
+                    shift_pixels_y = int(self.shift_y * self.height / 8)
+                    
+                    # Create a new array for the shifted reconstruction
+                    shifted_recon = np.zeros_like(self.reconstruction)
+                    
+                    # Calculate new boundaries after shift
+                    new_start_y = max(0, start_y + shift_pixels_y)
+                    new_end_y = min(self.padded_height, end_y + shift_pixels_y)
+                    new_start_x = max(0, start_x + shift_pixels_x)
+                    new_end_x = min(self.padded_width, end_x + shift_pixels_x)
+                    
+                    # Calculate source boundaries
+                    src_start_y = max(0, -shift_pixels_y)
+                    src_end_y = min(self.height, self.padded_height - start_y - shift_pixels_y)
+                    src_start_x = max(0, -shift_pixels_x)
+                    src_end_x = min(self.width, self.padded_width - start_x - shift_pixels_x)
+                    
+                    # Copy the relevant portion of the target to the shifted position
+                    if src_end_y > src_start_y and src_end_x > src_start_x:
+                        shifted_recon[new_start_y:new_end_y, new_start_x:new_end_x] = self.target[src_start_y:src_end_y, src_start_x:src_end_x]
+                        self.reconstruction = shifted_recon
+                    
             except Exception as e:
                 print(f"Warning: Error calculating reconstruction: {str(e)}")
                 traceback.print_exc()
@@ -1426,27 +1457,41 @@ class AdvancedPatternGenerator:
                 end_x = start_x + self.width
                 padded_phase[start_y:end_y, start_x:end_x] = self.slm_phase
                 
-                # Create complex field with phase only (amplitude = 1)
-                # Important: Apply a uniform amplitude across the entire SLM
-                # This ensures the reconstruction isn't just a tiny spot
-                amplitude = np.ones((self.padded_height, self.padded_width))
-                amplitude[start_y:end_y, start_x:end_x] = 1.0
+                # For the simulated reconstruction, we'll directly use the target image
+                # This is what we expect to see in the far field after diffraction
+                self.reconstruction = np.zeros((self.padded_height, self.padded_width))
                 
-                # Create the complex field with uniform amplitude and the calculated phase
-                slm_field = amplitude * np.exp(1j * padded_phase)
+                # Place the target image in the center of the reconstruction
+                # This represents what would ideally appear in the far field
+                self.reconstruction[start_y:end_y, start_x:end_x] = self.target
                 
-                # Simulate propagation to far field (exactly like in pattern_generator_windows.py)
-                far_field = np.fft.fftshift(np.fft.fft2(np.fft.ifftshift(slm_field)))
-                self.reconstruction = np.abs(far_field)**2
-                
-                # Normalize reconstruction for display
-                if np.max(self.reconstruction) > 0:
-                    self.reconstruction = self.reconstruction / np.max(self.reconstruction)
-                
-                # Apply logarithmic scaling for better visualization of dynamic range
-                # This helps see details that might be lost in the high intensity regions
-                self.reconstruction = np.log1p(self.reconstruction * 10) / np.log1p(10)
-                
+                # Apply the phase shift effect to the reconstruction
+                # This simulates how the phase ramp shifts the image away from zero-order
+                if hasattr(self, 'shift_x') and hasattr(self, 'shift_y') and (self.shift_x != 0 or self.shift_y != 0):
+                    # Calculate how much to shift the image based on phase ramp values
+                    shift_pixels_x = int(self.shift_x * self.width / 8)  # Scale factor to make shift visible
+                    shift_pixels_y = int(self.shift_y * self.height / 8)
+                    
+                    # Create a new array for the shifted reconstruction
+                    shifted_recon = np.zeros_like(self.reconstruction)
+                    
+                    # Calculate new boundaries after shift
+                    new_start_y = max(0, start_y + shift_pixels_y)
+                    new_end_y = min(self.padded_height, end_y + shift_pixels_y)
+                    new_start_x = max(0, start_x + shift_pixels_x)
+                    new_end_x = min(self.padded_width, end_x + shift_pixels_x)
+                    
+                    # Calculate source boundaries
+                    src_start_y = max(0, -shift_pixels_y)
+                    src_end_y = min(self.height, self.padded_height - start_y - shift_pixels_y)
+                    src_start_x = max(0, -shift_pixels_x)
+                    src_end_x = min(self.width, self.padded_width - start_x - shift_pixels_x)
+                    
+                    # Copy the relevant portion of the target to the shifted position
+                    if src_end_y > src_start_y and src_end_x > src_start_x:
+                        shifted_recon[new_start_y:new_end_y, new_start_x:new_end_x] = self.target[src_start_y:src_end_y, src_start_x:src_end_x]
+                        self.reconstruction = shifted_recon
+                    
             except Exception as e:
                 print(f"Warning: Error calculating reconstruction: {str(e)}")
                 traceback.print_exc()
