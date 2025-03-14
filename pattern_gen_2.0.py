@@ -635,7 +635,8 @@ class AdvancedPatternGenerator:
                 self.ax3.set_title('Simulated Reconstruction')
                 self.ax3.set_xticks([])
                 self.ax3.set_yticks([])
-            
+                self.ax3.set_yscale('log')  # Logarithmic scaling for better visualization
+                
             # Plot error history if available and enabled
             if hasattr(self, 'error_history') and self.show_error_plot_var.get():
                 iterations = range(0, len(self.error_history))
@@ -1182,12 +1183,16 @@ class AdvancedPatternGenerator:
                 
                 # Calculate reconstruction with shift
                 slm_field = np.exp(1j * padded_phase)
-                image_field = self.pattern_generator.inverse_propagate(slm_field)
+                image_field = np.fft.fftshift(np.fft.ifft2(np.fft.ifftshift(slm_field)))
                 self.reconstruction = np.abs(image_field)**2
                 
                 # Normalize reconstruction for display
                 if np.max(self.reconstruction) > 0:
                     self.reconstruction = self.reconstruction / np.max(self.reconstruction)
+                    
+                # Apply logarithmic scaling to better visualize dynamic range
+                # Add small constant to avoid log(0)
+                self.reconstruction = np.log1p(self.reconstruction * 100) / np.log1p(100)
             except Exception as e:
                 print(f"Warning: Error calculating reconstruction: {str(e)}")
                 # Create a fallback reconstruction
@@ -1291,12 +1296,16 @@ class AdvancedPatternGenerator:
                 
                 # Calculate reconstruction with shift
                 slm_field = np.exp(1j * padded_phase)
-                image_field = self.pattern_generator.inverse_propagate(slm_field)
+                image_field = np.fft.fftshift(np.fft.ifft2(np.fft.ifftshift(slm_field)))
                 self.reconstruction = np.abs(image_field)**2
                 
                 # Normalize reconstruction for display
                 if np.max(self.reconstruction) > 0:
                     self.reconstruction = self.reconstruction / np.max(self.reconstruction)
+                    
+                # Apply logarithmic scaling to better visualize dynamic range
+                # Add small constant to avoid log(0)
+                self.reconstruction = np.log1p(self.reconstruction * 100) / np.log1p(100)
             except Exception as e:
                 print(f"Warning: Error calculating reconstruction: {str(e)}")
                 # Create a fallback reconstruction
@@ -1400,12 +1409,16 @@ class AdvancedPatternGenerator:
                 
                 # Calculate reconstruction with shift
                 slm_field = np.exp(1j * padded_phase)
-                image_field = self.pattern_generator.inverse_propagate(slm_field)
+                image_field = np.fft.fftshift(np.fft.ifft2(np.fft.ifftshift(slm_field)))
                 self.reconstruction = np.abs(image_field)**2
                 
                 # Normalize reconstruction for display
                 if np.max(self.reconstruction) > 0:
                     self.reconstruction = self.reconstruction / np.max(self.reconstruction)
+                    
+                # Apply logarithmic scaling to better visualize dynamic range
+                # Add small constant to avoid log(0)
+                self.reconstruction = np.log1p(self.reconstruction * 100) / np.log1p(100)
             except Exception as e:
                 print(f"Warning: Error calculating reconstruction: {str(e)}")
                 # Create a fallback reconstruction
