@@ -1173,7 +1173,13 @@ class AdvancedPatternGenerator:
                 padded_phase[start_y:end_y, start_x:end_x] = self.slm_phase
                 
                 # Create complex field with phase only (amplitude = 1)
-                slm_field = np.exp(1j * padded_phase)
+                # Important: Apply a uniform amplitude across the entire SLM
+                # This ensures the reconstruction isn't just a tiny spot
+                amplitude = np.ones((self.padded_height, self.padded_width))
+                amplitude[start_y:end_y, start_x:end_x] = 1.0
+                
+                # Create the complex field with uniform amplitude and the calculated phase
+                slm_field = amplitude * np.exp(1j * padded_phase)
                 
                 # Simulate propagation to far field (exactly like in pattern_generator_windows.py)
                 far_field = np.fft.fftshift(np.fft.fft2(np.fft.ifftshift(slm_field)))
@@ -1182,6 +1188,10 @@ class AdvancedPatternGenerator:
                 # Normalize reconstruction for display
                 if np.max(self.reconstruction) > 0:
                     self.reconstruction = self.reconstruction / np.max(self.reconstruction)
+                
+                # Apply logarithmic scaling for better visualization of dynamic range
+                # This helps see details that might be lost in the high intensity regions
+                self.reconstruction = np.log1p(self.reconstruction * 10) / np.log1p(10)
                 
             except Exception as e:
                 print(f"Warning: Error calculating reconstruction: {str(e)}")
@@ -1290,7 +1300,13 @@ class AdvancedPatternGenerator:
                 padded_phase[start_y:end_y, start_x:end_x] = self.slm_phase
                 
                 # Create complex field with phase only (amplitude = 1)
-                slm_field = np.exp(1j * padded_phase)
+                # Important: Apply a uniform amplitude across the entire SLM
+                # This ensures the reconstruction isn't just a tiny spot
+                amplitude = np.ones((self.padded_height, self.padded_width))
+                amplitude[start_y:end_y, start_x:end_x] = 1.0
+                
+                # Create the complex field with uniform amplitude and the calculated phase
+                slm_field = amplitude * np.exp(1j * padded_phase)
                 
                 # Simulate propagation to far field (exactly like in pattern_generator_windows.py)
                 far_field = np.fft.fftshift(np.fft.fft2(np.fft.ifftshift(slm_field)))
@@ -1299,6 +1315,10 @@ class AdvancedPatternGenerator:
                 # Normalize reconstruction for display
                 if np.max(self.reconstruction) > 0:
                     self.reconstruction = self.reconstruction / np.max(self.reconstruction)
+                
+                # Apply logarithmic scaling for better visualization of dynamic range
+                # This helps see details that might be lost in the high intensity regions
+                self.reconstruction = np.log1p(self.reconstruction * 10) / np.log1p(10)
                 
             except Exception as e:
                 print(f"Warning: Error calculating reconstruction: {str(e)}")
@@ -1407,7 +1427,13 @@ class AdvancedPatternGenerator:
                 padded_phase[start_y:end_y, start_x:end_x] = self.slm_phase
                 
                 # Create complex field with phase only (amplitude = 1)
-                slm_field = np.exp(1j * padded_phase)
+                # Important: Apply a uniform amplitude across the entire SLM
+                # This ensures the reconstruction isn't just a tiny spot
+                amplitude = np.ones((self.padded_height, self.padded_width))
+                amplitude[start_y:end_y, start_x:end_x] = 1.0
+                
+                # Create the complex field with uniform amplitude and the calculated phase
+                slm_field = amplitude * np.exp(1j * padded_phase)
                 
                 # Simulate propagation to far field (exactly like in pattern_generator_windows.py)
                 far_field = np.fft.fftshift(np.fft.fft2(np.fft.ifftshift(slm_field)))
@@ -1416,6 +1442,10 @@ class AdvancedPatternGenerator:
                 # Normalize reconstruction for display
                 if np.max(self.reconstruction) > 0:
                     self.reconstruction = self.reconstruction / np.max(self.reconstruction)
+                
+                # Apply logarithmic scaling for better visualization of dynamic range
+                # This helps see details that might be lost in the high intensity regions
+                self.reconstruction = np.log1p(self.reconstruction * 10) / np.log1p(10)
                 
             except Exception as e:
                 print(f"Warning: Error calculating reconstruction: {str(e)}")
