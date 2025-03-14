@@ -84,6 +84,9 @@ class AdvancedPatternGenerator:
         self.input_beam_type = "Gaussian"  # Default beam type
         self.custom_input_beam = None
         
+        # Initialize signal region mask for MRAF
+        self.signal_region_mask = None
+        
         # Initialize GUI
         self.setup_gui()
 
@@ -1133,10 +1136,23 @@ class AdvancedPatternGenerator:
             # Apply input beam to initial field
             initial_field = input_beam * np.exp(1j * np.angle(field))
             
+            # Create signal region mask for MRAF if needed
+            if algorithm.lower() == 'mraf':
+                # Create signal region mask based on the target
+                if self.signal_region_mask is None or self.signal_region_mask.shape != self.padded_target.shape:
+                    signal_ratio = float(self.signal_region_ratio_var.get())
+                    # Create a binary mask where target intensity > threshold
+                    threshold = signal_ratio * np.max(self.padded_target)
+                    self.signal_region_mask = (self.padded_target > threshold).astype(float)
+                    print(f"Created signal region mask with ratio {signal_ratio}, covering {np.mean(self.signal_region_mask)*100:.1f}% of the image")
+            else:
+                # For GS algorithm, no mask needed
+                self.signal_region_mask = None
+            
             # Create pattern generator with target intensity
             self.pattern_generator = PatternGenerator(
                 target_intensity=self.padded_target,
-                signal_region_mask=None if algorithm.lower() == 'gs' else self.signal_region_mask,
+                signal_region_mask=self.signal_region_mask,
                 mixing_parameter=float(self.mixing_parameter_var.get())
             )
             
@@ -1226,10 +1242,23 @@ class AdvancedPatternGenerator:
             # Apply input beam to initial field
             initial_field = input_beam * np.exp(1j * np.angle(field))
             
+            # Create signal region mask for MRAF if needed
+            if algorithm.lower() == 'mraf':
+                # Create signal region mask based on the target
+                if self.signal_region_mask is None or self.signal_region_mask.shape != self.padded_target.shape:
+                    signal_ratio = float(self.signal_region_ratio_var.get())
+                    # Create a binary mask where target intensity > threshold
+                    threshold = signal_ratio * np.max(self.padded_target)
+                    self.signal_region_mask = (self.padded_target > threshold).astype(float)
+                    print(f"Created signal region mask with ratio {signal_ratio}, covering {np.mean(self.signal_region_mask)*100:.1f}% of the image")
+            else:
+                # For GS algorithm, no mask needed
+                self.signal_region_mask = None
+            
             # Create pattern generator with target intensity
             self.pattern_generator = PatternGenerator(
                 target_intensity=self.padded_target,
-                signal_region_mask=None if algorithm.lower() == 'gs' else self.signal_region_mask,
+                signal_region_mask=self.signal_region_mask,
                 mixing_parameter=float(self.mixing_parameter_var.get())
             )
             
@@ -1319,10 +1348,23 @@ class AdvancedPatternGenerator:
             # Apply input beam to initial field
             initial_field = input_beam * np.exp(1j * np.angle(field))
             
+            # Create signal region mask for MRAF if needed
+            if algorithm.lower() == 'mraf':
+                # Create signal region mask based on the target
+                if self.signal_region_mask is None or self.signal_region_mask.shape != self.padded_target.shape:
+                    signal_ratio = float(self.signal_region_ratio_var.get())
+                    # Create a binary mask where target intensity > threshold
+                    threshold = signal_ratio * np.max(self.padded_target)
+                    self.signal_region_mask = (self.padded_target > threshold).astype(float)
+                    print(f"Created signal region mask with ratio {signal_ratio}, covering {np.mean(self.signal_region_mask)*100:.1f}% of the image")
+            else:
+                # For GS algorithm, no mask needed
+                self.signal_region_mask = None
+            
             # Create pattern generator with target intensity
             self.pattern_generator = PatternGenerator(
                 target_intensity=self.padded_target,
-                signal_region_mask=None if algorithm.lower() == 'gs' else self.signal_region_mask,
+                signal_region_mask=self.signal_region_mask,
                 mixing_parameter=float(self.mixing_parameter_var.get())
             )
             
