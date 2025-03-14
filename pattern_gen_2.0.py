@@ -1598,15 +1598,29 @@ class PatternGenerator:
         y, x = np.ogrid[-h//2:h//2, -w//2:w//2]
         
         # Create a super-Gaussian window (smoother than regular Gaussian)
-        # Using a higher order (8) for sharper edge roll-off
-        self.window = np.exp(-0.5 * ((x/(w*0.45))**8 + (y/(h*0.45))**8))
+        # Using a higher order (10) for even sharper edge roll-off but still smooth transition
+        self.window = np.exp(-0.5 * ((x/(w*0.45))**10 + (y/(h*0.45))**10))
         
-        # Create a circular binary mask to suppress the central DC component
+        # Calculate radial distance from center for filtering
         r = np.sqrt(x**2 + y**2)
-        self.dc_filter = 1.0 - np.exp(-0.5 * (r/(min(w,h)*0.01))**2)
         
-        # Create a high-frequency filter to suppress noise
-        self.hf_filter = np.exp(-0.5 * (r/(min(w,h)*0.45))**2)
+        # Create a more aggressive DC filter with smoother transition
+        # This removes the central bright spot more effectively
+        dc_radius = min(w,h)*0.005  # Smaller radius for more targeted DC suppression
+        self.dc_filter = 1.0 - np.exp(-0.5 * (r/dc_radius)**2)
+        
+        # Create a high-frequency filter to suppress noise that causes star patterns
+        # Using a Butterworth-like filter for sharper cutoff with minimal ringing
+        hf_radius = min(w,h)*0.4
+        butterworth_order = 4  # Higher order for steeper roll-off
+        self.hf_filter = 1.0 / (1.0 + (r/hf_radius)**(2*butterworth_order))
+        
+        # Create cross-shaped notch filter to specifically target star-shaped artifacts
+        # These typically appear along the x and y axes in Fourier space
+        notch_width = min(w,h)*0.01
+        x_axis_mask = np.exp(-0.5 * (y/notch_width)**2)
+        y_axis_mask = np.exp(-0.5 * (x/notch_width)**2)
+        self.cross_filter = 1.0 - np.maximum(x_axis_mask, y_axis_mask) * 0.9  # 90% attenuation along axes
     
     def propagate(self, field):
         """Propagate field from image plane to SLM plane"""
@@ -1616,8 +1630,8 @@ class PatternGenerator:
         # Use proper FFT shifting for optical propagation
         fft_field = np.fft.fftshift(np.fft.fft2(np.fft.ifftshift(windowed_field)))
         
-        # Apply DC and high-frequency filters in Fourier space
-        filtered_fft = fft_field * self.dc_filter * self.hf_filter
+        # Apply DC, high-frequency, and cross filters in Fourier space
+        filtered_fft = fft_field * self.dc_filter * self.hf_filter * self.cross_filter
         
         return filtered_fft
     
@@ -1629,7 +1643,7 @@ class PatternGenerator:
         # Apply window on the way back to reduce ringing artifacts
         # Using a gentler window for the reconstruction
         return result * np.sqrt(self.window)
-    
+        
     def gs_iteration(self, field):
         """Single iteration of Gerchberg-Saxton algorithm"""
         # Propagate to SLM plane
@@ -1658,7 +1672,7 @@ class PatternGenerator:
         mixed_field = np.zeros_like(image_field, dtype=complex)
         # Signal region: maintain target amplitude
         mixed_field[sr_mask == 1] = np.sqrt(self.target_intensity[sr_mask == 1]) * np.exp(1j * np.angle(image_field[sr_mask == 1]))
-        # Noise region: allow amplitude freedom
+        # Noise region: allow amplitude freedom with controlled mixing
         mixed_field[nr_mask == 1] = ((1-m) * image_field[nr_mask == 1] + m * np.sqrt(self.target_intensity[nr_mask == 1]) * np.exp(1j * np.angle(image_field[nr_mask == 1])))
         
         return mixed_field
