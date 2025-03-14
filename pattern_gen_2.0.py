@@ -778,7 +778,7 @@ class AdvancedPatternGenerator:
             
         except Exception as e:
             self.status_var.set(f"Error loading pattern: {str(e)}")
-        
+
     def send_to_slm(self):
         """Send pattern to SLM via HDMI-A-2"""
         if not hasattr(self, 'pattern'):
@@ -1172,32 +1172,20 @@ class AdvancedPatternGenerator:
                 end_x = start_x + self.width
                 padded_phase[start_y:end_y, start_x:end_x] = self.slm_phase
                 
-                # Calculate reconstruction with shift - direct FFT approach
+                # Create SLM field with phase only
                 slm_field = np.exp(1j * padded_phase)
                 
-                # Apply window function to reduce edge artifacts
-                y, x = np.indices((self.padded_height, self.padded_width))
-                center_y, center_x = self.padded_height // 2, self.padded_width // 2
-                r = np.sqrt((x - center_x)**2 + (y - center_y)**2)
-                r_max = min(center_x, center_y)
-                window = np.exp(-(r / r_max)**8)  # Super-Gaussian window
-                
-                # Apply window and calculate diffraction
-                windowed_field = slm_field * window
-                image_field = np.fft.fftshift(np.fft.ifft2(np.fft.ifftshift(windowed_field)))
+                # Use the pattern generator's inverse_propagate method for accurate simulation
+                image_field = self.pattern_generator.inverse_propagate(slm_field)
                 
                 # Calculate intensity
                 self.reconstruction = np.abs(image_field)**2
-                
-                # Apply DC filter to reduce zero-order diffraction
-                dc_size = int(min(self.padded_height, self.padded_width) * 0.01)
-                self.reconstruction[center_y-dc_size:center_y+dc_size, center_x-dc_size:center_x+dc_size] *= 0.1
                 
                 # Normalize reconstruction for display
                 if np.max(self.reconstruction) > 0:
                     self.reconstruction = self.reconstruction / np.max(self.reconstruction)
                 
-                # Apply logarithmic scaling for better visualization
+                # Apply logarithmic scaling for better visualization of dynamic range
                 self.reconstruction = np.log1p(self.reconstruction * 100) / np.log1p(100)
                 
             except Exception as e:
@@ -1302,32 +1290,20 @@ class AdvancedPatternGenerator:
                 padded_phase = np.zeros((self.padded_height, self.padded_width))
                 padded_phase[start_y:end_y, start_x:end_x] = self.slm_phase
                 
-                # Calculate reconstruction with shift - direct FFT approach
+                # Create SLM field with phase only
                 slm_field = np.exp(1j * padded_phase)
                 
-                # Apply window function to reduce edge artifacts
-                y, x = np.indices((self.padded_height, self.padded_width))
-                center_y, center_x = self.padded_height // 2, self.padded_width // 2
-                r = np.sqrt((x - center_x)**2 + (y - center_y)**2)
-                r_max = min(center_x, center_y)
-                window = np.exp(-(r / r_max)**8)  # Super-Gaussian window
-                
-                # Apply window and calculate diffraction
-                windowed_field = slm_field * window
-                image_field = np.fft.fftshift(np.fft.ifft2(np.fft.ifftshift(windowed_field)))
+                # Use the pattern generator's inverse_propagate method for accurate simulation
+                image_field = self.pattern_generator.inverse_propagate(slm_field)
                 
                 # Calculate intensity
                 self.reconstruction = np.abs(image_field)**2
-                
-                # Apply DC filter to reduce zero-order diffraction
-                dc_size = int(min(self.padded_height, self.padded_width) * 0.01)
-                self.reconstruction[center_y-dc_size:center_y+dc_size, center_x-dc_size:center_x+dc_size] *= 0.1
                 
                 # Normalize reconstruction for display
                 if np.max(self.reconstruction) > 0:
                     self.reconstruction = self.reconstruction / np.max(self.reconstruction)
                 
-                # Apply logarithmic scaling for better visualization
+                # Apply logarithmic scaling for better visualization of dynamic range
                 self.reconstruction = np.log1p(self.reconstruction * 100) / np.log1p(100)
                 
             except Exception as e:
@@ -1432,32 +1408,20 @@ class AdvancedPatternGenerator:
                 padded_phase = np.zeros((self.padded_height, self.padded_width))
                 padded_phase[start_y:end_y, start_x:end_x] = self.slm_phase
                 
-                # Calculate reconstruction with shift - direct FFT approach
+                # Create SLM field with phase only
                 slm_field = np.exp(1j * padded_phase)
                 
-                # Apply window function to reduce edge artifacts
-                y, x = np.indices((self.padded_height, self.padded_width))
-                center_y, center_x = self.padded_height // 2, self.padded_width // 2
-                r = np.sqrt((x - center_x)**2 + (y - center_y)**2)
-                r_max = min(center_x, center_y)
-                window = np.exp(-(r / r_max)**8)  # Super-Gaussian window
-                
-                # Apply window and calculate diffraction
-                windowed_field = slm_field * window
-                image_field = np.fft.fftshift(np.fft.ifft2(np.fft.ifftshift(windowed_field)))
+                # Use the pattern generator's inverse_propagate method for accurate simulation
+                image_field = self.pattern_generator.inverse_propagate(slm_field)
                 
                 # Calculate intensity
                 self.reconstruction = np.abs(image_field)**2
-                
-                # Apply DC filter to reduce zero-order diffraction
-                dc_size = int(min(self.padded_height, self.padded_width) * 0.01)
-                self.reconstruction[center_y-dc_size:center_y+dc_size, center_x-dc_size:center_x+dc_size] *= 0.1
                 
                 # Normalize reconstruction for display
                 if np.max(self.reconstruction) > 0:
                     self.reconstruction = self.reconstruction / np.max(self.reconstruction)
                 
-                # Apply logarithmic scaling for better visualization
+                # Apply logarithmic scaling for better visualization of dynamic range
                 self.reconstruction = np.log1p(self.reconstruction * 100) / np.log1p(100)
                 
             except Exception as e:
