@@ -1164,20 +1164,44 @@ class AdvancedPatternGenerator:
             
             # Calculate and store reconstruction for preview
             try:
-                # For the simulated reconstruction, we'll directly use the target image
-                # This is what we want to see - the target image that we're trying to generate
-                self.reconstruction = np.zeros((self.padded_height, self.padded_width))
+                # Create full-sized phase with the shift
+                padded_phase = np.zeros((self.padded_height, self.padded_width))
                 start_y = (self.padded_height - self.height) // 2
                 end_y = start_y + self.height
                 start_x = (self.padded_width - self.width) // 2
                 end_x = start_x + self.width
+                padded_phase[start_y:end_y, start_x:end_x] = self.slm_phase
                 
-                # Place the target image in the center of the reconstruction
-                self.reconstruction[start_y:end_y, start_x:end_x] = self.target
+                # Create complex field with phase only (amplitude = 1)
+                slm_field = np.exp(1j * padded_phase)
+                
+                # Apply input beam profile if available
+                if hasattr(self, 'input_beam') and self.input_beam is not None:
+                    # Resize input beam to match padded dimensions if needed
+                    if self.input_beam.shape != (self.padded_height, self.padded_width):
+                        resized_beam = np.zeros((self.padded_height, self.padded_width))
+                        resized_beam[start_y:end_y, start_x:end_x] = self.input_beam
+                        slm_field = slm_field * resized_beam
+                
+                # Perform FFT-based diffraction simulation
+                # First, apply FFT shift to center the pattern
+                shifted_field = np.fft.ifftshift(slm_field)
+                
+                # Perform FFT to simulate diffraction
+                fft_field = np.fft.fft2(shifted_field)
+                
+                # Shift the result back
+                image_field = np.fft.fftshift(fft_field)
+                
+                # Calculate intensity (absolute square of the field)
+                self.reconstruction = np.abs(image_field)**2
                 
                 # Normalize reconstruction for display
                 if np.max(self.reconstruction) > 0:
                     self.reconstruction = self.reconstruction / np.max(self.reconstruction)
+                
+                # Apply logarithmic scaling for better visualization of dynamic range
+                self.reconstruction = np.log1p(self.reconstruction * 100) / np.log1p(100)
                 
             except Exception as e:
                 print(f"Warning: Error calculating reconstruction: {str(e)}")
@@ -1277,20 +1301,44 @@ class AdvancedPatternGenerator:
             
             # Calculate and store reconstruction for preview
             try:
-                # For the simulated reconstruction, we'll directly use the target image
-                # This is what we want to see - the target image that we're trying to generate
-                self.reconstruction = np.zeros((self.padded_height, self.padded_width))
+                # Create full-sized phase with the shift
+                padded_phase = np.zeros((self.padded_height, self.padded_width))
                 start_y = (self.padded_height - self.height) // 2
                 end_y = start_y + self.height
                 start_x = (self.padded_width - self.width) // 2
                 end_x = start_x + self.width
+                padded_phase[start_y:end_y, start_x:end_x] = self.slm_phase
                 
-                # Place the target image in the center of the reconstruction
-                self.reconstruction[start_y:end_y, start_x:end_x] = self.target
+                # Create complex field with phase only (amplitude = 1)
+                slm_field = np.exp(1j * padded_phase)
+                
+                # Apply input beam profile if available
+                if hasattr(self, 'input_beam') and self.input_beam is not None:
+                    # Resize input beam to match padded dimensions if needed
+                    if self.input_beam.shape != (self.padded_height, self.padded_width):
+                        resized_beam = np.zeros((self.padded_height, self.padded_width))
+                        resized_beam[start_y:end_y, start_x:end_x] = self.input_beam
+                        slm_field = slm_field * resized_beam
+                
+                # Perform FFT-based diffraction simulation
+                # First, apply FFT shift to center the pattern
+                shifted_field = np.fft.ifftshift(slm_field)
+                
+                # Perform FFT to simulate diffraction
+                fft_field = np.fft.fft2(shifted_field)
+                
+                # Shift the result back
+                image_field = np.fft.fftshift(fft_field)
+                
+                # Calculate intensity (absolute square of the field)
+                self.reconstruction = np.abs(image_field)**2
                 
                 # Normalize reconstruction for display
                 if np.max(self.reconstruction) > 0:
                     self.reconstruction = self.reconstruction / np.max(self.reconstruction)
+                
+                # Apply logarithmic scaling for better visualization of dynamic range
+                self.reconstruction = np.log1p(self.reconstruction * 100) / np.log1p(100)
                 
             except Exception as e:
                 print(f"Warning: Error calculating reconstruction: {str(e)}")
@@ -1390,20 +1438,44 @@ class AdvancedPatternGenerator:
             
             # Calculate and store reconstruction for preview
             try:
-                # For the simulated reconstruction, we'll directly use the target image
-                # This is what we want to see - the target image that we're trying to generate
-                self.reconstruction = np.zeros((self.padded_height, self.padded_width))
+                # Create full-sized phase with the shift
+                padded_phase = np.zeros((self.padded_height, self.padded_width))
                 start_y = (self.padded_height - self.height) // 2
                 end_y = start_y + self.height
                 start_x = (self.padded_width - self.width) // 2
                 end_x = start_x + self.width
+                padded_phase[start_y:end_y, start_x:end_x] = self.slm_phase
                 
-                # Place the target image in the center of the reconstruction
-                self.reconstruction[start_y:end_y, start_x:end_x] = self.target
+                # Create complex field with phase only (amplitude = 1)
+                slm_field = np.exp(1j * padded_phase)
+                
+                # Apply input beam profile if available
+                if hasattr(self, 'input_beam') and self.input_beam is not None:
+                    # Resize input beam to match padded dimensions if needed
+                    if self.input_beam.shape != (self.padded_height, self.padded_width):
+                        resized_beam = np.zeros((self.padded_height, self.padded_width))
+                        resized_beam[start_y:end_y, start_x:end_x] = self.input_beam
+                        slm_field = slm_field * resized_beam
+                
+                # Perform FFT-based diffraction simulation
+                # First, apply FFT shift to center the pattern
+                shifted_field = np.fft.ifftshift(slm_field)
+                
+                # Perform FFT to simulate diffraction
+                fft_field = np.fft.fft2(shifted_field)
+                
+                # Shift the result back
+                image_field = np.fft.fftshift(fft_field)
+                
+                # Calculate intensity (absolute square of the field)
+                self.reconstruction = np.abs(image_field)**2
                 
                 # Normalize reconstruction for display
                 if np.max(self.reconstruction) > 0:
                     self.reconstruction = self.reconstruction / np.max(self.reconstruction)
+                
+                # Apply logarithmic scaling for better visualization of dynamic range
+                self.reconstruction = np.log1p(self.reconstruction * 100) / np.log1p(100)
                 
             except Exception as e:
                 print(f"Warning: Error calculating reconstruction: {str(e)}")
