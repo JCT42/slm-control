@@ -1596,22 +1596,39 @@ class PatternGenerator:
         # Create a smooth window function to reduce artifacts
         h, w = target_intensity.shape
         y, x = np.ogrid[-h//2:h//2, -w//2:w//2]
+        
         # Create a super-Gaussian window (smoother than regular Gaussian)
-        self.window = np.exp(-0.5 * ((x/(w*0.4))**4 + (y/(h*0.4))**4))
+        # Using a higher order (8) for sharper edge roll-off
+        self.window = np.exp(-0.5 * ((x/(w*0.45))**8 + (y/(h*0.45))**8))
+        
+        # Create a circular binary mask to suppress the central DC component
+        r = np.sqrt(x**2 + y**2)
+        self.dc_filter = 1.0 - np.exp(-0.5 * (r/(min(w,h)*0.01))**2)
+        
+        # Create a high-frequency filter to suppress noise
+        self.hf_filter = np.exp(-0.5 * (r/(min(w,h)*0.45))**2)
     
     def propagate(self, field):
         """Propagate field from image plane to SLM plane"""
         # Apply window function to reduce edge artifacts
         windowed_field = field * self.window
+        
         # Use proper FFT shifting for optical propagation
-        return np.fft.fftshift(np.fft.fft2(np.fft.ifftshift(windowed_field)))
+        fft_field = np.fft.fftshift(np.fft.fft2(np.fft.ifftshift(windowed_field)))
+        
+        # Apply DC and high-frequency filters in Fourier space
+        filtered_fft = fft_field * self.dc_filter * self.hf_filter
+        
+        return filtered_fft
     
     def inverse_propagate(self, field):
         """Propagate field from SLM plane to image plane"""
         # Use proper FFT shifting for optical propagation
         result = np.fft.fftshift(np.fft.ifft2(np.fft.ifftshift(field)))
-        # No need to apply window on the way back as we want to see the full reconstruction
-        return result
+        
+        # Apply window on the way back to reduce ringing artifacts
+        # Using a gentler window for the reconstruction
+        return result * np.sqrt(self.window)
     
     def gs_iteration(self, field):
         """Single iteration of Gerchberg-Saxton algorithm"""
