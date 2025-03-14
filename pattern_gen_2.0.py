@@ -1196,11 +1196,6 @@ class AdvancedPatternGenerator:
                 # Calculate intensity (absolute square of the field)
                 self.reconstruction = np.abs(image_field)**2
                 
-                # Apply DC filter to reduce zero-order spot
-                center_y, center_x = self.padded_height // 2, self.padded_width // 2
-                dc_size = int(min(self.padded_height, self.padded_width) * 0.01)
-                self.reconstruction[center_y-dc_size:center_y+dc_size, center_x-dc_size:center_x+dc_size] *= 0.1
-                
                 # Normalize reconstruction for display
                 if np.max(self.reconstruction) > 0:
                     self.reconstruction = self.reconstruction / np.max(self.reconstruction)
@@ -1334,11 +1329,6 @@ class AdvancedPatternGenerator:
                 # Calculate intensity (absolute square of the field)
                 self.reconstruction = np.abs(image_field)**2
                 
-                # Apply DC filter to reduce zero-order spot
-                center_y, center_x = self.padded_height // 2, self.padded_width // 2
-                dc_size = int(min(self.padded_height, self.padded_width) * 0.01)
-                self.reconstruction[center_y-dc_size:center_y+dc_size, center_x-dc_size:center_x+dc_size] *= 0.1
-                
                 # Normalize reconstruction for display
                 if np.max(self.reconstruction) > 0:
                     self.reconstruction = self.reconstruction / np.max(self.reconstruction)
@@ -1471,11 +1461,6 @@ class AdvancedPatternGenerator:
                 
                 # Calculate intensity (absolute square of the field)
                 self.reconstruction = np.abs(image_field)**2
-                
-                # Apply DC filter to reduce zero-order spot
-                center_y, center_x = self.padded_height // 2, self.padded_width // 2
-                dc_size = int(min(self.padded_height, self.padded_width) * 0.01)
-                self.reconstruction[center_y-dc_size:center_y+dc_size, center_x-dc_size:center_x+dc_size] *= 0.1
                 
                 # Normalize reconstruction for display
                 if np.max(self.reconstruction) > 0:
