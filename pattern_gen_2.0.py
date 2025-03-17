@@ -32,7 +32,6 @@ import pygame
 from tqdm import tqdm
 import scipy.special
 import traceback
-import types
 
 class AdvancedPatternGenerator:
     def __init__(self):
@@ -408,25 +407,13 @@ class AdvancedPatternGenerator:
         toolbar = NavigationToolbar2Tk(self.preview_canvas, self.preview_frame)
         toolbar.update()
         
-        # Override the save function to handle OpenCV threading issues
-        original_save = toolbar.save
-        def safe_save(self, *args, **kwargs):
-            # Temporarily pause camera if it's running to avoid OpenCV threading issues
-            camera_was_active = False
-            if hasattr(self.canvas.figure.canvas, 'manager') and hasattr(self.canvas.figure.canvas.manager, 'toolbar'):
-                if hasattr(self, 'camera_active') and self.camera_active:
-                    camera_was_active = True
-                    self.pause_camera()
-                    
-            try:
-                # Call the original save function
-                original_save(self, *args, **kwargs)
-            finally:
-                # Resume camera if it was active
-                if camera_was_active:
-                    self.resume_camera()
-                    
-        toolbar.save = types.MethodType(safe_save, toolbar)
+        # Add a safe save button to the preview frame
+        safe_save_button = ttk.Button(
+            self.preview_frame, 
+            text="Safe Save Plot", 
+            command=lambda: self.safe_plot_save(self.fig, "pattern_preview")
+        )
+        safe_save_button.pack(side=tk.BOTTOM, pady=5)
         
         # Initialize empty plots
         self.ax1.set_title('Target Image')
@@ -492,6 +479,14 @@ class AdvancedPatternGenerator:
             # Send to SLM button in camera section
             self.camera_send_to_slm_button = ttk.Button(buttons_frame, text="Send to SLM", command=self.send_to_slm)
             self.camera_send_to_slm_button.pack(fill=tk.X, pady=2)
+            
+            # Safe Save button for camera
+            self.safe_save_camera_button = ttk.Button(
+                buttons_frame, 
+                text="Safe Save Image", 
+                command=lambda: self.safe_plot_save(self.camera_fig, "camera_image")
+            )
+            self.safe_save_camera_button.pack(fill=tk.X, pady=2)
             
             # Exposure settings frame
             exposure_frame = ttk.LabelFrame(controls_frame, text="Exposure Settings", padding=5)
@@ -1005,6 +1000,51 @@ class AdvancedPatternGenerator:
         except Exception as e:
             self.status_var.set(f"Error saving pattern: {str(e)}")
 
+    def safe_plot_save(self, figure, default_filename=None):
+        """Safely save a plot by temporarily pausing the camera to avoid OpenCV threading issues"""
+        # Temporarily pause camera if it's running
+        camera_was_active = False
+        if hasattr(self, 'camera_active') and self.camera_active:
+            camera_was_active = True
+            self.pause_camera()
+            
+        try:
+            # Create a file dialog to get save location
+            filetypes = [('PNG', '*.png'), ('PDF', '*.pdf'), ('SVG', '*.svg'), ('JPEG', '*.jpg')]
+            filename = filedialog.asksaveasfilename(
+                title='Save Figure',
+                defaultextension=".png",
+                filetypes=filetypes,
+                initialfile=default_filename or "figure"
+            )
+            
+            if filename:
+                figure.savefig(filename)
+                self.status_var.set(f"Figure saved to {filename}")
+        except Exception as e:
+            self.status_var.set(f"Error saving figure: {str(e)}")
+        finally:
+            # Resume camera if it was active
+            if camera_was_active:
+                self.resume_camera()
+
+    def pause_camera(self):
+        """Pause the camera feed"""
+        if not hasattr(self, 'camera_active') or not self.camera_active:
+            return
+            
+        self.camera_active = False
+        self.camera_paused = True
+        self.pause_camera_button.configure(text="Resume Camera", command=self.resume_camera)
+        self.status_var.set("Camera feed paused")
+        
+    def resume_camera(self):
+        """Resume the camera feed"""
+        self.camera_active = True
+        self.camera_paused = False
+        self.pause_camera_button.configure(text="Pause Camera", command=self.pause_camera)
+        self.status_var.set("Camera feed resumed")
+        
     def generate_input_beam(self):
         """Generate input beam profile based on selected type"""
         try:
@@ -1492,25 +1532,6 @@ class AdvancedPatternGenerator:
             print(f"Detailed error: {str(e)}")
             traceback.print_exc()
             return None, None, "Error in pattern generation"
-
-    def pause_camera(self):
-        """Pause or resume the camera feed"""
-        if not self.camera_active:
-            return
-            
-        try:
-            self.camera_paused = not self.camera_paused
-            button_text = "Resume Camera" if self.camera_paused else "Pause Camera"
-            self.pause_camera_button.configure(text=button_text)
-            
-            if self.camera_paused:
-                self.status_var.set("Camera feed paused")
-            else:
-                self.status_var.set("Camera feed resumed")
-                
-        except Exception as e:
-            self.status_var.set(f"Error toggling camera pause: {str(e)}")
-            print(f"Detailed error: {str(e)}")
 
     def set_exposure(self, exposure_ms):
         """Set camera exposure time in milliseconds"""
