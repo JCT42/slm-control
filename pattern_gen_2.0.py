@@ -776,7 +776,7 @@ class AdvancedPatternGenerator:
             file_path = result.stdout.strip()
             if not file_path:
                 return
-                
+            
             # Load the pattern
             pattern = cv2.imread(file_path, cv2.IMREAD_GRAYSCALE)
             if pattern is None:
@@ -831,6 +831,7 @@ class AdvancedPatternGenerator:
 
     def _display_slm_pattern(self):
         """Internal method to handle SLM display in a separate thread"""
+        slm_window = None
         try:
             # Force reinitialize pygame display system
             pygame.display.quit()
@@ -894,32 +895,46 @@ class AdvancedPatternGenerator:
             
             print("Pattern displayed. Press ESC to close.")
             
-            # Event loop in separate thread
+            # Event loop in separate thread - with improved error handling
             running = True
             while running:
-                for event in pygame.event.get():
-                    if event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE:
-                        running = False
+                try:
+                    # Check if pygame is still initialized
+                    if not pygame.display.get_init():
+                        print("Pygame display no longer initialized, exiting event loop")
                         break
-                    elif event.type == pygame.QUIT:
-                        running = False
-                        break
-                time.sleep(0.01)  # Small sleep to prevent high CPU usage
-            
-            # Cleanup
-            pygame.display.quit()
-            pygame.display.init()
+                        
+                    # Process events safely
+                    for event in pygame.event.get():
+                        if event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE:
+                            running = False
+                            break
+                        elif event.type == pygame.QUIT:
+                            running = False
+                            break
+                except pygame.error as e:
+                    print(f"Pygame error in event loop: {e}")
+                    break
+                except Exception as e:
+                    print(f"Unexpected error in event loop: {e}")
+                    break
+                    
+                # Small sleep to prevent high CPU usage
+                time.sleep(0.01)
             
         except Exception as e:
             print(f"Error in SLM display thread: {str(e)}")
             traceback.print_exc()  # Print full traceback for debugging
-            # Try to recover display
+        finally:
+            # Ensure cleanup happens even if there was an error
             try:
-                pygame.display.quit()
+                # Only quit if we're still initialized
+                if pygame.display.get_init():
+                    pygame.display.quit()
                 pygame.display.init()
-            except:
-                pass
-
+            except Exception as cleanup_error:
+                print(f"Error during pygame cleanup: {cleanup_error}")
+    
     def quit_application(self):
         """Clean up and quit the application"""
         print("Quitting application...")
