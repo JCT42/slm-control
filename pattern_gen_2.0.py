@@ -32,6 +32,7 @@ import pygame
 from tqdm import tqdm
 import scipy.special
 import traceback
+import types
 
 class AdvancedPatternGenerator:
     def __init__(self):
@@ -407,6 +408,26 @@ class AdvancedPatternGenerator:
         toolbar = NavigationToolbar2Tk(self.preview_canvas, self.preview_frame)
         toolbar.update()
         
+        # Override the save function to handle OpenCV threading issues
+        original_save = toolbar.save
+        def safe_save(self, *args, **kwargs):
+            # Temporarily pause camera if it's running to avoid OpenCV threading issues
+            camera_was_active = False
+            if hasattr(self.canvas.figure.canvas, 'manager') and hasattr(self.canvas.figure.canvas.manager, 'toolbar'):
+                if hasattr(self, 'camera_active') and self.camera_active:
+                    camera_was_active = True
+                    self.pause_camera()
+                    
+            try:
+                # Call the original save function
+                original_save(self, *args, **kwargs)
+            finally:
+                # Resume camera if it was active
+                if camera_was_active:
+                    self.resume_camera()
+                    
+        toolbar.save = types.MethodType(safe_save, toolbar)
+        
         # Initialize empty plots
         self.ax1.set_title('Target Image')
         self.ax1.set_xticks([])
@@ -467,6 +488,10 @@ class AdvancedPatternGenerator:
             self.save_camera_button = ttk.Button(buttons_frame, text="Save Image", 
                                                command=lambda: self.save_camera_image())
             self.save_camera_button.pack(fill=tk.X, pady=2)
+            
+            # Send to SLM button in camera section
+            self.camera_send_to_slm_button = ttk.Button(buttons_frame, text="Send to SLM", command=self.send_to_slm)
+            self.camera_send_to_slm_button.pack(fill=tk.X, pady=2)
             
             # Exposure settings frame
             exposure_frame = ttk.LabelFrame(controls_frame, text="Exposure Settings", padding=5)
@@ -1671,7 +1696,7 @@ class PatternGenerator:
         
         return mixed_field
     
-    def optimize(self, initial_field, algorithm='gs', max_iterations=100, tolerance=1e-4):
+    def optimize(self, initial_field, algorithm='gs', max_iterations=10, tolerance=1e-4):
         """
         Optimize the phase pattern using specified algorithm.
         
