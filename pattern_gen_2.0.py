@@ -809,6 +809,10 @@ class AdvancedPatternGenerator:
             return
         
         try:
+            # Set SDL environment variables for display control before initializing pygame
+            os.environ['SDL_VIDEO_WINDOW_POS'] = '1280,0'  # Position at main monitor width
+            os.environ['SDL_VIDEO_MINIMIZE_ON_FOCUS_LOSS'] = '0'
+            
             # Create a thread for SLM display
             self.slm_thread = threading.Thread(target=self._display_slm_pattern)
             self.slm_thread.daemon = True  # Thread will be terminated when main program exits
@@ -819,38 +823,69 @@ class AdvancedPatternGenerator:
             self.status_var.set(f"Error: {str(e)}")
             print(f"Detailed error: {str(e)}")
             # Try to recover display
-            pygame.display.quit()
-            pygame.display.init()
+            try:
+                pygame.display.quit()
+                pygame.display.init()
+            except:
+                pass
 
     def _display_slm_pattern(self):
         """Internal method to handle SLM display in a separate thread"""
         try:
-            # Force reinitialize pygame display
-            if pygame.display.get_init():
-                pygame.display.quit()
-            pygame.display.init()
-            
-            # Set SDL environment variables for display control
-            os.environ['SDL_VIDEO_WINDOW_POS'] = '1280,0'  # Position at main monitor width
-            os.environ['SDL_VIDEO_MINIMIZE_ON_FOCUS_LOSS'] = '0'
+            # Force reinitialize pygame display system
+            pygame.display.quit()
+            pygame.init()  # Full initialization to ensure all subsystems are ready
             
             # Get display info
-            print(f"Number of displays: {pygame.display.get_num_displays()}")
-            for i in range(pygame.display.get_num_displays()):
+            num_displays = pygame.display.get_num_displays()
+            print(f"Number of displays: {num_displays}")
+            
+            if num_displays < 2:
+                print("Warning: Only one display detected. Using current display.")
+                display_index = 0
+            else:
+                display_index = 1  # Use second display
+                
+            for i in range(num_displays):
                 info = pygame.display.get_desktop_sizes()[i]
                 print(f"Display {i}: {info}")
             
-            # Create window on second display
-            slm_window = pygame.display.set_mode(
-                (800, 600),
-                pygame.NOFRAME,
-                display=1
-            )
+            # Get the size of the target display
+            target_display_size = pygame.display.get_desktop_sizes()[display_index]
+            print(f"Using display {display_index} with size {target_display_size}")
             
-            # Create and show pattern
-            pattern_surface = pygame.Surface((800, 600), depth=8)
+            # Create window on target display with proper size
+            try:
+                slm_window = pygame.display.set_mode(
+                    target_display_size,
+                    pygame.NOFRAME,
+                    display=display_index
+                )
+            except pygame.error:
+                # Fallback if display parameter fails
+                slm_window = pygame.display.set_mode(
+                    target_display_size,
+                    pygame.NOFRAME
+                )
+                # Try to move window to correct position
+                pygame.display.set_caption("SLM Pattern")
+            
+            # Create and show pattern - resize to match display if needed
+            pattern_height, pattern_width = self.pattern.shape
+            if (pattern_width, pattern_height) != target_display_size:
+                print(f"Resizing pattern from {pattern_width}x{pattern_height} to {target_display_size[0]}x{target_display_size[1]}")
+                resized_pattern = cv2.resize(self.pattern, target_display_size)
+            else:
+                resized_pattern = self.pattern
+                
+            # Create surface with proper depth for grayscale
+            pattern_surface = pygame.Surface(target_display_size, depth=8)
             pattern_surface.set_palette([(i, i, i) for i in range(256)])
-            pygame.surfarray.pixels2d(pattern_surface)[:] = self.pattern.T
+            
+            # Update surface with pattern data
+            pygame_array = pygame.surfarray.pixels2d(pattern_surface)
+            pygame_array[:] = resized_pattern.T
+            del pygame_array  # Release the surface lock
             
             # Clear window and display pattern
             slm_window.fill((0, 0, 0))
@@ -877,9 +912,13 @@ class AdvancedPatternGenerator:
             
         except Exception as e:
             print(f"Error in SLM display thread: {str(e)}")
+            traceback.print_exc()  # Print full traceback for debugging
             # Try to recover display
-            pygame.display.quit()
-            pygame.display.init()
+            try:
+                pygame.display.quit()
+                pygame.display.init()
+            except:
+                pass
 
     def quit_application(self):
         """Clean up and quit the application"""
