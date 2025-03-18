@@ -106,9 +106,54 @@ class AdvancedPatternGenerator:
         self.main_frame = ttk.Frame(self.root)
         self.main_frame.pack(fill=tk.BOTH, expand=True)
         
+        # Create notebook for tabs
+        self.notebook = ttk.Notebook(self.main_frame)
+        self.notebook.pack(fill=tk.BOTH, expand=True)
+        
+        # Create tabs
+        self.pattern_frame = ttk.Frame(self.notebook)
+        self.camera_frame = ttk.Frame(self.notebook)
+        self.settings_frame = ttk.Frame(self.notebook)
+        
+        self.notebook.add(self.pattern_frame, text="Pattern Generator")
+        self.notebook.add(self.camera_frame, text="Camera")
+        self.notebook.add(self.settings_frame, text="Settings")
+        
+        # Create status bar
+        status_frame = ttk.Frame(self.main_frame)
+        status_frame.pack(fill=tk.X, pady=5)
+        
+        self.status_var = tk.StringVar()
+        self.status_var.set("Ready")
+        status_label = ttk.Label(status_frame, textvariable=self.status_var, anchor=tk.W)
+        status_label.pack(side=tk.LEFT, fill=tk.X, expand=True)
+        
+        # Create pattern generator UI
+        self.create_pattern_ui()
+        
+        # Create camera preview
+        self.create_camera_preview()
+        
+        # Initialize camera if available
+        self.initialize_camera()
+        
+        # Bind ESC key to quit
+        self.root.bind('<Escape>', lambda e: self.quit_application())
+        # Also bind using protocol for window close button
+        self.root.protocol("WM_DELETE_WINDOW", self.quit_application)
+        
+        # Bind mouse wheel to scrolling
+        self.root.bind("<MouseWheel>", self._on_mousewheel)
+
+    def _on_mousewheel(self, event):
+        """Handle mouse wheel scrolling"""
+        self.canvas.yview_scroll(int(-1*(event.delta/120)), "units")
+
+    def create_pattern_ui(self):
+        """Create pattern generator UI"""
         # Create canvas for scrolling
-        self.canvas = tk.Canvas(self.main_frame)
-        scrollbar = ttk.Scrollbar(self.main_frame, orient="vertical", command=self.canvas.yview)
+        self.canvas = tk.Canvas(self.pattern_frame)
+        scrollbar = ttk.Scrollbar(self.pattern_frame, orient="vertical", command=self.canvas.yview)
         self.scrollable_frame = ttk.Frame(self.canvas)
         
         # Configure scrolling
@@ -135,11 +180,7 @@ class AdvancedPatternGenerator:
         self.preview_frame = ttk.LabelFrame(self.scrollable_frame, text="Pattern Preview", padding="10")
         self.preview_frame.pack(fill=tk.X, padx=5, pady=5)
         
-        self.camera_frame = ttk.LabelFrame(self.scrollable_frame, text="Camera Preview", padding="10")
-        self.camera_frame.pack(fill=tk.BOTH, padx=5, pady=5)
-        
         # Add status bar
-        self.status_var = tk.StringVar()
         self.status_bar = ttk.Label(self.scrollable_frame, textvariable=self.status_var)
         self.status_bar.pack(fill=tk.X, padx=5, pady=5)
         
@@ -152,25 +193,10 @@ class AdvancedPatternGenerator:
         # Add phase shift controls
         self.create_phase_shift_controls()
         
-        # Initialize camera
-        self.initialize_camera()
-        
-        # Bind ESC key to quit
-        self.root.bind('<Escape>', lambda e: self.quit_application())
-        # Also bind using protocol for window close button
-        self.root.protocol("WM_DELETE_WINDOW", self.quit_application)
-        
-        # Bind mouse wheel to scrolling
-        self.root.bind("<MouseWheel>", self._on_mousewheel)
-
     def _on_canvas_configure(self, event):
         """Handle canvas resize"""
         width = event.width
         self.canvas.itemconfig(1, width=width)
-
-    def _on_mousewheel(self, event):
-        """Handle mouse wheel scrolling"""
-        self.canvas.yview_scroll(int(-1*(event.delta/120)), "units")
 
     def create_controls(self):
         """Create parameter control widgets"""
@@ -447,10 +473,18 @@ class AdvancedPatternGenerator:
         
     def create_camera_preview(self):
         """Create camera preview area with controls"""
+        # Create main container for camera tab
+        camera_container = ttk.Frame(self.camera_frame)
+        camera_container.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+        
         # Create camera frame with matplotlib figure
-        self.camera_fig = plt.Figure(figsize=(8, 6), dpi=100)
-        self.camera_canvas = FigureCanvasTkAgg(self.camera_fig, master=self.camera_frame)
+        self.camera_fig = plt.Figure(figsize=(10, 8), dpi=100)
+        self.camera_canvas = FigureCanvasTkAgg(self.camera_fig, master=camera_container)
         self.camera_canvas.get_tk_widget().pack(side=tk.TOP, fill=tk.BOTH, expand=1)
+        
+        # Add navigation toolbar
+        toolbar = NavigationToolbar2Tk(self.camera_canvas, camera_container)
+        toolbar.update()
         
         # Create a 2x1 grid for preview and histogram
         gs = self.camera_fig.add_gridspec(2, 1, height_ratios=[3, 1])
@@ -474,47 +508,63 @@ class AdvancedPatternGenerator:
         self.camera_fig.tight_layout()
         
         # Add camera controls
-        controls_frame = ttk.Frame(self.camera_frame)
+        controls_frame = ttk.LabelFrame(camera_container, text="Camera Controls")
         controls_frame.pack(fill=tk.X, padx=5, pady=5)
         
+        # Create a grid for controls
+        control_grid = ttk.Frame(controls_frame)
+        control_grid.pack(fill=tk.X, padx=10, pady=10)
+        
         # Exposure control
-        ttk.Label(controls_frame, text="Exposure (ms):").grid(row=0, column=0, padx=5, pady=5)
+        ttk.Label(control_grid, text="Exposure (ms):").grid(row=0, column=0, padx=5, pady=5, sticky=tk.W)
         self.exposure_var = tk.StringVar(value="20")
-        exposure_entry = ttk.Entry(controls_frame, textvariable=self.exposure_var, width=10)
+        exposure_entry = ttk.Entry(control_grid, textvariable=self.exposure_var, width=10)
         exposure_entry.grid(row=0, column=1, padx=5, pady=5)
-        exposure_entry.bind('<Return>', lambda e: self.set_exposure(float(self.exposure_var.get())))
+        ttk.Button(control_grid, text="Set Exposure", 
+                 command=lambda: self.set_exposure(float(self.exposure_var.get()))).grid(row=0, column=2, padx=5, pady=5)
         
         # Gain control
-        ttk.Label(controls_frame, text="Gain:").grid(row=0, column=2, padx=5, pady=5)
+        ttk.Label(control_grid, text="Gain:").grid(row=0, column=3, padx=5, pady=5, sticky=tk.W)
         self.gain_var = tk.StringVar(value="1.0")
-        gain_entry = ttk.Entry(controls_frame, textvariable=self.gain_var, width=10)
-        gain_entry.grid(row=0, column=3, padx=5, pady=5)
-        gain_entry.bind('<Return>', lambda e: self.set_gain(float(self.gain_var.get())))
+        gain_entry = ttk.Entry(control_grid, textvariable=self.gain_var, width=10)
+        gain_entry.grid(row=0, column=4, padx=5, pady=5)
+        ttk.Button(control_grid, text="Set Gain",
+                 command=lambda: self.set_gain(float(self.gain_var.get()))).grid(row=0, column=5, padx=5, pady=5)
+        
+        # Capture and save buttons
+        button_frame = ttk.Frame(control_grid)
+        button_frame.grid(row=1, column=0, columnspan=6, pady=10)
         
         # Capture button
-        capture_button = ttk.Button(controls_frame, text="Capture", 
+        capture_button = ttk.Button(button_frame, text="Capture Image", 
                                   command=self.capture_camera_image)
-        capture_button.grid(row=0, column=4, padx=5, pady=5)
+        capture_button.pack(side=tk.LEFT, padx=10)
         
         # Save button
-        save_button = ttk.Button(controls_frame, text="Save Image", 
+        save_button = ttk.Button(button_frame, text="Save Image", 
                                command=self.save_camera_image)
-        save_button.grid(row=0, column=5, padx=5, pady=5)
+        save_button.pack(side=tk.LEFT, padx=10)
         
         # Pause/Resume button
-        self.pause_text = tk.StringVar(value="Pause")
-        self.pause_button = ttk.Button(controls_frame, textvariable=self.pause_text,
+        self.pause_text = tk.StringVar(value="Pause Camera")
+        self.pause_button = ttk.Button(button_frame, textvariable=self.pause_text,
                                      command=self.toggle_camera_pause)
-        self.pause_button.grid(row=0, column=6, padx=5, pady=5)
+        self.pause_button.pack(side=tk.LEFT, padx=10)
+        
+        # Add info label
+        info_label = ttk.Label(camera_container, 
+                             text="Camera captures 10-bit intensity values (0-1023). Images are saved with full precision.",
+                             font=("Arial", 10, "italic"))
+        info_label.pack(pady=5)
     
     def toggle_camera_pause(self):
         """Toggle camera pause state"""
         if self.camera_paused:
             self.resume_camera()
-            self.pause_text.set("Pause")
+            self.pause_text.set("Pause Camera")
         else:
             self.pause_camera()
-            self.pause_text.set("Resume")
+            self.pause_text.set("Resume Camera")
     
     def pause_camera(self):
         """Pause the camera feed"""
