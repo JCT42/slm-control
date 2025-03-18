@@ -537,26 +537,28 @@ class AdvancedPatternGenerator:
             print("Available camera formats:", self.picam.sensor_modes)
             print("Camera properties:", self.picam.camera_properties)
             
-            # Create still config for 10-bit monochrome capture
+            # Create still config for 10-bit capture using native sensor format
             still_config = self.picam.create_still_configuration(
                 main={"size": (1456, 1088),
-                      "format": "GREY"},
+                      "format": "BGR888"},  # Standard format for preview
                 raw={"size": (1456, 1088),
-                     "format": "GREY10_2"},  # 10-bit packed monochrome format
-                controls={
-                    "ExposureTime": 10000,  # 10ms default exposure
-                    "AnalogueGain": 1.0     # Base gain
-                }
+                     "format": "SBGGR10_1X10"}  # Native 10-bit Bayer format
             )
             
             # Configure camera
             self.picam.configure(still_config)
-            self.picam.start()
             
+            # Set camera parameters
+            self.picam.set_controls({
+                "ExposureTime": 10000,  # 10ms default exposure
+                "AnalogueGain": 1.0     # Base gain
+            })
+            
+            self.picam.start()
             print("Camera started with configuration:", self.picam.camera_configuration)
             
             self.camera_active = True
-            self.status_var.set("Camera initialized in 10-bit monochrome mode")
+            self.status_var.set("Camera initialized in 10-bit mode")
             
         except Exception as e:
             self.status_var.set(f"Camera initialization failed: {str(e)}")
@@ -570,13 +572,17 @@ class AdvancedPatternGenerator:
             if self.camera_active:
                 # Capture raw 10-bit frame
                 raw_frame = self.picam.capture_array("raw")
+                preview_frame = self.picam.capture_array("main")
                 
                 if raw_frame is not None:
+                    # Convert Bayer pattern to grayscale (average of all channels)
+                    gray = raw_frame.mean(axis=2) if len(raw_frame.shape) > 2 else raw_frame
+                    
                     # Store raw 10-bit data
-                    self.raw_capture = raw_frame.copy()
+                    self.raw_capture = gray.copy()
                     
                     # Map raw values to phase range [-π to π]
-                    phase_data = -np.pi + (2 * np.pi * raw_frame / 1023.0)
+                    phase_data = -np.pi + (2 * np.pi * gray / 1023.0)
                     
                     # Map phase to SLM grayscale [0-255]
                     # -π → 0 (black)
@@ -587,8 +593,10 @@ class AdvancedPatternGenerator:
                     # Resize to match SLM resolution
                     self.target = cv2.resize(slm_gray, (800, 600), interpolation=cv2.INTER_LINEAR)
                     
-                    # Update preview
-                    self.update_preview(slm_gray)
+                    # Update preview using the BGR frame
+                    if preview_frame is not None:
+                        preview_gray = cv2.cvtColor(preview_frame, cv2.COLOR_BGR2GRAY)
+                        self.update_preview(preview_gray)
                     
                     # Print debug info
                     print(f"Raw frame info: shape={raw_frame.shape}, dtype={raw_frame.dtype}")
@@ -630,7 +638,7 @@ class AdvancedPatternGenerator:
             
             time.sleep(0.033)  # ~30 FPS
 
-    def update_preview(self):
+    def update_preview(self, frame=None):
         """Update the preview plots with current patterns and reconstructions"""
         try:
             # Clear axes
@@ -639,14 +647,15 @@ class AdvancedPatternGenerator:
             self.ax3.clear()
             self.ax4.clear()
             
-            # Plot target image
-            if hasattr(self, 'target'):
+            # Update target pattern preview
+            if frame is not None:
+                self.ax1.imshow(frame, cmap='gray')
+                self.ax1.set_title('Camera Preview')
+            elif hasattr(self, 'target'):
                 self.ax1.imshow(self.target, cmap='gray')
-                self.ax1.set_title('Target')
-                self.ax1.set_xticks([])
-                self.ax1.set_yticks([])
+                self.ax1.set_title('Target Pattern')
             
-            # Plot current pattern
+            # Update current SLM pattern preview
             if hasattr(self, 'pattern'):
                 # Use gray colormap for phase patterns
                 if self.modulation_mode == "Phase":
@@ -654,10 +663,8 @@ class AdvancedPatternGenerator:
                 else:
                     self.ax2.imshow(self.pattern, cmap='gray')
                 self.ax2.set_title('SLM Pattern')
-                self.ax2.set_xticks([])
-                self.ax2.set_yticks([])
             
-            # Plot simulated reconstruction
+            # Update simulated reconstruction preview
             if hasattr(self, 'reconstruction'):
                 # Extract central region of reconstruction to match target size
                 start_y = (self.padded_height - self.height) // 2
@@ -670,8 +677,6 @@ class AdvancedPatternGenerator:
                 # Display the central region of the reconstruction
                 self.ax3.imshow(central_recon, cmap='hot')  # Use hot colormap for intensity
                 self.ax3.set_title('Simulated Reconstruction')
-                self.ax3.set_xticks([])
-                self.ax3.set_yticks([])
             
             # Plot error history if available and enabled
             if hasattr(self, 'error_history') and self.show_error_plot_var.get():
@@ -681,13 +686,18 @@ class AdvancedPatternGenerator:
                 self.ax4.set_xlabel('Iteration')
                 self.ax4.set_ylabel('Error')
                 self.ax4.grid(True)
-                
-            # Update canvas
+            
+            # Remove axes ticks from image plots
+            for ax in [self.ax1, self.ax2, self.ax3]:
+                ax.set_xticks([])
+                ax.set_yticks([])
+            
+            # Update the figure
             self.preview_canvas.draw()
             
         except Exception as e:
             self.status_var.set(f"Error updating preview: {str(e)}")
-            print(f"Detailed error: {str(e)}")
+            print(f"Preview error: {traceback.format_exc()}")
 
     def generate_pattern(self):
         """Generate pattern based on current settings"""
@@ -1056,7 +1066,7 @@ class AdvancedPatternGenerator:
             save_path = result.stdout.strip()
             if not save_path:
                 return
-                
+            
             # Add extension if not present
             if not save_path.lower().endswith(('.png', '.jpg', '.jpeg')):
                 save_path += '.png'
