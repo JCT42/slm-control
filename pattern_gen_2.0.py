@@ -449,9 +449,9 @@ class AdvancedPatternGenerator:
             self.camera_fig, self.camera_ax = plt.subplots(figsize=(16, 6))  # Match preview size
             self.camera_canvas = FigureCanvasTkAgg(self.camera_fig, master=self.camera_frame)
             
-            # Initialize camera preview with black image (phase -π)
-            self.camera_image = self.camera_ax.imshow(np.zeros((1088, 1456)), cmap='gray', vmin=0, vmax=255)
-            self.camera_ax.set_title('Camera Feed (Grayscale 0→-π, 128→0, 255→π)')
+            # Initialize camera preview with black image
+            self.camera_image = self.camera_ax.imshow(np.zeros((1088, 1456)), cmap='gray')
+            self.camera_ax.set_title('Camera Preview')
             self.camera_ax.set_xticks([])
             self.camera_ax.set_yticks([])
             
@@ -463,11 +463,6 @@ class AdvancedPatternGenerator:
             buttons_frame = ttk.LabelFrame(controls_frame, text="Camera Controls", padding=5)
             buttons_frame.pack(fill=tk.X, pady=5)
             
-            # Add phase mapping info label
-            phase_info = ttk.Label(buttons_frame, text="Phase Mapping:\n0 → -π\n128 → 0\n255 → π", 
-                                 justify=tk.LEFT, wraplength=150)
-            phase_info.pack(fill=tk.X, pady=5)
-            
             # Pause/Resume button
             self.pause_camera_button = ttk.Button(buttons_frame, text="Pause Camera", command=self.pause_camera)
             self.pause_camera_button.pack(fill=tk.X, pady=2)
@@ -477,7 +472,7 @@ class AdvancedPatternGenerator:
             self.capture_button.pack(fill=tk.X, pady=2)
             
             # Save button
-            self.save_camera_button = ttk.Button(buttons_frame, text="Save Image", 
+            self.save_camera_button = ttk.Button(buttons_frame, text="Save Raw Image (10-bit)", 
                                                command=lambda: self.save_camera_image())
             self.save_camera_button.pack(fill=tk.X, pady=2)
             
@@ -485,47 +480,7 @@ class AdvancedPatternGenerator:
             self.camera_send_to_slm_button = ttk.Button(buttons_frame, text="Send to SLM", command=self.send_to_slm)
             self.camera_send_to_slm_button.pack(fill=tk.X, pady=2)
             
-            # Safe Save button for camera
-            self.safe_save_camera_button = ttk.Button(
-                buttons_frame, 
-                text="Safe Save Image", 
-                command=lambda: self.safe_plot_save(self.camera_fig, "camera_image")
-            )
-            self.safe_save_camera_button.pack(fill=tk.X, pady=2)
-            
-            # Exposure settings frame
-            exposure_frame = ttk.LabelFrame(controls_frame, text="Exposure Settings", padding=5)
-            exposure_frame.pack(fill=tk.X, pady=5)
-            
-            # Exposure control
-            ttk.Label(exposure_frame, text="Exposure Time (ms):").pack(fill=tk.X)
-            exposure_control_frame = ttk.Frame(exposure_frame)
-            exposure_control_frame.pack(fill=tk.X)
-            
-            self.exposure_var = tk.StringVar(value="10")
-            exposure_entry = ttk.Entry(exposure_control_frame, textvariable=self.exposure_var, width=8)
-            exposure_entry.pack(side=tk.LEFT, padx=2)
-            
-            ttk.Button(exposure_control_frame, text="Set", 
-                      command=lambda: self.set_exposure(float(self.exposure_var.get()))).pack(side=tk.LEFT, padx=2)
-            
-            # Gain settings frame
-            gain_frame = ttk.LabelFrame(controls_frame, text="Gain Settings", padding=5)
-            gain_frame.pack(fill=tk.X, pady=5)
-            
-            # Gain control
-            ttk.Label(gain_frame, text="Analog Gain:").pack(fill=tk.X)
-            gain_control_frame = ttk.Frame(gain_frame)
-            gain_control_frame.pack(fill=tk.X)
-            
-            self.gain_var = tk.StringVar(value="1.0")
-            gain_entry = ttk.Entry(gain_control_frame, textvariable=self.gain_var, width=8)
-            gain_entry.pack(side=tk.LEFT, padx=2)
-            
-            ttk.Button(gain_control_frame, text="Set",
-                      command=lambda: self.set_gain(float(self.gain_var.get()))).pack(side=tk.LEFT, padx=2)
-            
-            # Pack the camera canvas
+            # Pack the canvas
             self.camera_canvas.get_tk_widget().pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
             
         except Exception as e:
@@ -538,26 +493,25 @@ class AdvancedPatternGenerator:
             # Initialize PiCamera2
             self.picam = Picamera2()
             
-            # Configure camera for high-bit-depth monochrome
+            # Configure camera with Y10 for main (raw capture) and GREY for preview
             preview_config = self.picam.create_preview_configuration(
-                main={"size": (1456, 1088), "format": "GREY"},  # Standard monochrome format
-                lores={"size": (640, 360), "format": "GREY"},
+                main={"size": (1456, 1088), "format": "Y10"},  # 10-bit format for raw capture
+                lores={"size": (640, 360), "format": "GREY"},  # 8-bit for preview
                 display="lores"
             )
             
             still_config = self.picam.create_still_configuration(
-                main={"size": (1456, 1088), "format": "GREY"},  # Standard monochrome format
-                lores={"size": (640, 360), "format": "GREY"}
+                main={"size": (1456, 1088), "format": "Y10"},  # 10-bit format for raw capture
+                lores={"size": (640, 360), "format": "GREY"}  # 8-bit for preview
             )
             
             self.picam.configure(preview_config)
             
-            # Set camera controls for monochrome sensor
+            # Set camera controls
             self.picam.set_controls({
-                "FrameDurationLimits": (16666, 16666),  # 60fps (1/60 = 16.666ms)
+                "FrameDurationLimits": (16666, 16666),  # 60fps
                 "ExposureTime": 10000,  # 10ms exposure
-                "AnalogueGain": 1.0,
-                "ColourGains": (1.0, 1.0)  # Ensure balanced color gains
+                "AnalogueGain": 1.0
             })
             
             # Start the camera
@@ -565,7 +519,7 @@ class AdvancedPatternGenerator:
             time.sleep(2)  # Wait for camera to warm up
             
             # Test if camera is working
-            test_frame = self.picam.capture_array()
+            test_frame = self.picam.capture_array("lores")  # Use lores for preview
             if test_frame is not None:
                 print("Successfully connected to Raspberry Pi Camera")
                 print(f"Frame shape: {test_frame.shape}")
@@ -595,15 +549,12 @@ class AdvancedPatternGenerator:
             return
         
         if self.camera_paused and self.last_frame is not None:
-            # Use the last captured frame when paused
             frame = self.last_frame
         else:
             try:
-                # Capture frame from camera - standard monochrome format
-                frame = self.picam.capture_array()
-                self.last_frame = frame.copy()  # Save a copy for pause functionality
-                
-                # No need to convert to grayscale since it's already monochrome
+                # Use lores stream for preview
+                frame = self.picam.capture_array("lores")
+                self.last_frame = frame.copy()
             except Exception as e:
                 print(f"Error capturing frame: {str(e)}")
                 return
@@ -612,7 +563,7 @@ class AdvancedPatternGenerator:
             # Update the image data
             self.camera_image.set_data(frame)
             
-            # Update colorbar limits for standard 8-bit display
+            # Standard 8-bit display for preview
             self.camera_image.set_clim(vmin=0, vmax=255)
             
             # Redraw the canvas
@@ -625,63 +576,49 @@ class AdvancedPatternGenerator:
         except Exception as e:
             print(f"Error updating camera preview: {str(e)}")
 
-    def update_preview(self):
-        """Update the preview plots with current patterns and reconstructions"""
+    def save_camera_image(self):
+        """Save the current camera frame to a file"""
+        if not self.camera_active:
+            self.status_var.set("Camera is not active")
+            return
+        
         try:
-            # Clear axes
-            self.ax1.clear()
-            self.ax2.clear()
-            self.ax3.clear()
-            self.ax4.clear()
+            # Get save path
+            file_path = filedialog.asksaveasfilename(
+                defaultextension=".raw",  # Default to raw format
+                filetypes=[
+                    ("Raw files", "*.raw"),  # Prioritize raw format
+                    ("TIFF files", "*.tif;*.tiff"),
+                    ("PNG files", "*.png"), 
+                    ("All files", "*.*")
+                ],
+                title="Save Camera Image (Raw format recommended for 10-bit data)"
+            )
             
-            # Plot target image
-            if hasattr(self, 'target'):
-                self.ax1.imshow(self.target, cmap='gray')
-                self.ax1.set_title('Target')
-                self.ax1.set_xticks([])
-                self.ax1.set_yticks([])
-            
-            # Plot current pattern
-            if hasattr(self, 'pattern'):
-                # Use gray colormap for phase patterns
-                if self.modulation_mode == "Phase":
-                    self.ax2.imshow(self.pattern, cmap='gray')
+            if file_path:
+                # Capture from main stream for full 10-bit data
+                frame = self.picam.capture_array("main")
+                    
+                # Save based on file extension
+                if file_path.lower().endswith('.raw'):
+                    # Save as raw 10-bit data
+                    np.array(frame, dtype=np.uint16).tofile(file_path)
+                    
+                    # Save metadata
+                    with open(file_path + '.txt', 'w') as f:
+                        f.write(f"Width: {frame.shape[1]}\n")
+                        f.write(f"Height: {frame.shape[0]}\n")
+                        f.write("Bit depth: 10\n")
+                        f.write("Format: Monochrome\n")
+                    self.status_var.set(f"Raw 10-bit image saved to {file_path}")
                 else:
-                    self.ax2.imshow(self.pattern, cmap='gray')
-                self.ax2.set_title('SLM Pattern')
-                self.ax2.set_xticks([])
-                self.ax2.set_yticks([])
-            
-            # Plot simulated reconstruction
-            if hasattr(self, 'reconstruction'):
-                # Extract central region of reconstruction to match target size
-                start_y = (self.padded_height - self.height) // 2
-                end_y = start_y + self.height
-                start_x = (self.padded_width - self.width) // 2
-                end_x = start_x + self.width
-                
-                central_recon = self.reconstruction[start_y:end_y, start_x:end_x]
-                
-                # Display the central region of the reconstruction
-                self.ax3.imshow(central_recon, cmap='hot')  # Use hot colormap for intensity
-                self.ax3.set_title('Simulated Reconstruction')
-                self.ax3.set_xticks([])
-                self.ax3.set_yticks([])
-            
-            # Plot error history if available and enabled
-            if hasattr(self, 'error_history') and self.show_error_plot_var.get():
-                iterations = range(0, len(self.error_history))
-                self.ax4.plot(iterations, self.error_history, 'b-', marker='o')
-                self.ax4.set_title('Optimization Error')
-                self.ax4.set_xlabel('Iteration')
-                self.ax4.set_ylabel('Error')
-                self.ax4.grid(True)
-                
-            # Update canvas
-            self.preview_canvas.draw()
-            
+                    # For other formats, scale to 8-bit
+                    frame_8bit = (frame / 4).astype(np.uint8)  # Scale 10-bit to 8-bit
+                    cv2.imwrite(file_path, frame_8bit)
+                    self.status_var.set(f"Image saved to {file_path} (scaled to 8-bit)")
+                    
         except Exception as e:
-            self.status_var.set(f"Error updating preview: {str(e)}")
+            self.status_var.set(f"Error saving image: {str(e)}")
             print(f"Detailed error: {str(e)}")
 
     def generate_pattern(self):
@@ -774,7 +711,8 @@ class AdvancedPatternGenerator:
         """Load a pattern from file"""
         try:
             # Use zenity file dialog
-            cmd = ['zenity', '--file-selection', '--file-filter=Images | *.png *.jpg *.jpeg *.bmp *.tif *.tiff',
+            cmd = ['zenity', '--file-selection',
+                   '--file-filter=Images | *.png *.jpg *.jpeg *.bmp *.tif *.tiff',
                    '--title=Select Pattern']
             result = subprocess.run(cmd, capture_output=True, text=True)
             
@@ -810,6 +748,7 @@ class AdvancedPatternGenerator:
             
         except Exception as e:
             self.status_var.set(f"Error loading pattern: {str(e)}")
+            print(f"Detailed error: {str(e)}")
 
     def send_to_slm(self):
         """Send pattern to SLM via HDMI-A-2"""
