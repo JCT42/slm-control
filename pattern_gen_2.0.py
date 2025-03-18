@@ -450,8 +450,8 @@ class AdvancedPatternGenerator:
             self.camera_canvas = FigureCanvasTkAgg(self.camera_fig, master=self.camera_frame)
             
             # Initialize camera preview with black image
-            self.camera_image = self.camera_ax.imshow(np.zeros((1088, 1456)), cmap='gray')
-            self.camera_ax.set_title('Camera Preview')
+            self.camera_image = self.camera_ax.imshow(np.zeros((1080, 1920)), cmap='gray', vmin=0, vmax=255)
+            self.camera_ax.set_title('Camera Feed')
             self.camera_ax.set_xticks([])
             self.camera_ax.set_yticks([])
             
@@ -472,7 +472,7 @@ class AdvancedPatternGenerator:
             self.capture_button.pack(fill=tk.X, pady=2)
             
             # Save button
-            self.save_camera_button = ttk.Button(buttons_frame, text="Save Raw Image (10-bit)", 
+            self.save_camera_button = ttk.Button(buttons_frame, text="Save Image", 
                                                command=lambda: self.save_camera_image())
             self.save_camera_button.pack(fill=tk.X, pady=2)
             
@@ -480,7 +480,47 @@ class AdvancedPatternGenerator:
             self.camera_send_to_slm_button = ttk.Button(buttons_frame, text="Send to SLM", command=self.send_to_slm)
             self.camera_send_to_slm_button.pack(fill=tk.X, pady=2)
             
-            # Pack the canvas
+            # Safe Save button for camera
+            self.safe_save_camera_button = ttk.Button(
+                buttons_frame, 
+                text="Safe Save Image", 
+                command=lambda: self.safe_plot_save(self.camera_fig, "camera_image")
+            )
+            self.safe_save_camera_button.pack(fill=tk.X, pady=2)
+            
+            # Exposure settings frame
+            exposure_frame = ttk.LabelFrame(controls_frame, text="Exposure Settings", padding=5)
+            exposure_frame.pack(fill=tk.X, pady=5)
+            
+            # Exposure control
+            ttk.Label(exposure_frame, text="Exposure Time (ms):").pack(fill=tk.X)
+            exposure_control_frame = ttk.Frame(exposure_frame)
+            exposure_control_frame.pack(fill=tk.X)
+            
+            self.exposure_var = tk.StringVar(value="10")
+            exposure_entry = ttk.Entry(exposure_control_frame, textvariable=self.exposure_var, width=8)
+            exposure_entry.pack(side=tk.LEFT, padx=2)
+            
+            ttk.Button(exposure_control_frame, text="Set", 
+                      command=lambda: self.set_exposure(float(self.exposure_var.get()))).pack(side=tk.LEFT, padx=2)
+            
+            # Gain settings frame
+            gain_frame = ttk.LabelFrame(controls_frame, text="Gain Settings", padding=5)
+            gain_frame.pack(fill=tk.X, pady=5)
+            
+            # Gain control
+            ttk.Label(gain_frame, text="Analog Gain:").pack(fill=tk.X)
+            gain_control_frame = ttk.Frame(gain_frame)
+            gain_control_frame.pack(fill=tk.X)
+            
+            self.gain_var = tk.StringVar(value="1.0")
+            gain_entry = ttk.Entry(gain_control_frame, textvariable=self.gain_var, width=8)
+            gain_entry.pack(side=tk.LEFT, padx=2)
+            
+            ttk.Button(gain_control_frame, text="Set",
+                      command=lambda: self.set_gain(float(self.gain_var.get()))).pack(side=tk.LEFT, padx=2)
+            
+            # Pack the camera canvas
             self.camera_canvas.get_tk_widget().pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
             
         except Exception as e:
@@ -493,23 +533,23 @@ class AdvancedPatternGenerator:
             # Initialize PiCamera2
             self.picam = Picamera2()
             
-            # Configure camera with Y10 for main (raw capture) and GREY for preview
+            # Configure camera
             preview_config = self.picam.create_preview_configuration(
-                main={"size": (1456, 1088), "format": "Y10"},  # 10-bit format for raw capture
-                lores={"size": (640, 360), "format": "GREY"},  # 8-bit for preview
+                main={"size": (1920, 1080), "format": "RGB888"},
+                lores={"size": (640, 360), "format": "YUV420"},
                 display="lores"
             )
             
             still_config = self.picam.create_still_configuration(
-                main={"size": (1456, 1088), "format": "Y10"},  # 10-bit format for raw capture
-                lores={"size": (640, 360), "format": "GREY"}  # 8-bit for preview
+                main={"size": (1920, 1080), "format": "RGB888"},
+                lores={"size": (640, 360), "format": "YUV420"}
             )
             
             self.picam.configure(preview_config)
             
             # Set camera controls
             self.picam.set_controls({
-                "FrameDurationLimits": (16666, 16666),  # 60fps
+                "FrameDurationLimits": (33333, 33333),  # 30fps
                 "ExposureTime": 10000,  # 10ms exposure
                 "AnalogueGain": 1.0
             })
@@ -519,7 +559,7 @@ class AdvancedPatternGenerator:
             time.sleep(2)  # Wait for camera to warm up
             
             # Test if camera is working
-            test_frame = self.picam.capture_array("lores")  # Use lores for preview
+            test_frame = self.picam.capture_array()
             if test_frame is not None:
                 print("Successfully connected to Raspberry Pi Camera")
                 print(f"Frame shape: {test_frame.shape}")
@@ -545,80 +585,94 @@ class AdvancedPatternGenerator:
 
     def update_camera_preview(self):
         """Update camera preview in a separate thread"""
-        if not self.camera_active:
-            return
-        
-        if self.camera_paused and self.last_frame is not None:
-            frame = self.last_frame
-        else:
+        while self.camera_active:
             try:
-                # Use lores stream for preview
-                frame = self.picam.capture_array("lores")
-                self.last_frame = frame.copy()
-            except Exception as e:
-                print(f"Error capturing frame: {str(e)}")
-                return
-        
-        try:
-            # Update the image data
-            self.camera_image.set_data(frame)
-            
-            # Standard 8-bit display for preview
-            self.camera_image.set_clim(vmin=0, vmax=255)
-            
-            # Redraw the canvas
-            self.camera_canvas.draw_idle()
-            self.camera_canvas.flush_events()
-            
-            # Schedule the next update
-            if not self.camera_paused:
-                self.root.after(33, self.update_camera_preview)  # ~30fps
-        except Exception as e:
-            print(f"Error updating camera preview: {str(e)}")
-
-    def save_camera_image(self):
-        """Save the current camera frame to a file"""
-        if not self.camera_active:
-            self.status_var.set("Camera is not active")
-            return
-        
-        try:
-            # Get save path
-            file_path = filedialog.asksaveasfilename(
-                defaultextension=".raw",  # Default to raw format
-                filetypes=[
-                    ("Raw files", "*.raw"),  # Prioritize raw format
-                    ("TIFF files", "*.tif;*.tiff"),
-                    ("PNG files", "*.png"), 
-                    ("All files", "*.*")
-                ],
-                title="Save Camera Image (Raw format recommended for 10-bit data)"
-            )
-            
-            if file_path:
-                # Capture from main stream for full 10-bit data
-                frame = self.picam.capture_array("main")
+                if not self.camera_paused:
+                    # Capture new frame from Pi Camera
+                    frame = self.picam.capture_array()
                     
-                # Save based on file extension
-                if file_path.lower().endswith('.raw'):
-                    # Save as raw 10-bit data
-                    np.array(frame, dtype=np.uint16).tofile(file_path)
-                    
-                    # Save metadata
-                    with open(file_path + '.txt', 'w') as f:
-                        f.write(f"Width: {frame.shape[1]}\n")
-                        f.write(f"Height: {frame.shape[0]}\n")
-                        f.write("Bit depth: 10\n")
-                        f.write("Format: Monochrome\n")
-                    self.status_var.set(f"Raw 10-bit image saved to {file_path}")
+                    if frame is not None:
+                        # Convert to grayscale if needed
+                        if len(frame.shape) == 3:
+                            frame_gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+                        else:
+                            frame_gray = frame
+                        
+                        # Store as last frame (at native resolution)
+                        self.last_frame = frame_gray
+                        
+                        # Update matplotlib image (display at native resolution)
+                        self.camera_image.set_array(frame_gray)
+                        self.camera_canvas.draw_idle()
                 else:
-                    # For other formats, scale to 8-bit
-                    frame_8bit = (frame / 4).astype(np.uint8)  # Scale 10-bit to 8-bit
-                    cv2.imwrite(file_path, frame_8bit)
-                    self.status_var.set(f"Image saved to {file_path} (scaled to 8-bit)")
+                    # If paused and we have a last frame, keep displaying it
+                    if self.last_frame is not None:
+                        self.camera_image.set_array(self.last_frame)
+                        self.camera_canvas.draw_idle()
                     
+            except Exception as e:
+                print(f"Camera preview error: {str(e)}")
+                time.sleep(0.1)
+            
+            time.sleep(0.033)  # ~30 FPS
+
+    def update_preview(self):
+        """Update the preview plots with current patterns and reconstructions"""
+        try:
+            # Clear axes
+            self.ax1.clear()
+            self.ax2.clear()
+            self.ax3.clear()
+            self.ax4.clear()
+            
+            # Plot target image
+            if hasattr(self, 'target'):
+                self.ax1.imshow(self.target, cmap='gray')
+                self.ax1.set_title('Target')
+                self.ax1.set_xticks([])
+                self.ax1.set_yticks([])
+            
+            # Plot current pattern
+            if hasattr(self, 'pattern'):
+                # Use gray colormap for phase patterns
+                if self.modulation_mode == "Phase":
+                    self.ax2.imshow(self.pattern, cmap='gray')
+                else:
+                    self.ax2.imshow(self.pattern, cmap='gray')
+                self.ax2.set_title('SLM Pattern')
+                self.ax2.set_xticks([])
+                self.ax2.set_yticks([])
+            
+            # Plot simulated reconstruction
+            if hasattr(self, 'reconstruction'):
+                # Extract central region of reconstruction to match target size
+                start_y = (self.padded_height - self.height) // 2
+                end_y = start_y + self.height
+                start_x = (self.padded_width - self.width) // 2
+                end_x = start_x + self.width
+                
+                central_recon = self.reconstruction[start_y:end_y, start_x:end_x]
+                
+                # Display the central region of the reconstruction
+                self.ax3.imshow(central_recon, cmap='hot')  # Use hot colormap for intensity
+                self.ax3.set_title('Simulated Reconstruction')
+                self.ax3.set_xticks([])
+                self.ax3.set_yticks([])
+            
+            # Plot error history if available and enabled
+            if hasattr(self, 'error_history') and self.show_error_plot_var.get():
+                iterations = range(0, len(self.error_history))
+                self.ax4.plot(iterations, self.error_history, 'b-', marker='o')
+                self.ax4.set_title('Optimization Error')
+                self.ax4.set_xlabel('Iteration')
+                self.ax4.set_ylabel('Error')
+                self.ax4.grid(True)
+                
+            # Update canvas
+            self.preview_canvas.draw()
+            
         except Exception as e:
-            self.status_var.set(f"Error saving image: {str(e)}")
+            self.status_var.set(f"Error updating preview: {str(e)}")
             print(f"Detailed error: {str(e)}")
 
     def generate_pattern(self):
@@ -711,8 +765,7 @@ class AdvancedPatternGenerator:
         """Load a pattern from file"""
         try:
             # Use zenity file dialog
-            cmd = ['zenity', '--file-selection',
-                   '--file-filter=Images | *.png *.jpg *.jpeg *.bmp *.tif *.tiff',
+            cmd = ['zenity', '--file-selection', '--file-filter=Images | *.png *.jpg *.jpeg *.bmp *.tif *.tiff',
                    '--title=Select Pattern']
             result = subprocess.run(cmd, capture_output=True, text=True)
             
@@ -748,7 +801,6 @@ class AdvancedPatternGenerator:
             
         except Exception as e:
             self.status_var.set(f"Error loading pattern: {str(e)}")
-            print(f"Detailed error: {str(e)}")
 
     def send_to_slm(self):
         """Send pattern to SLM via HDMI-A-2"""
@@ -973,13 +1025,13 @@ class AdvancedPatternGenerator:
         try:
             # Generate default filename with timestamp
             timestamp = time.strftime("%Y%m%d_%H%M%S")
-            default_name = f"pattern_{timestamp}.raw"
+            default_name = f"pattern_{timestamp}.png"
             
             # Use zenity file dialog
             cmd = ['zenity', '--file-selection', '--save',
                    '--filename=' + default_name,
-                   '--file-filter=Raw Files | *.raw | Images | *.png *.jpg *.tif *.tiff',
-                   '--title=Save Pattern (Raw format recommended for full phase data)',
+                   '--file-filter=Images | *.png *.jpg *.jpeg *.bmp *.tif *.tiff',
+                   '--title=Save Pattern',
                    '--confirm-overwrite']
             result = subprocess.run(cmd, capture_output=True, text=True)
             
@@ -990,33 +1042,17 @@ class AdvancedPatternGenerator:
             save_path = result.stdout.strip()
             if not save_path:
                 return
-            
+                
             # Add extension if not present
-            if not save_path.lower().endswith(('.raw', '.png', '.jpg', '.jpeg', '.tif', '.tiff')):
-                save_path += '.raw'  # Default to raw format
+            if not save_path.lower().endswith(('.png', '.jpg', '.jpeg')):
+                save_path += '.png'
             
-            # Save based on file extension
-            if save_path.lower().endswith('.raw'):
-                # Save as raw data to preserve full phase information
-                np.array(self.pattern, dtype=np.uint16).tofile(save_path)
-                
-                # Also save a metadata file with dimensions and phase mapping information
-                with open(save_path + '.txt', 'w') as f:
-                    f.write(f"Width: {self.pattern.shape[1]}\n")
-                    f.write(f"Height: {self.pattern.shape[0]}\n")
-                    f.write("Bit depth: 16\n")
-                    f.write("Format: Grayscale\n")
-                    f.write("Phase mapping: Grayscale 0 → Phase -π, Grayscale 128 → Phase 0, Grayscale 255 → Phase π\n")
-                
-                self.status_var.set(f"Pattern saved with full phase data to: {save_path}")
-            else:
-                # Save as image (note: may lose precision for phase information)
-                cv2.imwrite(save_path, self.pattern)
-                self.status_var.set(f"Pattern saved as image to: {save_path} (note: may lose phase precision)")
+            # Save the pattern
+            cv2.imwrite(save_path, self.pattern)
+            self.status_var.set(f"Pattern saved to: {save_path}")
             
         except Exception as e:
             self.status_var.set(f"Error saving pattern: {str(e)}")
-            print(f"Detailed error: {str(e)}")
 
     def safe_plot_save(self, figure, default_filename=None):
         """Safely save a plot by temporarily pausing the camera to avoid OpenCV threading issues"""
@@ -1028,13 +1064,7 @@ class AdvancedPatternGenerator:
             
         try:
             # Create a file dialog to get save location
-            filetypes = [
-                ('PNG', '*.png'), 
-                ('Raw Data', '*.raw'),
-                ('PDF', '*.pdf'), 
-                ('SVG', '*.svg'), 
-                ('JPEG', '*.jpg')
-            ]
+            filetypes = [('PNG', '*.png'), ('PDF', '*.pdf'), ('SVG', '*.svg'), ('JPEG', '*.jpg')]
             filename = filedialog.asksaveasfilename(
                 title='Save Figure',
                 defaultextension=".png",
@@ -1576,84 +1606,56 @@ class AdvancedPatternGenerator:
 
     def capture_camera_image(self):
         """Capture current camera frame as target image"""
-        if not self.camera_active:
-            self.status_var.set("Camera is not active")
-            return
-        
         try:
-            # Capture a high-quality still image in standard monochrome format
-            frame = self.picam.capture_array("main")
-            
-            # No need to convert to grayscale since it's already monochrome
-            
-            # Resize to match SLM resolution if needed
-            if frame.shape != (self.height, self.width):
-                frame = cv2.resize(frame, (self.width, self.height))
-            
-            # Set as target image
-            self.target_image = frame
-            
-            # Update the preview
-            self.update_preview()
-            
-            # Update status
-            self.status_var.set("8-bit monochrome image captured from camera")
-            
+            if self.camera_active:
+                frame = self.picam.capture_array()
+                if frame is not None:
+                    # Convert to grayscale
+                    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+                    
+                    # Resize to match SLM resolution (keep camera preview at native resolution)
+                    # Only resize when using the image for pattern generation
+                    self.target = cv2.resize(gray, (800, 600))
+                    
+                    # Update preview
+                    self.update_preview()
+                    self.status_var.set("Image captured from camera")
+                else:
+                    self.status_var.set("Failed to capture image from camera")
         except Exception as e:
             self.status_var.set(f"Error capturing image: {str(e)}")
-            print(traceback.format_exc())
-            
+
     def save_camera_image(self):
         """Save the current camera frame to a file"""
-        if not self.camera_active and self.last_frame is None:
-            self.status_var.set("No camera frame available to save")
+        if self.last_frame is None:
+            self.status_var.set("No camera frame to save")
             return
             
         try:
-            # Get save path
-            file_path = filedialog.asksaveasfilename(
-                defaultextension=".raw",  # Raw format preserves full 8-bit data needed for accurate phase representation
-                filetypes=[
-                    ("Raw files", "*.raw"),  # Prioritize raw format for full 8-bit data preservation
-                    ("TIFF files", "*.tif;*.tiff"),
-                    ("PNG files", "*.png"), 
-                    ("All files", "*.*")
-                ],
-                title="Save Camera Image"
-            )
+            # Use zenity file dialog
+            cmd = ['zenity', '--file-selection', '--save',
+                   '--file-filter=Images | *.png *.jpg *.jpeg',
+                   '--title=Save Camera Image']
+            result = subprocess.run(cmd, capture_output=True, text=True)
             
-            if file_path:
-                # Get the current frame
-                if self.camera_paused and self.last_frame is not None:
-                    frame = self.last_frame
-                else:
-                    frame = self.picam.capture_array("main")  # Capture in standard monochrome format
-                    
-                # Save based on file extension
-                if file_path.lower().endswith('.raw'):
-                    # Save as raw 8-bit data
-                    np.array(frame, dtype=np.uint8).tofile(file_path)
-                    
-                    # Also save a metadata file with dimensions
-                    with open(file_path + '.txt', 'w') as f:
-                        f.write(f"Width: {frame.shape[1]}\n")
-                        f.write(f"Height: {frame.shape[0]}\n")
-                        f.write("Bit depth: 8\n")
-                        f.write("Format: Monochrome\n")
-                    self.status_var.set(f"Raw 8-bit monochrome image saved to {file_path}")
-                elif file_path.lower().endswith(('.tif', '.tiff')):
-                    # TIFF can preserve the full 8-bit range
-                    cv2.imwrite(file_path, frame, [cv2.IMWRITE_TIFF_COMPRESSION, 1])
-                    self.status_var.set(f"8-bit monochrome image saved to {file_path}")
-                else:
-                    # For standard image formats like PNG, save normally
-                    # Note: These formats will compress to 8-bit
-                    cv2.imwrite(file_path, frame)
-                    self.status_var.set(f"Monochrome image saved to {file_path} (note: compressed to 8-bit)")
+            if result.returncode != 0:
+                self.status_var.set("Save cancelled")
+                return
+                
+            file_path = result.stdout.strip()
+            if not file_path:
+                return
+                
+            # Add extension if not present
+            if not file_path.lower().endswith(('.png', '.jpg', '.jpeg')):
+                file_path += '.png'
+            
+            # Save the image
+            cv2.imwrite(file_path, self.last_frame)
+            self.status_var.set(f"Camera image saved to: {file_path}")
             
         except Exception as e:
             self.status_var.set(f"Error saving camera image: {str(e)}")
-            print(traceback.format_exc())
 
     def _on_algorithm_change(self, *args):
         """Handle algorithm selection change"""
