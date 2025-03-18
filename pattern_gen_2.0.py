@@ -450,8 +450,8 @@ class AdvancedPatternGenerator:
             self.camera_canvas = FigureCanvasTkAgg(self.camera_fig, master=self.camera_frame)
             
             # Initialize camera preview with black image
-            self.camera_image = self.camera_ax.imshow(np.zeros((1080, 1920)), cmap='gray', vmin=0, vmax=255)
-            self.camera_ax.set_title('Camera Feed')
+            self.camera_image = self.camera_ax.imshow(np.zeros((1088, 1456)), cmap='gray', vmin=0, vmax=1023)
+            self.camera_ax.set_title('Camera Feed (10-bit Monochrome)')
             self.camera_ax.set_xticks([])
             self.camera_ax.set_yticks([])
             
@@ -533,23 +533,24 @@ class AdvancedPatternGenerator:
             # Initialize PiCamera2
             self.picam = Picamera2()
             
-            # Configure camera
+            # Configure camera for 10-bit monochrome resolution
+            # Using the native resolution from the datasheet: 1456x1088
             preview_config = self.picam.create_preview_configuration(
-                main={"size": (1920, 1080), "format": "RGB888"},
-                lores={"size": (640, 360), "format": "YUV420"},
+                main={"size": (1456, 1088), "format": "GREY10"},  # 10-bit monochrome format
+                lores={"size": (640, 360), "format": "GREY"},
                 display="lores"
             )
             
             still_config = self.picam.create_still_configuration(
-                main={"size": (1920, 1080), "format": "RGB888"},
-                lores={"size": (640, 360), "format": "YUV420"}
+                main={"size": (1456, 1088), "format": "GREY10"},  # 10-bit monochrome format
+                lores={"size": (640, 360), "format": "GREY"}
             )
             
             self.picam.configure(preview_config)
             
-            # Set camera controls
+            # Set camera controls for 10-bit monochrome sensor
             self.picam.set_controls({
-                "FrameDurationLimits": (33333, 33333),  # 30fps
+                "FrameDurationLimits": (16666, 16666),  # 60fps (1/60 = 16.666ms)
                 "ExposureTime": 10000,  # 10ms exposure
                 "AnalogueGain": 1.0
             })
@@ -585,36 +586,39 @@ class AdvancedPatternGenerator:
 
     def update_camera_preview(self):
         """Update camera preview in a separate thread"""
-        while self.camera_active:
+        if not self.camera_active:
+            return
+        
+        if self.camera_paused and self.last_frame is not None:
+            # Use the last captured frame when paused
+            frame = self.last_frame
+        else:
             try:
-                if not self.camera_paused:
-                    # Capture new frame from Pi Camera
-                    frame = self.picam.capture_array()
-                    
-                    if frame is not None:
-                        # Convert to grayscale if needed
-                        if len(frame.shape) == 3:
-                            frame_gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-                        else:
-                            frame_gray = frame
-                        
-                        # Store as last frame (at native resolution)
-                        self.last_frame = frame_gray
-                        
-                        # Update matplotlib image (display at native resolution)
-                        self.camera_image.set_array(frame_gray)
-                        self.camera_canvas.draw_idle()
-                else:
-                    # If paused and we have a last frame, keep displaying it
-                    if self.last_frame is not None:
-                        self.camera_image.set_array(self.last_frame)
-                        self.camera_canvas.draw_idle()
-                    
+                # Capture frame from camera - already monochrome with 10-bit depth
+                frame = self.picam.capture_array()
+                self.last_frame = frame.copy()  # Save a copy for pause functionality
+                
+                # No need to convert to grayscale since it's already monochrome
             except Exception as e:
-                print(f"Camera preview error: {str(e)}")
-                time.sleep(0.1)
+                print(f"Error capturing frame: {str(e)}")
+                return
+        
+        try:
+            # Update the image data
+            self.camera_image.set_data(frame)
             
-            time.sleep(0.033)  # ~30 FPS
+            # Update colorbar limits for 10-bit display
+            self.camera_image.set_clim(vmin=0, vmax=1023)
+            
+            # Redraw the canvas
+            self.camera_canvas.draw_idle()
+            self.camera_canvas.flush_events()
+            
+            # Schedule the next update
+            if not self.camera_paused:
+                self.root.after(33, self.update_camera_preview)  # ~30fps
+        except Exception as e:
+            print(f"Error updating camera preview: {str(e)}")
 
     def update_preview(self):
         """Update the preview plots with current patterns and reconstructions"""
@@ -1606,56 +1610,85 @@ class AdvancedPatternGenerator:
 
     def capture_camera_image(self):
         """Capture current camera frame as target image"""
+        if not self.camera_active:
+            self.status_var.set("Camera is not active")
+            return
+        
         try:
-            if self.camera_active:
-                frame = self.picam.capture_array()
-                if frame is not None:
-                    # Convert to grayscale
-                    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-                    
-                    # Resize to match SLM resolution (keep camera preview at native resolution)
-                    # Only resize when using the image for pattern generation
-                    self.target = cv2.resize(gray, (800, 600))
-                    
-                    # Update preview
-                    self.update_preview()
-                    self.status_var.set("Image captured from camera")
-                else:
-                    self.status_var.set("Failed to capture image from camera")
+            # Capture a high-quality still image in 10-bit monochrome format
+            frame = self.picam.capture_array("main")
+            
+            # No need to convert to grayscale since it's already monochrome
+            
+            # Resize to match SLM resolution if needed
+            if frame.shape != (self.height, self.width):
+                frame = cv2.resize(frame, (self.width, self.height))
+            
+            # Set as target image
+            self.target_image = frame
+            
+            # Update the preview
+            self.update_preview()
+            
+            # Update status
+            self.status_var.set("10-bit monochrome image captured from camera")
+            
         except Exception as e:
             self.status_var.set(f"Error capturing image: {str(e)}")
-
+            print(traceback.format_exc())
+            
     def save_camera_image(self):
         """Save the current camera frame to a file"""
-        if self.last_frame is None:
-            self.status_var.set("No camera frame to save")
+        if not self.camera_active and self.last_frame is None:
+            self.status_var.set("No camera frame available to save")
             return
             
         try:
-            # Use zenity file dialog
-            cmd = ['zenity', '--file-selection', '--save',
-                   '--file-filter=Images | *.png *.jpg *.jpeg',
-                   '--title=Save Camera Image']
-            result = subprocess.run(cmd, capture_output=True, text=True)
+            # Get save path
+            file_path = filedialog.asksaveasfilename(
+                defaultextension=".tiff",
+                filetypes=[
+                    ("TIFF files", "*.tif;*.tiff"),
+                    ("PNG files", "*.png"), 
+                    ("Raw files", "*.raw"),
+                    ("All files", "*.*")
+                ],
+                title="Save Camera Image"
+            )
             
-            if result.returncode != 0:
-                self.status_var.set("Save cancelled")
-                return
-                
-            file_path = result.stdout.strip()
             if not file_path:
-                return
+                return  # User cancelled
                 
-            # Add extension if not present
-            if not file_path.lower().endswith(('.png', '.jpg', '.jpeg')):
-                file_path += '.png'
-            
-            # Save the image
-            cv2.imwrite(file_path, self.last_frame)
-            self.status_var.set(f"Camera image saved to: {file_path}")
+            # Get the current frame
+            if self.camera_paused and self.last_frame is not None:
+                frame = self.last_frame
+            else:
+                frame = self.picam.capture_array("main")  # Capture in 10-bit monochrome format
+                
+            # Save based on file extension
+            if file_path.lower().endswith('.raw'):
+                # Save as raw 10-bit data
+                np.array(frame, dtype=np.uint16).tofile(file_path)
+                
+                # Also save a metadata file with dimensions
+                with open(file_path + '.txt', 'w') as f:
+                    f.write(f"Width: {frame.shape[1]}\n")
+                    f.write(f"Height: {frame.shape[0]}\n")
+                    f.write("Bit depth: 10\n")
+                    f.write("Format: Monochrome\n")
+            elif file_path.lower().endswith(('.tif', '.tiff')):
+                # TIFF can preserve the full 10-bit range
+                cv2.imwrite(file_path, frame, [cv2.IMWRITE_TIFF_COMPRESSION, 1])
+                self.status_var.set(f"10-bit monochrome image saved to {file_path}")
+            else:
+                # For standard image formats like PNG, save normally
+                # Note: These formats will compress to 8-bit
+                cv2.imwrite(file_path, frame)
+                self.status_var.set(f"Monochrome image saved to {file_path} (note: compressed to 8-bit)")
             
         except Exception as e:
             self.status_var.set(f"Error saving camera image: {str(e)}")
+            print(traceback.format_exc())
 
     def _on_algorithm_change(self, *args):
         """Handle algorithm selection change"""
