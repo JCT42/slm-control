@@ -32,6 +32,7 @@ import pygame
 from tqdm import tqdm
 import scipy.special
 import traceback
+import datetime
 
 class AdvancedPatternGenerator:
     def __init__(self):
@@ -140,7 +141,7 @@ class AdvancedPatternGenerator:
         # Bind ESC key to quit
         self.root.bind('<Escape>', lambda e: self.quit_application())
         # Also bind using protocol for window close button
-        self.root.protocol("WM_DELETE_WINDOW", self.quit_application)
+        self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
         
         # Bind mouse wheel to scrolling
         self.root.bind("<MouseWheel>", self._on_mousewheel)
@@ -499,12 +500,12 @@ class AdvancedPatternGenerator:
         
         # Preview image
         self.preview_ax = self.camera_fig.add_subplot(gs[0])
-        self.preview_ax.set_title("Camera Preview")
+        self.preview_ax.set_title("Camera Preview (10-bit)")
         
         # Create initial empty image with correct dimensions
         empty_img = np.zeros((self.camera_height//4, self.camera_width//4), dtype=np.uint8)
-        self.preview_img = self.preview_ax.imshow(empty_img, cmap='gray', vmin=0, vmax=255)
-        self.camera_fig.colorbar(self.preview_img, ax=self.preview_ax, label="Intensity (8-bit scaled)")
+        self.preview_img = self.preview_ax.imshow(empty_img, cmap='gray', vmin=0, vmax=1023)
+        self.camera_fig.colorbar(self.preview_img, ax=self.preview_ax, label="Intensity (0-1023)")
         self.preview_ax.axis('off')
         
         # Histogram
@@ -567,7 +568,7 @@ class AdvancedPatternGenerator:
         self.pause_button.pack(fill=tk.X, padx=5, pady=5)
         
         # Send to SLM button
-        send_to_slm_button = ttk.Button(actions_frame, text="Send to SLM",
+        send_to_slm_button = ttk.Button(actions_frame, text="Use as Target Image",
                                       command=self.send_camera_to_slm)
         send_to_slm_button.pack(fill=tk.X, padx=5, pady=5)
         
@@ -588,18 +589,39 @@ class AdvancedPatternGenerator:
     
     def pause_camera(self):
         """Pause the camera feed"""
-        self.camera_paused = True
-        self.status_var.set("Camera paused")
+        if not hasattr(self, 'camera_active') or not self.camera_active:
+            return
+            
+        try:
+            self.camera_paused = True
+            # Store the last frame for display while paused
+            self.paused_frame = self.last_frame.copy() if hasattr(self, 'last_frame') else None
+            self.status_var.set("Camera paused")
+            
+            # Update button appearance
+            self.pause_button.configure(style="Accent.TButton")
+        except Exception as e:
+            self.status_var.set(f"Error pausing camera: {str(e)}")
     
     def resume_camera(self):
         """Resume the camera feed"""
-        self.camera_paused = False
-        self.status_var.set("Camera resumed")
+        if not hasattr(self, 'camera_active') or not self.camera_active:
+            return
+            
+        try:
+            self.camera_paused = False
+            self.status_var.set("Camera resumed")
+            
+            # Update button appearance
+            self.pause_button.configure(style="TButton")
+        except Exception as e:
+            self.status_var.set(f"Error resuming camera: {str(e)}")
     
     def initialize_camera(self):
         """Initialize camera with IMX296 settings"""
         try:
             self.camera = Picamera2()
+            
             # Configure for 10-bit capture using standard RGB format
             # We'll convert to grayscale after capture
             config = self.camera.create_still_configuration(
@@ -620,6 +642,7 @@ class AdvancedPatternGenerator:
             self.camera.start()
             
             self.camera_active = True
+            self.camera_paused = False
             self.status_var.set("Camera initialized successfully")
             
             # Start camera preview thread
@@ -630,7 +653,7 @@ class AdvancedPatternGenerator:
             self.status_var.set(f"Camera initialization failed: {str(e)}")
             print(f"Camera initialization error: {str(e)}")
             self.camera_active = False
-
+    
     def update_camera_preview(self):
         """Update camera preview in a separate thread"""
         while self.camera_active:
@@ -650,14 +673,17 @@ class AdvancedPatternGenerator:
                         # Store raw intensity values
                         self.last_frame = gray
                         
-                        # For display, scale to 8-bit while preserving relative intensities
-                        display_frame = (gray / self.camera_max_value * 255).astype(np.uint8)
+                        # Update preview with raw 10-bit values
+                        if hasattr(self, 'preview_ax') and hasattr(self, 'preview_img'):
+                            # Use set_array with the raw 10-bit values
+                            self.preview_img.set_array(gray)
+                            self.preview_ax.set_title(f"Live Preview (10-bit) - {gray.shape[1]}x{gray.shape[0]}")
                         
                         # Update histogram with raw values
                         if hasattr(self, 'hist_ax'):
                             self.hist_ax.clear()
                             self.hist_ax.hist(gray.flatten(), bins=100, range=(0, self.camera_max_value))
-                            self.hist_ax.set_title("Intensity Distribution")
+                            self.hist_ax.set_title("Intensity Distribution (10-bit)")
                             self.hist_ax.set_xlabel("Intensity (0-1023)")
                             self.hist_ax.set_ylabel("Frequency")
                             
@@ -673,18 +699,25 @@ class AdvancedPatternGenerator:
                                                label=f'Max: {max_val:.1f}')
                             self.hist_ax.legend()
                         
-                        # Update preview with scaled display frame
-                        if hasattr(self, 'preview_ax') and hasattr(self, 'preview_img'):
-                            # Use set_array instead of recreating the image
-                            self.preview_img.set_array(display_frame)
-                            self.preview_ax.set_title(f"Live Preview - {gray.shape[1]}x{gray.shape[0]}")
-                        
                         # Draw the updated canvas
                         if hasattr(self, 'camera_canvas'):
                             self.camera_canvas.draw_idle()  # Use draw_idle for better performance
                         
                         # Update status with intensity info
-                        self.status_var.set(f"Intensity - Max: {max_val:.1f}, Mean: {mean_val:.1f}")
+                        self.status_var.set(f"Intensity (10-bit) - Max: {max_val:.1f}, Mean: {mean_val:.1f}")
+                
+                elif hasattr(self, 'paused_frame') and self.paused_frame is not None:
+                    # If paused, display the paused frame with a "PAUSED" indicator
+                    if hasattr(self, 'preview_ax') and not hasattr(self, 'paused_indicator'):
+                        # Add a text overlay indicating the camera is paused
+                        self.paused_indicator = self.preview_ax.text(
+                            0.5, 0.5, "PAUSED", 
+                            color='red', fontsize=24, fontweight='bold',
+                            horizontalalignment='center', verticalalignment='center',
+                            transform=self.preview_ax.transAxes
+                        )
+                        if hasattr(self, 'camera_canvas'):
+                            self.camera_canvas.draw_idle()
                 
                 # Add a small sleep to prevent high CPU usage
                 time.sleep(0.033)  # ~30 FPS
@@ -867,7 +900,7 @@ class AdvancedPatternGenerator:
             self.pattern = pattern
             self.slm_phase = (pattern.astype(float) / 255.0 * 2 * np.pi - np.pi)
             
-            # Update preview
+            # Update preview plots
             self.ax2.clear()
             self.ax2.imshow(pattern, cmap='gray')
             self.ax2.set_title('Loaded Pattern')
@@ -1683,65 +1716,129 @@ class AdvancedPatternGenerator:
             self.status_var.set(f"Error setting gain: {str(e)}")
 
     def capture_camera_image(self):
-        """Capture current camera frame as intensity image"""
-        try:
-            if self.camera_active:
-                # Capture raw 10-bit frame
-                frame = self.camera.capture_array()
-                if frame is not None:
-                    # Convert RGB to grayscale while preserving 10-bit range
-                    if len(frame.shape) == 3:
-                        # Use standard RGB to grayscale conversion weights
-                        gray = np.dot(frame[..., :3], [0.2989, 0.5870, 0.1140])
-                    else:
-                        gray = frame
-                    
-                    # Store the raw intensity values (not phase values)
-                    self.captured_intensity = gray.copy()
-                    
-                    # Calculate intensity statistics
-                    max_val = np.max(gray)
-                    mean_val = np.mean(gray)
-                    
-                    self.status_var.set(f"Captured intensity image - Max: {max_val:.1f}, Mean: {mean_val:.1f}")
-                    
-                    # Display a notification that image was captured
-                    messagebox.showinfo("Image Captured", 
-                                       f"Intensity image captured successfully.\nMax: {max_val:.1f}, Mean: {mean_val:.1f}")
-            else:
-                self.status_var.set("Camera not active")
-                messagebox.showerror("Camera Error", "Camera is not active")
-        except Exception as e:
-            self.status_var.set(f"Capture error: {str(e)}")
-            messagebox.showerror("Capture Error", str(e))
-
-    def save_camera_image(self):
-        """Save the current camera frame with full 10-bit precision"""
-        if not hasattr(self, 'captured_intensity'):
-            self.status_var.set("No image captured")
-            messagebox.showwarning("Save Error", "No image has been captured yet")
+        """Capture a still image from the camera"""
+        if not self.camera_active:
+            self.status_var.set("Camera not active")
+            messagebox.showerror("Camera Error", "Camera is not active")
             return
             
         try:
-            filename = filedialog.asksaveasfilename(
-                defaultextension=".npy",
-                filetypes=[("NumPy files", "*.npy"), ("TIFF files", "*.tiff")],
-                title="Save Intensity Image"
-            )
+            # Pause the camera preview temporarily
+            was_paused = self.camera_paused
+            if not was_paused:
+                self.pause_camera()
             
-            if filename:
-                if filename.endswith('.npy'):
-                    # Save raw 10-bit values
-                    np.save(filename, self.captured_intensity)
-                    self.status_var.set(f"Saved raw intensity values to {filename}")
-                else:
-                    # Save as 16-bit TIFF to preserve 10-bit values
-                    cv2.imwrite(filename, self.captured_intensity.astype(np.uint16))
-                    self.status_var.set(f"Saved intensity image to {filename}")
+            # Capture a high-quality still image
+            frame = self.camera.capture_array()
+            
+            # Convert to grayscale while preserving 10-bit range
+            if len(frame.shape) == 3:
+                # Use standard RGB to grayscale conversion weights
+                gray = np.dot(frame[..., :3], [0.2989, 0.5870, 0.1140])
+            else:
+                gray = frame
+            
+            # Store the captured intensity image (10-bit values)
+            self.captured_intensity = gray
+            
+            # Update the preview with the captured image (10-bit)
+            if hasattr(self, 'preview_img'):
+                self.preview_img.set_array(gray)
                 
-                messagebox.showinfo("Save Complete", f"Intensity image saved to {filename}")
+                # Add a text overlay indicating this is a captured image
+                if hasattr(self, 'capture_indicator'):
+                    self.capture_indicator.remove()
+                self.capture_indicator = self.preview_ax.text(
+                    0.5, 0.05, "CAPTURED IMAGE", 
+                    color='green', fontsize=16, fontweight='bold',
+                    horizontalalignment='center', verticalalignment='bottom',
+                    transform=self.preview_ax.transAxes,
+                    bbox=dict(facecolor='white', alpha=0.7, edgecolor='green', boxstyle='round,pad=0.5')
+                )
+                
+                # Update histogram with captured image data
+                self.hist_ax.clear()
+                self.hist_ax.hist(gray.flatten(), bins=100, range=(0, self.camera_max_value))
+                self.hist_ax.set_title("Captured Image Intensity Distribution (10-bit)")
+                
+                # Add intensity statistics
+                mean_val = np.mean(gray)
+                median_val = np.median(gray)
+                max_val = np.max(gray)
+                self.hist_ax.axvline(mean_val, color='r', linestyle='--', 
+                                   label=f'Mean: {mean_val:.1f}')
+                self.hist_ax.axvline(median_val, color='g', linestyle=':', 
+                                   label=f'Median: {median_val:.1f}')
+                self.hist_ax.axvline(max_val, color='purple', linestyle='-.', 
+                                   label=f'Max: {max_val:.1f}')
+                self.hist_ax.legend()
+                
+                # Redraw the canvas
+                self.camera_canvas.draw()
+            
+            # Update status
+            self.status_var.set(f"Image captured (10-bit) - Max: {max_val:.1f}, Mean: {mean_val:.1f}")
+            
+            # Resume camera if it wasn't paused before
+            if not was_paused:
+                self.resume_camera()
+                
         except Exception as e:
-            self.status_var.set(f"Save error: {str(e)}")
+            self.status_var.set(f"Error capturing image: {str(e)}")
+            messagebox.showerror("Capture Error", str(e))
+            # Try to resume camera
+            if not was_paused:
+                self.resume_camera()
+
+    def save_camera_image(self):
+        """Save the captured camera image"""
+        if not hasattr(self, 'captured_intensity'):
+            self.status_var.set("No image captured to save")
+            messagebox.showwarning("Save Image", "No image has been captured yet")
+            return
+            
+        try:
+            # Use zenity file dialog
+            cmd = ['zenity', '--file-selection', '--save', 
+                   '--file-filter=PNG files | *.png', 
+                   '--title=Save Captured Image']
+            result = subprocess.run(cmd, capture_output=True, text=True)
+            
+            save_path = result.stdout.strip()
+            if not save_path:
+                return
+            
+            # Add extension if not present
+            if not save_path.lower().endswith(('.png', '.jpg', '.jpeg')):
+                save_path += '.png'
+            
+            # Save the image with full 10-bit precision
+            # Convert to 16-bit for PNG storage (10-bit values will be preserved)
+            save_img = (self.captured_intensity / self.camera_max_value * 65535).astype(np.uint16)
+            cv2.imwrite(save_path, save_img)
+            
+            # Also save a metadata file with information about the image
+            metadata_path = save_path + '.txt'
+            with open(metadata_path, 'w') as f:
+                f.write(f"Camera: IMX296 Monochrome\n")
+                f.write(f"Resolution: {self.captured_intensity.shape[1]}x{self.captured_intensity.shape[0]}\n")
+                f.write(f"Bit Depth: 10-bit\n")
+                f.write(f"Original Value Range: 0-{self.camera_max_value}\n")
+                f.write(f"Stored as: 16-bit PNG\n")
+                f.write(f"Conversion: Original 10-bit value * 65535/{self.camera_max_value}\n")
+                f.write(f"Statistics:\n")
+                f.write(f"  Min: {np.min(self.captured_intensity):.1f}\n")
+                f.write(f"  Max: {np.max(self.captured_intensity):.1f}\n")
+                f.write(f"  Mean: {np.mean(self.captured_intensity):.1f}\n")
+                f.write(f"  Median: {np.median(self.captured_intensity):.1f}\n")
+                f.write(f"  Standard Deviation: {np.std(self.captured_intensity):.1f}\n")
+                f.write(f"Timestamp: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+            
+            self.status_var.set(f"Image saved to {save_path}")
+            messagebox.showinfo("Save Image", f"Image saved to:\n{save_path}\n\nMetadata saved to:\n{metadata_path}")
+            
+        except Exception as e:
+            self.status_var.set(f"Error saving image: {str(e)}")
             messagebox.showerror("Save Error", str(e))
 
     def _on_algorithm_change(self, *args):
@@ -1752,7 +1849,7 @@ class AdvancedPatternGenerator:
             self.mraf_frame.grid_remove()
 
     def send_camera_to_slm(self):
-        """Send the captured camera image to the SLM as an intensity pattern"""
+        """Send the captured camera image to the SLM as an intensity target"""
         if not hasattr(self, 'captured_intensity'):
             self.status_var.set("No image captured to send to SLM")
             messagebox.showwarning("Send to SLM", "No image has been captured yet")
@@ -1766,7 +1863,7 @@ class AdvancedPatternGenerator:
             self.target = resized_intensity
             
             # Update the status
-            self.status_var.set("Camera image sent to SLM as intensity pattern")
+            self.status_var.set("Camera image sent to SLM as intensity target")
             
             # Switch to pattern generator tab
             self.notebook.select(0)  # Select first tab (Pattern Generator)
@@ -1775,12 +1872,31 @@ class AdvancedPatternGenerator:
             self.update_preview()
             
             messagebox.showinfo("Send to SLM", 
-                              "Camera image sent to SLM as intensity pattern.\n\n" +
-                              "Note: This is using the raw intensity values, not phase values.")
+                              "Camera image sent to pattern generator as intensity target.\n\n" +
+                              "Note: This is using the raw intensity values as a target. " +
+                              "You still need to generate a pattern or use 'Send to SLM' " +
+                              "in the pattern tab to display on the SLM.")
             
         except Exception as e:
-            self.status_var.set(f"Error sending to SLM: {str(e)}")
+            self.status_var.set(f"Error sending to pattern generator: {str(e)}")
             messagebox.showerror("Send to SLM Error", str(e))
+
+    def on_closing(self):
+        """Handle window closing event"""
+        try:
+            # Clean up camera resources if active
+            if hasattr(self, 'camera') and self.camera_active:
+                self.camera_active = False  # Signal thread to stop
+                if hasattr(self, 'camera_thread') and self.camera_thread.is_alive():
+                    self.camera_thread.join(timeout=1.0)  # Wait for thread to finish
+                self.camera.close()
+                print("Camera resources released")
+        except Exception as e:
+            print(f"Error during cleanup: {str(e)}")
+        finally:
+            # Destroy the window
+            self.root.destroy()
+            print("Application closed")
 
 class PatternGenerator:
     def __init__(self, target_intensity, signal_region_mask=None, mixing_parameter=0.4):
