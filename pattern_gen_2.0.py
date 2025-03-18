@@ -529,36 +529,26 @@ class AdvancedPatternGenerator:
             print(f"Detailed error: {str(e)}")
 
     def initialize_camera(self):
-        """Initialize Raspberry Pi Camera with 10-bit mode"""
+        """Initialize Raspberry Pi Camera"""
         try:
             self.picam = Picamera2()
             
             # Get camera info and supported formats
-            print("Available camera formats:", self.picam.sensor_modes)
             print("Camera properties:", self.picam.camera_properties)
+            print("Available sensor modes:", self.picam.sensor_modes)
             
-            # Create still config for 10-bit capture using native sensor format
-            still_config = self.picam.create_still_configuration(
-                main={"size": (1456, 1088),
-                      "format": "BGR888"},  # Standard format for preview
-                raw={"size": (1456, 1088),
-                     "format": "SBGGR10_1X10"}  # Native 10-bit Bayer format
-            )
+            # Create basic configuration
+            config = self.picam.create_preview_configuration()
             
             # Configure camera
-            self.picam.configure(still_config)
-            
-            # Set camera parameters
-            self.picam.set_controls({
-                "ExposureTime": 10000,  # 10ms default exposure
-                "AnalogueGain": 1.0     # Base gain
-            })
-            
+            self.picam.configure(config)
             self.picam.start()
+            
+            # Print final configuration
             print("Camera started with configuration:", self.picam.camera_configuration)
             
             self.camera_active = True
-            self.status_var.set("Camera initialized in 10-bit mode")
+            self.status_var.set("Camera initialized successfully")
             
         except Exception as e:
             self.status_var.set(f"Camera initialization failed: {str(e)}")
@@ -567,24 +557,26 @@ class AdvancedPatternGenerator:
             self.camera_active = False
 
     def capture_camera_image(self):
-        """Capture current camera frame as target image in 10-bit mode"""
+        """Capture current camera frame as target image"""
         try:
             if self.camera_active:
-                # Capture raw 10-bit frame
-                raw_frame = self.picam.capture_array("raw")
-                preview_frame = self.picam.capture_array("main")
+                # Capture frame
+                frame = self.picam.capture_array()
                 
-                if raw_frame is not None:
-                    # Convert Bayer pattern to grayscale (average of all channels)
-                    gray = raw_frame.mean(axis=2) if len(raw_frame.shape) > 2 else raw_frame
+                if frame is not None:
+                    # Convert to grayscale if needed
+                    if len(frame.shape) > 2:
+                        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+                    else:
+                        gray = frame
                     
-                    # Store raw 10-bit data
+                    # Store raw data
                     self.raw_capture = gray.copy()
                     
-                    # Map raw values to phase range [-π to π]
-                    phase_data = -np.pi + (2 * np.pi * gray / 1023.0)
+                    # Map grayscale values to phase range [-π to π]
+                    phase_data = -np.pi + (2 * np.pi * gray / 255.0)
                     
-                    # Map phase to SLM grayscale [0-255]
+                    # Convert phase back to grayscale for SLM
                     # -π → 0 (black)
                     # 0 → 128 (gray)
                     # π → 255 (white)
@@ -593,48 +585,39 @@ class AdvancedPatternGenerator:
                     # Resize to match SLM resolution
                     self.target = cv2.resize(slm_gray, (800, 600), interpolation=cv2.INTER_LINEAR)
                     
-                    # Update preview using the BGR frame
-                    if preview_frame is not None:
-                        preview_gray = cv2.cvtColor(preview_frame, cv2.COLOR_BGR2GRAY)
-                        self.update_preview(preview_gray)
+                    # Update preview
+                    self.update_preview(gray)
                     
                     # Print debug info
-                    print(f"Raw frame info: shape={raw_frame.shape}, dtype={raw_frame.dtype}")
-                    print(f"Value ranges: raw=[{raw_frame.min()}, {raw_frame.max()}], "
+                    print(f"Frame info: shape={frame.shape}, dtype={frame.dtype}")
+                    print(f"Value ranges: gray=[{gray.min()}, {gray.max()}], "
                           f"phase=[{phase_data.min():.2f}, {phase_data.max():.2f}], "
                           f"slm=[{slm_gray.min()}, {slm_gray.max()}]")
                     
-                    self.status_var.set("10-bit image captured and mapped to SLM phase range")
+                    self.status_var.set("Image captured and mapped to SLM phase range")
                 else:
-                    self.status_var.set("Failed to capture raw image from camera")
+                    self.status_var.set("Failed to capture image from camera")
         except Exception as e:
             self.status_var.set(f"Error capturing image: {str(e)}")
             print(f"Detailed capture error: {traceback.format_exc()}")
-            
+
     def update_camera_preview(self):
         """Update camera preview in a separate thread"""
         while self.camera_active:
             try:
-                if not self.camera_paused:
-                    # Capture new frame from Pi Camera
+                if hasattr(self, 'picam'):
+                    # Capture frame
                     frame = self.picam.capture_array()
-                    
                     if frame is not None:
-                        # Store as last frame (at native resolution)
-                        self.last_frame = frame
-                        
-                        # Update matplotlib image (display at native resolution)
-                        self.camera_image.set_array(frame)
-                        self.camera_canvas.draw_idle()
-                else:
-                    # If paused and we have a last frame, keep displaying it
-                    if self.last_frame is not None:
-                        self.camera_image.set_array(self.last_frame)
-                        self.camera_canvas.draw_idle()
-                    
+                        # Convert to grayscale if needed
+                        if len(frame.shape) > 2:
+                            gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+                        else:
+                            gray = frame
+                        # Update preview
+                        self.update_preview(gray)
             except Exception as e:
-                print(f"Camera preview error: {str(e)}")
-                time.sleep(0.1)
+                print(f"Preview thread error: {str(e)}")
             
             time.sleep(0.033)  # ~30 FPS
 
