@@ -449,9 +449,9 @@ class AdvancedPatternGenerator:
             self.camera_fig, self.camera_ax = plt.subplots(figsize=(16, 6))  # Match preview size
             self.camera_canvas = FigureCanvasTkAgg(self.camera_fig, master=self.camera_frame)
             
-            # Initialize camera preview with black image
-            self.camera_image = self.camera_ax.imshow(np.zeros((1088, 1456)), cmap='gray', vmin=0, vmax=1023)
-            self.camera_ax.set_title('Camera Feed (10-bit Monochrome)')
+            # Initialize camera preview with black image (phase -π)
+            self.camera_image = self.camera_ax.imshow(np.zeros((1088, 1456)), cmap='gray', vmin=0, vmax=255)
+            self.camera_ax.set_title('Camera Feed (Grayscale 0→-π, 128→0, 255→π)')
             self.camera_ax.set_xticks([])
             self.camera_ax.set_yticks([])
             
@@ -462,6 +462,11 @@ class AdvancedPatternGenerator:
             # Create sections for different control groups
             buttons_frame = ttk.LabelFrame(controls_frame, text="Camera Controls", padding=5)
             buttons_frame.pack(fill=tk.X, pady=5)
+            
+            # Add phase mapping info label
+            phase_info = ttk.Label(buttons_frame, text="Phase Mapping:\n0 → -π\n128 → 0\n255 → π", 
+                                 justify=tk.LEFT, wraplength=150)
+            phase_info.pack(fill=tk.X, pady=5)
             
             # Pause/Resume button
             self.pause_camera_button = ttk.Button(buttons_frame, text="Pause Camera", command=self.pause_camera)
@@ -533,26 +538,26 @@ class AdvancedPatternGenerator:
             # Initialize PiCamera2
             self.picam = Picamera2()
             
-            # Configure camera for 10-bit monochrome resolution
-            # Using the native resolution from the datasheet: 1456x1088
+            # Configure camera for high-bit-depth monochrome
             preview_config = self.picam.create_preview_configuration(
-                main={"size": (1456, 1088), "format": "GREY10"},  # 10-bit monochrome format
+                main={"size": (1456, 1088), "format": "GREY"},  # Standard monochrome format
                 lores={"size": (640, 360), "format": "GREY"},
                 display="lores"
             )
             
             still_config = self.picam.create_still_configuration(
-                main={"size": (1456, 1088), "format": "GREY10"},  # 10-bit monochrome format
+                main={"size": (1456, 1088), "format": "GREY"},  # Standard monochrome format
                 lores={"size": (640, 360), "format": "GREY"}
             )
             
             self.picam.configure(preview_config)
             
-            # Set camera controls for 10-bit monochrome sensor
+            # Set camera controls for monochrome sensor
             self.picam.set_controls({
                 "FrameDurationLimits": (16666, 16666),  # 60fps (1/60 = 16.666ms)
                 "ExposureTime": 10000,  # 10ms exposure
-                "AnalogueGain": 1.0
+                "AnalogueGain": 1.0,
+                "ColourGains": (1.0, 1.0)  # Ensure balanced color gains
             })
             
             # Start the camera
@@ -594,7 +599,7 @@ class AdvancedPatternGenerator:
             frame = self.last_frame
         else:
             try:
-                # Capture frame from camera - already monochrome with 10-bit depth
+                # Capture frame from camera - standard monochrome format
                 frame = self.picam.capture_array()
                 self.last_frame = frame.copy()  # Save a copy for pause functionality
                 
@@ -607,8 +612,8 @@ class AdvancedPatternGenerator:
             # Update the image data
             self.camera_image.set_data(frame)
             
-            # Update colorbar limits for 10-bit display
-            self.camera_image.set_clim(vmin=0, vmax=1023)
+            # Update colorbar limits for standard 8-bit display
+            self.camera_image.set_clim(vmin=0, vmax=255)
             
             # Redraw the canvas
             self.camera_canvas.draw_idle()
@@ -1029,13 +1034,13 @@ class AdvancedPatternGenerator:
         try:
             # Generate default filename with timestamp
             timestamp = time.strftime("%Y%m%d_%H%M%S")
-            default_name = f"pattern_{timestamp}.png"
+            default_name = f"pattern_{timestamp}.raw"
             
             # Use zenity file dialog
             cmd = ['zenity', '--file-selection', '--save',
                    '--filename=' + default_name,
-                   '--file-filter=Images | *.png *.jpg *.jpeg *.bmp *.tif *.tiff',
-                   '--title=Save Pattern',
+                   '--file-filter=Raw Files | *.raw | Images | *.png *.jpg *.tif *.tiff',
+                   '--title=Save Pattern (Raw format recommended for full phase data)',
                    '--confirm-overwrite']
             result = subprocess.run(cmd, capture_output=True, text=True)
             
@@ -1046,17 +1051,33 @@ class AdvancedPatternGenerator:
             save_path = result.stdout.strip()
             if not save_path:
                 return
-                
-            # Add extension if not present
-            if not save_path.lower().endswith(('.png', '.jpg', '.jpeg')):
-                save_path += '.png'
             
-            # Save the pattern
-            cv2.imwrite(save_path, self.pattern)
-            self.status_var.set(f"Pattern saved to: {save_path}")
+            # Add extension if not present
+            if not save_path.lower().endswith(('.raw', '.png', '.jpg', '.jpeg', '.tif', '.tiff')):
+                save_path += '.raw'  # Default to raw format
+            
+            # Save based on file extension
+            if save_path.lower().endswith('.raw'):
+                # Save as raw data to preserve full phase information
+                np.array(self.pattern, dtype=np.uint16).tofile(save_path)
+                
+                # Also save a metadata file with dimensions and phase mapping information
+                with open(save_path + '.txt', 'w') as f:
+                    f.write(f"Width: {self.pattern.shape[1]}\n")
+                    f.write(f"Height: {self.pattern.shape[0]}\n")
+                    f.write("Bit depth: 16\n")
+                    f.write("Format: Grayscale\n")
+                    f.write("Phase mapping: Grayscale 0 → Phase -π, Grayscale 128 → Phase 0, Grayscale 255 → Phase π\n")
+                
+                self.status_var.set(f"Pattern saved with full phase data to: {save_path}")
+            else:
+                # Save as image (note: may lose precision for phase information)
+                cv2.imwrite(save_path, self.pattern)
+                self.status_var.set(f"Pattern saved as image to: {save_path} (note: may lose phase precision)")
             
         except Exception as e:
             self.status_var.set(f"Error saving pattern: {str(e)}")
+            print(f"Detailed error: {str(e)}")
 
     def safe_plot_save(self, figure, default_filename=None):
         """Safely save a plot by temporarily pausing the camera to avoid OpenCV threading issues"""
@@ -1068,7 +1089,13 @@ class AdvancedPatternGenerator:
             
         try:
             # Create a file dialog to get save location
-            filetypes = [('PNG', '*.png'), ('PDF', '*.pdf'), ('SVG', '*.svg'), ('JPEG', '*.jpg')]
+            filetypes = [
+                ('PNG', '*.png'), 
+                ('Raw Data', '*.raw'),
+                ('PDF', '*.pdf'), 
+                ('SVG', '*.svg'), 
+                ('JPEG', '*.jpg')
+            ]
             filename = filedialog.asksaveasfilename(
                 title='Save Figure',
                 defaultextension=".png",
@@ -1615,7 +1642,7 @@ class AdvancedPatternGenerator:
             return
         
         try:
-            # Capture a high-quality still image in 10-bit monochrome format
+            # Capture a high-quality still image in standard monochrome format
             frame = self.picam.capture_array("main")
             
             # No need to convert to grayscale since it's already monochrome
@@ -1631,7 +1658,7 @@ class AdvancedPatternGenerator:
             self.update_preview()
             
             # Update status
-            self.status_var.set("10-bit monochrome image captured from camera")
+            self.status_var.set("8-bit monochrome image captured from camera")
             
         except Exception as e:
             self.status_var.set(f"Error capturing image: {str(e)}")
@@ -1646,45 +1673,44 @@ class AdvancedPatternGenerator:
         try:
             # Get save path
             file_path = filedialog.asksaveasfilename(
-                defaultextension=".tiff",
+                defaultextension=".raw",  # Raw format preserves full 8-bit data needed for accurate phase representation
                 filetypes=[
+                    ("Raw files", "*.raw"),  # Prioritize raw format for full 8-bit data preservation
                     ("TIFF files", "*.tif;*.tiff"),
                     ("PNG files", "*.png"), 
-                    ("Raw files", "*.raw"),
                     ("All files", "*.*")
                 ],
                 title="Save Camera Image"
             )
             
-            if not file_path:
-                return  # User cancelled
-                
-            # Get the current frame
-            if self.camera_paused and self.last_frame is not None:
-                frame = self.last_frame
-            else:
-                frame = self.picam.capture_array("main")  # Capture in 10-bit monochrome format
-                
-            # Save based on file extension
-            if file_path.lower().endswith('.raw'):
-                # Save as raw 10-bit data
-                np.array(frame, dtype=np.uint16).tofile(file_path)
-                
-                # Also save a metadata file with dimensions
-                with open(file_path + '.txt', 'w') as f:
-                    f.write(f"Width: {frame.shape[1]}\n")
-                    f.write(f"Height: {frame.shape[0]}\n")
-                    f.write("Bit depth: 10\n")
-                    f.write("Format: Monochrome\n")
-            elif file_path.lower().endswith(('.tif', '.tiff')):
-                # TIFF can preserve the full 10-bit range
-                cv2.imwrite(file_path, frame, [cv2.IMWRITE_TIFF_COMPRESSION, 1])
-                self.status_var.set(f"10-bit monochrome image saved to {file_path}")
-            else:
-                # For standard image formats like PNG, save normally
-                # Note: These formats will compress to 8-bit
-                cv2.imwrite(file_path, frame)
-                self.status_var.set(f"Monochrome image saved to {file_path} (note: compressed to 8-bit)")
+            if file_path:
+                # Get the current frame
+                if self.camera_paused and self.last_frame is not None:
+                    frame = self.last_frame
+                else:
+                    frame = self.picam.capture_array("main")  # Capture in standard monochrome format
+                    
+                # Save based on file extension
+                if file_path.lower().endswith('.raw'):
+                    # Save as raw 8-bit data
+                    np.array(frame, dtype=np.uint8).tofile(file_path)
+                    
+                    # Also save a metadata file with dimensions
+                    with open(file_path + '.txt', 'w') as f:
+                        f.write(f"Width: {frame.shape[1]}\n")
+                        f.write(f"Height: {frame.shape[0]}\n")
+                        f.write("Bit depth: 8\n")
+                        f.write("Format: Monochrome\n")
+                    self.status_var.set(f"Raw 8-bit monochrome image saved to {file_path}")
+                elif file_path.lower().endswith(('.tif', '.tiff')):
+                    # TIFF can preserve the full 8-bit range
+                    cv2.imwrite(file_path, frame, [cv2.IMWRITE_TIFF_COMPRESSION, 1])
+                    self.status_var.set(f"8-bit monochrome image saved to {file_path}")
+                else:
+                    # For standard image formats like PNG, save normally
+                    # Note: These formats will compress to 8-bit
+                    cv2.imwrite(file_path, frame)
+                    self.status_var.set(f"Monochrome image saved to {file_path} (note: compressed to 8-bit)")
             
         except Exception as e:
             self.status_var.set(f"Error saving camera image: {str(e)}")
