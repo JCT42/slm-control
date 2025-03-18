@@ -19,7 +19,7 @@ Advanced Features:
 import numpy as np
 import cv2
 import tkinter as tk
-from tkinter import ttk, filedialog
+from tkinter import ttk, filedialog, messagebox
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2Tk
 import threading
@@ -446,93 +446,86 @@ class AdvancedPatternGenerator:
         self.preview_canvas.draw()
         
     def create_camera_preview(self):
-        """Create camera preview area"""
-        if not self.camera_active:
-            return
-            
-        try:
-            # Create camera preview figure
-            self.camera_fig, self.camera_ax = plt.subplots(figsize=(16, 6))  # Match preview size
-            self.camera_canvas = FigureCanvasTkAgg(self.camera_fig, master=self.camera_frame)
-            
-            # Initialize camera preview with black image
-            self.camera_image = self.camera_ax.imshow(np.zeros((1080, 1920)), cmap='gray', vmin=0, vmax=255)
-            self.camera_ax.set_title('Camera Feed')
-            self.camera_ax.set_xticks([])
-            self.camera_ax.set_yticks([])
-            
-            # Create frame for camera controls
-            controls_frame = ttk.Frame(self.camera_frame)
-            controls_frame.pack(side=tk.RIGHT, padx=10, pady=5, fill=tk.Y)
-            
-            # Create sections for different control groups
-            buttons_frame = ttk.LabelFrame(controls_frame, text="Camera Controls", padding=5)
-            buttons_frame.pack(fill=tk.X, pady=5)
-            
-            # Pause/Resume button
-            self.pause_camera_button = ttk.Button(buttons_frame, text="Pause Camera", command=self.pause_camera)
-            self.pause_camera_button.pack(fill=tk.X, pady=2)
-            
-            # Capture button
-            self.capture_button = ttk.Button(buttons_frame, text="Capture Image", command=self.capture_camera_image)
-            self.capture_button.pack(fill=tk.X, pady=2)
-            
-            # Save button
-            self.save_camera_button = ttk.Button(buttons_frame, text="Save Image", 
-                                               command=lambda: self.save_camera_image())
-            self.save_camera_button.pack(fill=tk.X, pady=2)
-            
-            # Send to SLM button in camera section
-            self.camera_send_to_slm_button = ttk.Button(buttons_frame, text="Send to SLM", command=self.send_to_slm)
-            self.camera_send_to_slm_button.pack(fill=tk.X, pady=2)
-            
-            # Safe Save button for camera
-            self.safe_save_camera_button = ttk.Button(
-                buttons_frame, 
-                text="Safe Save Image", 
-                command=lambda: self.safe_plot_save(self.camera_fig, "camera_image")
-            )
-            self.safe_save_camera_button.pack(fill=tk.X, pady=2)
-            
-            # Exposure settings frame
-            exposure_frame = ttk.LabelFrame(controls_frame, text="Exposure Settings", padding=5)
-            exposure_frame.pack(fill=tk.X, pady=5)
-            
-            # Exposure control
-            ttk.Label(exposure_frame, text="Exposure Time (ms):").pack(fill=tk.X)
-            exposure_control_frame = ttk.Frame(exposure_frame)
-            exposure_control_frame.pack(fill=tk.X)
-            
-            self.exposure_var = tk.StringVar(value="10")
-            exposure_entry = ttk.Entry(exposure_control_frame, textvariable=self.exposure_var, width=8)
-            exposure_entry.pack(side=tk.LEFT, padx=2)
-            
-            ttk.Button(exposure_control_frame, text="Set", 
-                      command=lambda: self.set_exposure(float(self.exposure_var.get()))).pack(side=tk.LEFT, padx=2)
-            
-            # Gain settings frame
-            gain_frame = ttk.LabelFrame(controls_frame, text="Gain Settings", padding=5)
-            gain_frame.pack(fill=tk.X, pady=5)
-            
-            # Gain control
-            ttk.Label(gain_frame, text="Analog Gain:").pack(fill=tk.X)
-            gain_control_frame = ttk.Frame(gain_frame)
-            gain_control_frame.pack(fill=tk.X)
-            
-            self.gain_var = tk.StringVar(value="1.0")
-            gain_entry = ttk.Entry(gain_control_frame, textvariable=self.gain_var, width=8)
-            gain_entry.pack(side=tk.LEFT, padx=2)
-            
-            ttk.Button(gain_control_frame, text="Set",
-                      command=lambda: self.set_gain(float(self.gain_var.get()))).pack(side=tk.LEFT, padx=2)
-            
-            # Pack the camera canvas
-            self.camera_canvas.get_tk_widget().pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-            
-        except Exception as e:
-            self.status_var.set(f"Error creating camera preview: {str(e)}")
-            print(f"Detailed error: {str(e)}")
-
+        """Create camera preview area with controls"""
+        # Create camera frame with matplotlib figure
+        self.camera_fig = plt.Figure(figsize=(8, 6), dpi=100)
+        self.camera_canvas = FigureCanvasTkAgg(self.camera_fig, master=self.camera_frame)
+        self.camera_canvas.get_tk_widget().pack(side=tk.TOP, fill=tk.BOTH, expand=1)
+        
+        # Create a 2x1 grid for preview and histogram
+        gs = self.camera_fig.add_gridspec(2, 1, height_ratios=[3, 1])
+        
+        # Preview image
+        self.preview_ax = self.camera_fig.add_subplot(gs[0])
+        self.preview_ax.set_title("Camera Preview")
+        
+        # Create initial empty image
+        empty_img = np.zeros((self.camera_height//4, self.camera_width//4), dtype=np.uint8)
+        self.preview_img = self.preview_ax.imshow(empty_img, cmap='gray')
+        self.preview_ax.axis('off')
+        
+        # Histogram
+        self.hist_ax = self.camera_fig.add_subplot(gs[1])
+        self.hist_ax.set_title("Intensity Histogram")
+        self.hist_ax.set_xlabel("Intensity (0-1023)")
+        self.hist_ax.set_ylabel("Frequency")
+        self.hist_ax.grid(True, alpha=0.3)
+        
+        self.camera_fig.tight_layout()
+        
+        # Add camera controls
+        controls_frame = ttk.Frame(self.camera_frame)
+        controls_frame.pack(fill=tk.X, padx=5, pady=5)
+        
+        # Exposure control
+        ttk.Label(controls_frame, text="Exposure (ms):").grid(row=0, column=0, padx=5, pady=5)
+        self.exposure_var = tk.StringVar(value="20")
+        exposure_entry = ttk.Entry(controls_frame, textvariable=self.exposure_var, width=10)
+        exposure_entry.grid(row=0, column=1, padx=5, pady=5)
+        exposure_entry.bind('<Return>', lambda e: self.set_exposure(float(self.exposure_var.get())))
+        
+        # Gain control
+        ttk.Label(controls_frame, text="Gain:").grid(row=0, column=2, padx=5, pady=5)
+        self.gain_var = tk.StringVar(value="1.0")
+        gain_entry = ttk.Entry(controls_frame, textvariable=self.gain_var, width=10)
+        gain_entry.grid(row=0, column=3, padx=5, pady=5)
+        gain_entry.bind('<Return>', lambda e: self.set_gain(float(self.gain_var.get())))
+        
+        # Capture button
+        capture_button = ttk.Button(controls_frame, text="Capture", 
+                                  command=self.capture_camera_image)
+        capture_button.grid(row=0, column=4, padx=5, pady=5)
+        
+        # Save button
+        save_button = ttk.Button(controls_frame, text="Save Image", 
+                               command=self.save_camera_image)
+        save_button.grid(row=0, column=5, padx=5, pady=5)
+        
+        # Pause/Resume button
+        self.pause_text = tk.StringVar(value="Pause")
+        self.pause_button = ttk.Button(controls_frame, textvariable=self.pause_text,
+                                     command=self.toggle_camera_pause)
+        self.pause_button.grid(row=0, column=6, padx=5, pady=5)
+    
+    def toggle_camera_pause(self):
+        """Toggle camera pause state"""
+        if self.camera_paused:
+            self.resume_camera()
+            self.pause_text.set("Pause")
+        else:
+            self.pause_camera()
+            self.pause_text.set("Resume")
+    
+    def pause_camera(self):
+        """Pause the camera feed"""
+        self.camera_paused = True
+        self.status_var.set("Camera paused")
+    
+    def resume_camera(self):
+        """Resume the camera feed"""
+        self.camera_paused = False
+        self.status_var.set("Camera resumed")
+    
     def initialize_camera(self):
         """Initialize camera with IMX296 settings"""
         try:
@@ -609,15 +602,20 @@ class AdvancedPatternGenerator:
                         # Update preview with scaled display frame
                         if hasattr(self, 'preview_ax'):
                             self.preview_ax.clear()
-                            im = self.preview_ax.imshow(display_frame, cmap='gray')
+                            self.preview_img = self.preview_ax.imshow(display_frame, cmap='gray')
                             self.preview_ax.set_title("Live Preview")
-                            self.fig.colorbar(im, ax=self.preview_ax, 
+                            self.preview_ax.axis('off')
+                            self.camera_fig.colorbar(self.preview_img, ax=self.preview_ax, 
                                            label="Relative Intensity")
                         
-                        self.canvas.draw()
+                        # Draw the updated canvas
+                        self.camera_canvas.draw()
                         
                         # Update status with intensity info
                         self.status_var.set(f"Intensity - Max: {max_val:.1f}, Mean: {mean_val:.1f}")
+                
+                # Add a small sleep to prevent high CPU usage
+                time.sleep(0.033)  # ~30 FPS
                     
             except Exception as e:
                 self.status_var.set(f"Preview error: {str(e)}")
@@ -1618,26 +1616,37 @@ class AdvancedPatternGenerator:
                 # Capture raw 10-bit frame
                 frame = self.camera.capture_array()
                 if frame is not None:
-                    # Store the raw intensity values
-                    self.captured_intensity = frame.copy()
+                    # Convert RGB to grayscale while preserving 10-bit range
+                    if len(frame.shape) == 3:
+                        # Use standard RGB to grayscale conversion weights
+                        gray = np.dot(frame[..., :3], [0.2989, 0.5870, 0.1140])
+                    else:
+                        gray = frame
+                    
+                    # Store the raw intensity values (not phase values)
+                    self.captured_intensity = gray.copy()
                     
                     # Calculate intensity statistics
-                    max_val = np.max(frame)
-                    mean_val = np.mean(frame)
+                    max_val = np.max(gray)
+                    mean_val = np.mean(gray)
                     
-                    self.status_var.set(f"Captured - Max: {max_val:.1f}, Mean: {mean_val:.1f}")
+                    self.status_var.set(f"Captured intensity image - Max: {max_val:.1f}, Mean: {mean_val:.1f}")
                     
-                    # Update preview with captured frame
-                    self.update_preview()
+                    # Display a notification that image was captured
+                    messagebox.showinfo("Image Captured", 
+                                       f"Intensity image captured successfully.\nMax: {max_val:.1f}, Mean: {mean_val:.1f}")
             else:
                 self.status_var.set("Camera not active")
+                messagebox.showerror("Camera Error", "Camera is not active")
         except Exception as e:
             self.status_var.set(f"Capture error: {str(e)}")
+            messagebox.showerror("Capture Error", str(e))
 
     def save_camera_image(self):
         """Save the current camera frame with full 10-bit precision"""
         if not hasattr(self, 'captured_intensity'):
             self.status_var.set("No image captured")
+            messagebox.showwarning("Save Error", "No image has been captured yet")
             return
             
         try:
@@ -1651,13 +1660,16 @@ class AdvancedPatternGenerator:
                 if filename.endswith('.npy'):
                     # Save raw 10-bit values
                     np.save(filename, self.captured_intensity)
+                    self.status_var.set(f"Saved raw intensity values to {filename}")
                 else:
                     # Save as 16-bit TIFF to preserve 10-bit values
                     cv2.imwrite(filename, self.captured_intensity.astype(np.uint16))
+                    self.status_var.set(f"Saved intensity image to {filename}")
                 
-                self.status_var.set(f"Saved intensity image to {filename}")
+                messagebox.showinfo("Save Complete", f"Intensity image saved to {filename}")
         except Exception as e:
             self.status_var.set(f"Save error: {str(e)}")
+            messagebox.showerror("Save Error", str(e))
 
     def _on_algorithm_change(self, *args):
         """Handle algorithm selection change"""
