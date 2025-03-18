@@ -533,26 +533,34 @@ class AdvancedPatternGenerator:
         try:
             self.picam = Picamera2()
             
-            # Configure for 10-bit monochrome capture with global shutter
-            # Camera specs from datasheet:
-            # - Resolution: 1456x1088
-            # - Pixel Size: 3.45 µm
-            # - Frame Rate: 60 fps
-            # - Global Shutter
-            # - Monochrome sensor
-            config = self.picam.create_still_configuration(
+            # First get camera info and supported formats
+            print("Available camera formats:", self.picam.sensor_modes)
+            
+            # Create preview config for display (8-bit for preview)
+            preview_config = self.picam.create_preview_configuration(
                 main={"size": (1456, 1088),
-                      "format": "GREY10"},  # 10-bit monochrome format
-                raw={},
-                controls={
-                    "FrameDurationLimits": (16666, 1000000),  # 60fps to 1fps
-                    "ExposureTime": 10000,  # 10ms default exposure
-                    "AnalogueGain": 1.0,
-                    "GlobalShutter": 1  # Enable global shutter mode
-                }
+                      "format": "YUV420"}
             )
             
-            self.picam.configure(config)
+            # Create still config for capture (10-bit raw)
+            still_config = self.picam.create_still_configuration(
+                main={"size": (1456, 1088),
+                      "format": "YUV420"},  # For preview
+                raw={"size": (1456, 1088),  # Native sensor resolution
+                     "format": "SRGGB10"}   # 10-bit raw Bayer format
+            )
+            
+            # Configure and start camera
+            self.picam.configure(still_config)
+            
+            # Set camera parameters
+            self.picam.set_controls({
+                "FrameDurationLimits": (16666, 1000000),  # 60fps to 1fps
+                "ExposureTime": 10000,  # 10ms default exposure
+                "AnalogueGain": 1.0,
+                "ColourGains": (1.0, 1.0)  # Equal gains for monochrome
+            })
+            
             self.picam.start()
             
             # Store camera specifications for metadata
@@ -568,9 +576,15 @@ class AdvancedPatternGenerator:
             }
             
             self.camera_active = True
-            self.status_var.set("Camera initialized in 10-bit mode with global shutter")
+            self.status_var.set("Camera initialized in 10-bit mode")
+            
+            # Print camera configuration for debugging
+            print("Camera configuration:", self.picam.camera_configuration)
+            
         except Exception as e:
             self.status_var.set(f"Camera initialization failed: {str(e)}")
+            print(f"Detailed error: {traceback.format_exc()}")
+            print("Camera info:", self.picam.camera_properties if hasattr(self, 'picam') else "No camera info available")
             self.camera_active = False
 
     def update_camera_preview(self):
@@ -1592,26 +1606,35 @@ class AdvancedPatternGenerator:
         """Capture current camera frame as target image in 10-bit mode"""
         try:
             if self.camera_active:
-                # Capture frame in native 10-bit monochrome format
-                frame = self.picam.capture_array()
+                # Capture both processed and raw frames
+                frame = self.picam.capture_array()  # For preview
+                raw_frame = self.picam.capture_array("raw")  # 10-bit raw data
                 
-                if frame is not None:
-                    # Store raw 10-bit data (no conversion needed as it's already monochrome)
-                    self.raw_capture = frame.copy()
+                if frame is not None and raw_frame is not None:
+                    # Convert raw Bayer to grayscale (average of all channels since it's monochrome)
+                    raw_gray = raw_frame.mean(axis=2) if len(raw_frame.shape) > 2 else raw_frame
+                    
+                    # Store raw 10-bit data
+                    self.raw_capture = raw_gray
                     
                     # Resize to match SLM resolution while preserving bit depth
-                    self.target = cv2.resize(frame, (800, 600), interpolation=cv2.INTER_LINEAR)
+                    self.target = cv2.resize(raw_gray, (800, 600), interpolation=cv2.INTER_LINEAR)
                     
                     # Update preview (scale from 10-bit to 8-bit for display)
-                    preview = (frame * (255.0 / 1023.0)).astype(np.uint8)
+                    preview = (raw_gray * (255.0 / 1023.0)).astype(np.uint8)
                     self.update_preview(preview)
+                    
+                    # Print debug info about captured frame
+                    print(f"Raw frame info: shape={raw_frame.shape}, dtype={raw_frame.dtype}, range=[{raw_frame.min()}, {raw_frame.max()}]")
+                    print(f"Processed frame info: shape={raw_gray.shape}, dtype={raw_gray.dtype}, range=[{raw_gray.min()}, {raw_gray.max()}]")
                     
                     self.status_var.set("10-bit image captured from camera")
                 else:
                     self.status_var.set("Failed to capture image from camera")
         except Exception as e:
             self.status_var.set(f"Error capturing image: {str(e)}")
-
+            print(f"Detailed capture error: {traceback.format_exc()}")
+            
     def save_camera_image(self):
         """Save the current camera frame to a file with raw option"""
         if hasattr(self, 'target'):
@@ -1660,7 +1683,7 @@ class AdvancedPatternGenerator:
                 self.status_var.set(f"Error saving image: {str(e)}")
         else:
             self.status_var.set("No image to save")
-    
+
     def _on_algorithm_change(self, *args):
         """Handle algorithm selection change"""
         if self.algorithm_var.get() == "mraf":
