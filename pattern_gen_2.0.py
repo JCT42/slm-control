@@ -32,7 +32,6 @@ import pygame
 from tqdm import tqdm
 import scipy.special
 import traceback
-import json
 
 class AdvancedPatternGenerator:
     def __init__(self):
@@ -47,6 +46,12 @@ class AdvancedPatternGenerator:
         self.active_area = (26.6e-3, 20.0e-3)
         self.refresh_rate = 60
         self.contrast_ratio = 200
+        
+        # IMX296 camera specifications
+        self.camera_width = 1456
+        self.camera_height = 1088
+        self.camera_bit_depth = 10
+        self.camera_max_value = 2**10 - 1  # 1023 for 10-bit
         
         # Default wavelength
         self.wavelength = 650e-9
@@ -529,99 +534,88 @@ class AdvancedPatternGenerator:
             print(f"Detailed error: {str(e)}")
 
     def initialize_camera(self):
-        """Initialize Raspberry Pi Camera"""
+        """Initialize camera with IMX296 settings"""
         try:
-            self.picam = Picamera2()
+            self.camera = Picamera2()
+            # Configure for 10-bit monochrome capture
+            config = self.camera.create_still_configuration(
+                main={"size": (self.camera_width, self.camera_height),
+                      "format": "GREY"},
+                raw={"size": (self.camera_width, self.camera_height),
+                     "format": "GREY10"}
+            )
+            self.camera.configure(config)
             
-            # Get camera info and supported formats
-            print("Camera properties:", self.picam.camera_properties)
-            print("Available sensor modes:", self.picam.sensor_modes)
-            
-            # Create basic configuration
-            config = self.picam.create_preview_configuration()
-            
-            # Configure camera
-            self.picam.configure(config)
-            self.picam.start()
-            
-            # Print final configuration
-            print("Camera started with configuration:", self.picam.camera_configuration)
+            # Set initial exposure and gain
+            self.camera.set_controls({
+                "ExposureTime": 20000,  # 20ms default
+                "AnalogueGain": 1.0
+            })
             
             self.camera_active = True
             self.status_var.set("Camera initialized successfully")
             
+            # Start camera preview thread
+            self.camera_thread = threading.Thread(target=self.update_camera_preview, daemon=True)
+            self.camera_thread.start()
+            
         except Exception as e:
             self.status_var.set(f"Camera initialization failed: {str(e)}")
-            print(f"Detailed error: {traceback.format_exc()}")
-            print("Camera info:", self.picam.camera_properties if hasattr(self, 'picam') else "No camera info available")
             self.camera_active = False
-
-    def capture_camera_image(self):
-        """Capture current camera frame as target image"""
-        try:
-            if self.camera_active:
-                # Capture frame
-                frame = self.picam.capture_array()
-                
-                if frame is not None:
-                    # Convert to grayscale if needed
-                    if len(frame.shape) > 2:
-                        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-                    else:
-                        gray = frame
-                    
-                    # Store raw data
-                    self.raw_capture = gray.copy()
-                    
-                    # Map grayscale values to phase range [-π to π]
-                    phase_data = -np.pi + (2 * np.pi * gray / 255.0)
-                    
-                    # Convert phase back to grayscale for SLM
-                    # -π → 0 (black)
-                    # 0 → 128 (gray)
-                    # π → 255 (white)
-                    slm_gray = ((phase_data + np.pi) * (255.0 / (2 * np.pi))).astype(np.uint8)
-                    
-                    # Resize to match SLM resolution
-                    self.target = cv2.resize(slm_gray, (800, 600), interpolation=cv2.INTER_LINEAR)
-                    
-                    # Update preview
-                    self.update_preview(gray)
-                    
-                    # Print debug info
-                    print(f"Frame info: shape={frame.shape}, dtype={frame.dtype}")
-                    print(f"Value ranges: gray=[{gray.min()}, {gray.max()}], "
-                          f"phase=[{phase_data.min():.2f}, {phase_data.max():.2f}], "
-                          f"slm=[{slm_gray.min()}, {slm_gray.max()}]")
-                    
-                    self.status_var.set("Image captured and mapped to SLM phase range")
-                else:
-                    self.status_var.set("Failed to capture image from camera")
-        except Exception as e:
-            self.status_var.set(f"Error capturing image: {str(e)}")
-            print(f"Detailed capture error: {traceback.format_exc()}")
 
     def update_camera_preview(self):
         """Update camera preview in a separate thread"""
         while self.camera_active:
             try:
-                if hasattr(self, 'picam'):
-                    # Capture frame
-                    frame = self.picam.capture_array()
+                if not self.camera_paused:
+                    # Capture raw 10-bit intensity frame
+                    frame = self.camera.capture_array()
+                    
                     if frame is not None:
-                        # Convert to grayscale if needed
-                        if len(frame.shape) > 2:
-                            gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-                        else:
-                            gray = frame
-                        # Update preview
-                        self.update_preview(gray)
+                        # Store raw intensity values
+                        self.last_frame = frame
+                        
+                        # For display, scale to 8-bit while preserving relative intensities
+                        display_frame = (frame / self.camera_max_value * 255).astype(np.uint8)
+                        
+                        # Update histogram with raw 10-bit values
+                        if hasattr(self, 'hist_ax'):
+                            self.hist_ax.clear()
+                            self.hist_ax.hist(frame.flatten(), bins=100, range=(0, self.camera_max_value))
+                            self.hist_ax.set_title("Intensity Distribution")
+                            self.hist_ax.set_xlabel("Intensity (0-1023)")
+                            self.hist_ax.set_ylabel("Frequency")
+                            
+                            # Add intensity statistics
+                            mean_val = np.mean(frame)
+                            median_val = np.median(frame)
+                            max_val = np.max(frame)
+                            self.hist_ax.axvline(mean_val, color='r', linestyle='--', 
+                                               label=f'Mean: {mean_val:.1f}')
+                            self.hist_ax.axvline(median_val, color='g', linestyle=':', 
+                                               label=f'Median: {median_val:.1f}')
+                            self.hist_ax.axvline(max_val, color='purple', linestyle='-.', 
+                                               label=f'Max: {max_val:.1f}')
+                            self.hist_ax.legend()
+                        
+                        # Update preview with scaled display frame
+                        if hasattr(self, 'preview_ax'):
+                            self.preview_ax.clear()
+                            im = self.preview_ax.imshow(display_frame, cmap='gray')
+                            self.preview_ax.set_title("Live Preview")
+                            self.fig.colorbar(im, ax=self.preview_ax, 
+                                           label="Relative Intensity")
+                        
+                        self.canvas.draw()
+                        
+                        # Update status with intensity info
+                        self.status_var.set(f"Intensity - Max: {max_val:.1f}, Mean: {mean_val:.1f}")
+                    
             except Exception as e:
-                print(f"Preview thread error: {str(e)}")
-            
-            time.sleep(0.033)  # ~30 FPS
+                self.status_var.set(f"Preview error: {str(e)}")
+                time.sleep(0.1)
 
-    def update_preview(self, frame=None):
+    def update_preview(self):
         """Update the preview plots with current patterns and reconstructions"""
         try:
             # Clear axes
@@ -630,15 +624,14 @@ class AdvancedPatternGenerator:
             self.ax3.clear()
             self.ax4.clear()
             
-            # Update target pattern preview
-            if frame is not None:
-                self.ax1.imshow(frame, cmap='gray')
-                self.ax1.set_title('Camera Preview')
-            elif hasattr(self, 'target'):
+            # Plot target image
+            if hasattr(self, 'target'):
                 self.ax1.imshow(self.target, cmap='gray')
-                self.ax1.set_title('Target Pattern')
+                self.ax1.set_title('Target')
+                self.ax1.set_xticks([])
+                self.ax1.set_yticks([])
             
-            # Update current SLM pattern preview
+            # Plot current pattern
             if hasattr(self, 'pattern'):
                 # Use gray colormap for phase patterns
                 if self.modulation_mode == "Phase":
@@ -646,8 +639,10 @@ class AdvancedPatternGenerator:
                 else:
                     self.ax2.imshow(self.pattern, cmap='gray')
                 self.ax2.set_title('SLM Pattern')
+                self.ax2.set_xticks([])
+                self.ax2.set_yticks([])
             
-            # Update simulated reconstruction preview
+            # Plot simulated reconstruction
             if hasattr(self, 'reconstruction'):
                 # Extract central region of reconstruction to match target size
                 start_y = (self.padded_height - self.height) // 2
@@ -660,6 +655,8 @@ class AdvancedPatternGenerator:
                 # Display the central region of the reconstruction
                 self.ax3.imshow(central_recon, cmap='hot')  # Use hot colormap for intensity
                 self.ax3.set_title('Simulated Reconstruction')
+                self.ax3.set_xticks([])
+                self.ax3.set_yticks([])
             
             # Plot error history if available and enabled
             if hasattr(self, 'error_history') and self.show_error_plot_var.get():
@@ -669,18 +666,13 @@ class AdvancedPatternGenerator:
                 self.ax4.set_xlabel('Iteration')
                 self.ax4.set_ylabel('Error')
                 self.ax4.grid(True)
-            
-            # Remove axes ticks from image plots
-            for ax in [self.ax1, self.ax2, self.ax3]:
-                ax.set_xticks([])
-                ax.set_yticks([])
-            
-            # Update the figure
+                
+            # Update canvas
             self.preview_canvas.draw()
             
         except Exception as e:
             self.status_var.set(f"Error updating preview: {str(e)}")
-            print(f"Preview error: {traceback.format_exc()}")
+            print(f"Detailed error: {str(e)}")
 
     def generate_pattern(self):
         """Generate pattern based on current settings"""
@@ -949,8 +941,8 @@ class AdvancedPatternGenerator:
             # Clean up camera if active
             if self.camera_active:
                 self.camera_active = False
-                self.picam.stop()
-                self.picam.close()
+                self.camera.stop()
+                self.camera.close()
             
             # Clean up any OpenCV windows
             cv2.destroyAllWindows()
@@ -1049,7 +1041,7 @@ class AdvancedPatternGenerator:
             save_path = result.stdout.strip()
             if not save_path:
                 return
-            
+                
             # Add extension if not present
             if not save_path.lower().endswith(('.png', '.jpg', '.jpeg')):
                 save_path += '.png'
@@ -1598,7 +1590,7 @@ class AdvancedPatternGenerator:
         """Set camera exposure time in milliseconds"""
         try:
             exposure_us = int(exposure_ms * 1000)  # Convert to microseconds
-            self.picam.set_controls({"ExposureTime": exposure_us})
+            self.camera.set_controls({"ExposureTime": exposure_us})
             self.status_var.set(f"Exposure set to {exposure_ms}ms")
         except Exception as e:
             self.status_var.set(f"Error setting exposure: {str(e)}")
@@ -1606,59 +1598,58 @@ class AdvancedPatternGenerator:
     def set_gain(self, gain):
         """Set camera analog gain"""
         try:
-            self.picam.set_controls({"AnalogueGain": gain})
+            self.camera.set_controls({"AnalogueGain": gain})
             self.status_var.set(f"Gain set to {gain}")
         except Exception as e:
             self.status_var.set(f"Error setting gain: {str(e)}")
 
+    def capture_camera_image(self):
+        """Capture current camera frame as intensity image"""
+        try:
+            if self.camera_active:
+                # Capture raw 10-bit frame
+                frame = self.camera.capture_array()
+                if frame is not None:
+                    # Store the raw intensity values
+                    self.captured_intensity = frame.copy()
+                    
+                    # Calculate intensity statistics
+                    max_val = np.max(frame)
+                    mean_val = np.mean(frame)
+                    
+                    self.status_var.set(f"Captured - Max: {max_val:.1f}, Mean: {mean_val:.1f}")
+                    
+                    # Update preview with captured frame
+                    self.update_preview()
+            else:
+                self.status_var.set("Camera not active")
+        except Exception as e:
+            self.status_var.set(f"Capture error: {str(e)}")
+
     def save_camera_image(self):
-        """Save the current camera frame to a file with raw option"""
-        if hasattr(self, 'target'):
-            try:
-                filetypes = [
-                    ('Raw 10-bit files', '*.raw'),
-                    ('PNG files', '*.png'),
-                    ('All files', '*.*')
-                ]
-                filename = filedialog.asksaveasfilename(
-                    defaultextension=".raw",  # Default to raw format for 10-bit data
-                    filetypes=filetypes,
-                    title="Save Camera Image"
-                )
+        """Save the current camera frame with full 10-bit precision"""
+        if not hasattr(self, 'captured_intensity'):
+            self.status_var.set("No image captured")
+            return
+            
+        try:
+            filename = filedialog.asksaveasfilename(
+                defaultextension=".npy",
+                filetypes=[("NumPy files", "*.npy"), ("TIFF files", "*.tiff")],
+                title="Save Intensity Image"
+            )
+            
+            if filename:
+                if filename.endswith('.npy'):
+                    # Save raw 10-bit values
+                    np.save(filename, self.captured_intensity)
+                else:
+                    # Save as 16-bit TIFF to preserve 10-bit values
+                    cv2.imwrite(filename, self.captured_intensity.astype(np.uint16))
                 
-                if filename:
-                    if filename.lower().endswith('.raw'):
-                        if hasattr(self, 'raw_capture'):
-                            # Save raw data with detailed metadata
-                            metadata = {
-                                **self.camera_specs,  # Include all camera specifications
-                                'timestamp': time.strftime("%Y%m%d_%H%M%S"),
-                                'exposure_time_us': self.picam.capture_metadata()['ExposureTime'],
-                                'analog_gain': self.picam.capture_metadata()['AnalogueGain'],
-                                'frame_size': self.raw_capture.shape,
-                                'data_format': 'uint16',  # 10-bit data in 16-bit container
-                                'byte_order': 'little-endian'
-                            }
-                            
-                            # Save metadata in companion JSON file
-                            meta_filename = filename + '.json'
-                            with open(meta_filename, 'w') as f:
-                                json.dump(metadata, f, indent=4)
-                            
-                            # Save raw 10-bit data
-                            self.raw_capture.astype(np.uint16).tofile(filename)
-                            self.status_var.set(f"Raw 10-bit image saved to {filename}")
-                        else:
-                            self.status_var.set("No raw capture available")
-                    else:
-                        # For non-raw formats, scale to 8-bit
-                        scaled_image = (self.target * (255.0 / 1023.0)).astype(np.uint8)
-                        cv2.imwrite(filename, scaled_image)
-                        self.status_var.set(f"8-bit converted image saved to {filename}")
-            except Exception as e:
-                self.status_var.set(f"Error saving image: {str(e)}")
-        else:
-            self.status_var.set("No image to save")
+                self.status_var.set(f"Saved intensity image to {filename}")
+        except Exception as e:
+            self.status_var.set(f"Save error: {str(e)}")
 
     def _on_algorithm_change(self, *args):
         """Handle algorithm selection change"""
