@@ -477,13 +477,21 @@ class AdvancedPatternGenerator:
         camera_container = ttk.Frame(self.camera_frame)
         camera_container.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
         
+        # Create a horizontal layout with preview on left, controls on right
+        preview_controls_frame = ttk.Frame(camera_container)
+        preview_controls_frame.pack(fill=tk.BOTH, expand=True)
+        
+        # Left side: Camera preview
+        preview_frame = ttk.LabelFrame(preview_controls_frame, text="Camera Preview")
+        preview_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=5, pady=5)
+        
         # Create camera frame with matplotlib figure
         self.camera_fig = plt.Figure(figsize=(10, 8), dpi=100)
-        self.camera_canvas = FigureCanvasTkAgg(self.camera_fig, master=camera_container)
+        self.camera_canvas = FigureCanvasTkAgg(self.camera_fig, master=preview_frame)
         self.camera_canvas.get_tk_widget().pack(side=tk.TOP, fill=tk.BOTH, expand=1)
         
         # Add navigation toolbar
-        toolbar = NavigationToolbar2Tk(self.camera_canvas, camera_container)
+        toolbar = NavigationToolbar2Tk(self.camera_canvas, preview_frame)
         toolbar.update()
         
         # Create a 2x1 grid for preview and histogram
@@ -493,9 +501,10 @@ class AdvancedPatternGenerator:
         self.preview_ax = self.camera_fig.add_subplot(gs[0])
         self.preview_ax.set_title("Camera Preview")
         
-        # Create initial empty image
+        # Create initial empty image with correct dimensions
         empty_img = np.zeros((self.camera_height//4, self.camera_width//4), dtype=np.uint8)
-        self.preview_img = self.preview_ax.imshow(empty_img, cmap='gray')
+        self.preview_img = self.preview_ax.imshow(empty_img, cmap='gray', vmin=0, vmax=255)
+        self.camera_fig.colorbar(self.preview_img, ax=self.preview_ax, label="Intensity (8-bit scaled)")
         self.preview_ax.axis('off')
         
         # Histogram
@@ -507,49 +516,60 @@ class AdvancedPatternGenerator:
         
         self.camera_fig.tight_layout()
         
-        # Add camera controls
-        controls_frame = ttk.LabelFrame(camera_container, text="Camera Controls")
-        controls_frame.pack(fill=tk.X, padx=5, pady=5)
-        
-        # Create a grid for controls
-        control_grid = ttk.Frame(controls_frame)
-        control_grid.pack(fill=tk.X, padx=10, pady=10)
+        # Right side: Camera controls
+        controls_frame = ttk.LabelFrame(preview_controls_frame, text="Camera Controls")
+        controls_frame.pack(side=tk.RIGHT, fill=tk.Y, padx=5, pady=5, ipadx=10, ipady=10)
         
         # Exposure control
-        ttk.Label(control_grid, text="Exposure (ms):").grid(row=0, column=0, padx=5, pady=5, sticky=tk.W)
+        exposure_frame = ttk.LabelFrame(controls_frame, text="Exposure Settings")
+        exposure_frame.pack(fill=tk.X, padx=5, pady=5)
+        
+        ttk.Label(exposure_frame, text="Exposure Time (ms):").pack(anchor=tk.W, padx=5, pady=2)
         self.exposure_var = tk.StringVar(value="20")
-        exposure_entry = ttk.Entry(control_grid, textvariable=self.exposure_var, width=10)
-        exposure_entry.grid(row=0, column=1, padx=5, pady=5)
-        ttk.Button(control_grid, text="Set Exposure", 
-                 command=lambda: self.set_exposure(float(self.exposure_var.get()))).grid(row=0, column=2, padx=5, pady=5)
+        exposure_entry = ttk.Entry(exposure_frame, textvariable=self.exposure_var, width=10)
+        exposure_entry.pack(anchor=tk.W, padx=5, pady=2)
+        
+        ttk.Button(exposure_frame, text="Set Exposure", 
+                 command=lambda: self.set_exposure(float(self.exposure_var.get()))).pack(
+                     fill=tk.X, padx=5, pady=5)
         
         # Gain control
-        ttk.Label(control_grid, text="Gain:").grid(row=0, column=3, padx=5, pady=5, sticky=tk.W)
-        self.gain_var = tk.StringVar(value="1.0")
-        gain_entry = ttk.Entry(control_grid, textvariable=self.gain_var, width=10)
-        gain_entry.grid(row=0, column=4, padx=5, pady=5)
-        ttk.Button(control_grid, text="Set Gain",
-                 command=lambda: self.set_gain(float(self.gain_var.get()))).grid(row=0, column=5, padx=5, pady=5)
+        gain_frame = ttk.LabelFrame(controls_frame, text="Gain Settings")
+        gain_frame.pack(fill=tk.X, padx=5, pady=5)
         
-        # Capture and save buttons
-        button_frame = ttk.Frame(control_grid)
-        button_frame.grid(row=1, column=0, columnspan=6, pady=10)
+        ttk.Label(gain_frame, text="Analog Gain:").pack(anchor=tk.W, padx=5, pady=2)
+        self.gain_var = tk.StringVar(value="1.0")
+        gain_entry = ttk.Entry(gain_frame, textvariable=self.gain_var, width=10)
+        gain_entry.pack(anchor=tk.W, padx=5, pady=2)
+        
+        ttk.Button(gain_frame, text="Set Gain",
+                 command=lambda: self.set_gain(float(self.gain_var.get()))).pack(
+                     fill=tk.X, padx=5, pady=5)
+        
+        # Camera action buttons
+        actions_frame = ttk.LabelFrame(controls_frame, text="Camera Actions")
+        actions_frame.pack(fill=tk.X, padx=5, pady=5)
         
         # Capture button
-        capture_button = ttk.Button(button_frame, text="Capture Image", 
+        capture_button = ttk.Button(actions_frame, text="Capture Image", 
                                   command=self.capture_camera_image)
-        capture_button.pack(side=tk.LEFT, padx=10)
+        capture_button.pack(fill=tk.X, padx=5, pady=5)
         
         # Save button
-        save_button = ttk.Button(button_frame, text="Save Image", 
+        save_button = ttk.Button(actions_frame, text="Save Image", 
                                command=self.save_camera_image)
-        save_button.pack(side=tk.LEFT, padx=10)
+        save_button.pack(fill=tk.X, padx=5, pady=5)
         
         # Pause/Resume button
         self.pause_text = tk.StringVar(value="Pause Camera")
-        self.pause_button = ttk.Button(button_frame, textvariable=self.pause_text,
+        self.pause_button = ttk.Button(actions_frame, textvariable=self.pause_text,
                                      command=self.toggle_camera_pause)
-        self.pause_button.pack(side=tk.LEFT, padx=10)
+        self.pause_button.pack(fill=tk.X, padx=5, pady=5)
+        
+        # Send to SLM button
+        send_to_slm_button = ttk.Button(actions_frame, text="Send to SLM",
+                                      command=self.send_camera_to_slm)
+        send_to_slm_button.pack(fill=tk.X, padx=5, pady=5)
         
         # Add info label
         info_label = ttk.Label(camera_container, 
@@ -596,6 +616,9 @@ class AdvancedPatternGenerator:
                 "AnalogueGain": 1.0
             })
             
+            # Start the camera
+            self.camera.start()
+            
             self.camera_active = True
             self.status_var.set("Camera initialized successfully")
             
@@ -605,6 +628,7 @@ class AdvancedPatternGenerator:
             
         except Exception as e:
             self.status_var.set(f"Camera initialization failed: {str(e)}")
+            print(f"Camera initialization error: {str(e)}")
             self.camera_active = False
 
     def update_camera_preview(self):
@@ -650,16 +674,14 @@ class AdvancedPatternGenerator:
                             self.hist_ax.legend()
                         
                         # Update preview with scaled display frame
-                        if hasattr(self, 'preview_ax'):
-                            self.preview_ax.clear()
-                            self.preview_img = self.preview_ax.imshow(display_frame, cmap='gray')
-                            self.preview_ax.set_title("Live Preview")
-                            self.preview_ax.axis('off')
-                            self.camera_fig.colorbar(self.preview_img, ax=self.preview_ax, 
-                                           label="Relative Intensity")
+                        if hasattr(self, 'preview_ax') and hasattr(self, 'preview_img'):
+                            # Use set_array instead of recreating the image
+                            self.preview_img.set_array(display_frame)
+                            self.preview_ax.set_title(f"Live Preview - {gray.shape[1]}x{gray.shape[0]}")
                         
                         # Draw the updated canvas
-                        self.camera_canvas.draw()
+                        if hasattr(self, 'camera_canvas'):
+                            self.camera_canvas.draw_idle()  # Use draw_idle for better performance
                         
                         # Update status with intensity info
                         self.status_var.set(f"Intensity - Max: {max_val:.1f}, Mean: {mean_val:.1f}")
@@ -669,6 +691,7 @@ class AdvancedPatternGenerator:
                     
             except Exception as e:
                 self.status_var.set(f"Preview error: {str(e)}")
+                print(f"Camera preview error: {str(e)}")  # Add detailed logging
                 time.sleep(0.1)
 
     def update_preview(self):
@@ -705,7 +728,6 @@ class AdvancedPatternGenerator:
                 end_y = start_y + self.height
                 start_x = (self.padded_width - self.width) // 2
                 end_x = start_x + self.width
-                
                 central_recon = self.reconstruction[start_y:end_y, start_x:end_x]
                 
                 # Display the central region of the reconstruction
@@ -809,7 +831,7 @@ class AdvancedPatternGenerator:
             # Update the preview with the full field for proper reconstruction
             self.update_preview()
             
-            self.status_var.set(f"Pattern generated using {self.modulation_mode} mode. Stopped due to: {stop_reason}")
+            self.status_var.set(f"Pattern generated using {algorithm.upper()} algorithm. Stopped due to: {stop_reason}")
             
         except Exception as e:
             self.status_var.set(f"Error generating pattern: {str(e)}")
@@ -820,7 +842,8 @@ class AdvancedPatternGenerator:
         """Load a pattern from file"""
         try:
             # Use zenity file dialog
-            cmd = ['zenity', '--file-selection', '--file-filter=Images | *.png *.jpg *.jpeg *.bmp *.tif *.tiff',
+            cmd = ['zenity', '--file-selection',
+                   '--file-filter=Images | *.png *.jpg *.jpeg *.bmp *.tif *.tiff',
                    '--title=Select Pattern']
             result = subprocess.run(cmd, capture_output=True, text=True)
             
@@ -1097,7 +1120,7 @@ class AdvancedPatternGenerator:
             save_path = result.stdout.strip()
             if not save_path:
                 return
-                
+            
             # Add extension if not present
             if not save_path.lower().endswith(('.png', '.jpg', '.jpeg')):
                 save_path += '.png'
@@ -1727,6 +1750,37 @@ class AdvancedPatternGenerator:
             self.mraf_frame.grid(row=1, column=0, columnspan=8, padx=5, pady=5)
         else:
             self.mraf_frame.grid_remove()
+
+    def send_camera_to_slm(self):
+        """Send the captured camera image to the SLM as an intensity pattern"""
+        if not hasattr(self, 'captured_intensity'):
+            self.status_var.set("No image captured to send to SLM")
+            messagebox.showwarning("Send to SLM", "No image has been captured yet")
+            return
+            
+        try:
+            # Resize the intensity image to SLM resolution
+            resized_intensity = cv2.resize(self.captured_intensity, (self.width, self.height))
+            
+            # Store as target intensity (not phase)
+            self.target = resized_intensity
+            
+            # Update the status
+            self.status_var.set("Camera image sent to SLM as intensity pattern")
+            
+            # Switch to pattern generator tab
+            self.notebook.select(0)  # Select first tab (Pattern Generator)
+            
+            # Update the preview
+            self.update_preview()
+            
+            messagebox.showinfo("Send to SLM", 
+                              "Camera image sent to SLM as intensity pattern.\n\n" +
+                              "Note: This is using the raw intensity values, not phase values.")
+            
+        except Exception as e:
+            self.status_var.set(f"Error sending to SLM: {str(e)}")
+            messagebox.showerror("Send to SLM Error", str(e))
 
 class PatternGenerator:
     def __init__(self, target_intensity, signal_region_mask=None, mixing_parameter=0.4):
