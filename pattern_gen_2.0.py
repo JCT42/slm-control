@@ -535,33 +535,28 @@ class AdvancedPatternGenerator:
             
             # First get camera info and supported formats
             print("Available camera formats:", self.picam.sensor_modes)
-            
-            # Create preview config for display (8-bit for preview)
-            preview_config = self.picam.create_preview_configuration(
-                main={"size": (1456, 1088),
-                      "format": "YUV420"}
-            )
+            print("Camera properties:", self.picam.camera_properties)
             
             # Create still config for capture (10-bit raw)
             still_config = self.picam.create_still_configuration(
                 main={"size": (1456, 1088),
-                      "format": "YUV420"},  # For preview
-                raw={"size": (1456, 1088),  # Native sensor resolution
-                     "format": "SRGGB10"}   # 10-bit raw Bayer format
+                      "format": "BGR888"},  # Standard format for preview
+                raw={"format": "SBGGR10"}   # 10-bit raw format for Sony IMX sensors
             )
             
-            # Configure and start camera
+            # Configure camera
             self.picam.configure(still_config)
             
             # Set camera parameters
             self.picam.set_controls({
                 "FrameDurationLimits": (16666, 1000000),  # 60fps to 1fps
-                "ExposureTime": 10000,  # 10ms default exposure
-                "AnalogueGain": 1.0,
-                "ColourGains": (1.0, 1.0)  # Equal gains for monochrome
+                "ExposureTime": 10000,      # 10ms default exposure
+                "AnalogueGain": 1.0,        # Base gain
+                "ColourGains": (1.0, 1.0)   # Equal gains for monochrome
             })
             
             self.picam.start()
+            print("Camera started with configuration:", self.picam.camera_configuration)
             
             # Store camera specifications for metadata
             self.camera_specs = {
@@ -572,14 +567,12 @@ class AdvancedPatternGenerator:
                 "bit_depth": 10,
                 "max_frame_rate": 60,
                 "manufacturer": "Sony",
+                "model": "IMX287",
                 "interface": "MIPI"
             }
             
             self.camera_active = True
             self.status_var.set("Camera initialized in 10-bit mode")
-            
-            # Print camera configuration for debugging
-            print("Camera configuration:", self.picam.camera_configuration)
             
         except Exception as e:
             self.status_var.set(f"Camera initialization failed: {str(e)}")
@@ -1606,31 +1599,48 @@ class AdvancedPatternGenerator:
         """Capture current camera frame as target image in 10-bit mode"""
         try:
             if self.camera_active:
-                # Capture both processed and raw frames
-                frame = self.picam.capture_array()  # For preview
-                raw_frame = self.picam.capture_array("raw")  # 10-bit raw data
+                # Request a capture with both processed and raw buffers
+                self.picam.switch_mode_and_capture_array(self.picam.create_still_configuration())
+                raw_frame = self.picam.capture_array("raw")
                 
-                if frame is not None and raw_frame is not None:
-                    # Convert raw Bayer to grayscale (average of all channels since it's monochrome)
-                    raw_gray = raw_frame.mean(axis=2) if len(raw_frame.shape) > 2 else raw_frame
+                if raw_frame is not None:
+                    # Convert raw 10-bit data to grayscale
+                    # For SBGGR10 format, we need to handle the raw Bayer pattern
+                    if len(raw_frame.shape) > 2:
+                        # Average the color channels for monochrome conversion
+                        gray = raw_frame.mean(axis=2)
+                    else:
+                        gray = raw_frame
                     
                     # Store raw 10-bit data
-                    self.raw_capture = raw_gray
+                    self.raw_capture = gray.copy()
                     
-                    # Resize to match SLM resolution while preserving bit depth
-                    self.target = cv2.resize(raw_gray, (800, 600), interpolation=cv2.INTER_LINEAR)
+                    # Normalize to [-π to π] range for SLM
+                    # Map 0-1023 (10-bit) to -π to π
+                    phase_data = -np.pi + (2 * np.pi * gray / 1023.0)
                     
-                    # Update preview (scale from 10-bit to 8-bit for display)
-                    preview = (raw_gray * (255.0 / 1023.0)).astype(np.uint8)
-                    self.update_preview(preview)
+                    # Convert phase to grayscale for SLM
+                    # Map -π to π to 0-255 grayscale
+                    # -π → 0 (black)
+                    # 0 → 128 (gray)
+                    # π → 255 (white)
+                    slm_gray = ((phase_data + np.pi) * (255.0 / (2 * np.pi))).astype(np.uint8)
                     
-                    # Print debug info about captured frame
-                    print(f"Raw frame info: shape={raw_frame.shape}, dtype={raw_frame.dtype}, range=[{raw_frame.min()}, {raw_frame.max()}]")
-                    print(f"Processed frame info: shape={raw_gray.shape}, dtype={raw_gray.dtype}, range=[{raw_gray.min()}, {raw_gray.max()}]")
+                    # Resize to match SLM resolution
+                    self.target = cv2.resize(slm_gray, (800, 600), interpolation=cv2.INTER_LINEAR)
                     
-                    self.status_var.set("10-bit image captured from camera")
+                    # Create preview (already in 8-bit format)
+                    self.update_preview(slm_gray)
+                    
+                    # Print debug info
+                    print(f"Raw frame info: shape={raw_frame.shape}, dtype={raw_frame.dtype}")
+                    print(f"Value ranges: raw=[{raw_frame.min()}, {raw_frame.max()}], "
+                          f"phase=[{phase_data.min():.2f}, {phase_data.max():.2f}], "
+                          f"slm=[{slm_gray.min()}, {slm_gray.max()}]")
+                    
+                    self.status_var.set("10-bit image captured and converted to SLM phase pattern")
                 else:
-                    self.status_var.set("Failed to capture image from camera")
+                    self.status_var.set("Failed to capture raw image from camera")
         except Exception as e:
             self.status_var.set(f"Error capturing image: {str(e)}")
             print(f"Detailed capture error: {traceback.format_exc()}")
