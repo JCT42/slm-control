@@ -32,6 +32,7 @@ import pygame
 from tqdm import tqdm
 import scipy.special
 import traceback
+import json
 
 class AdvancedPatternGenerator:
     def __init__(self):
@@ -528,59 +529,48 @@ class AdvancedPatternGenerator:
             print(f"Detailed error: {str(e)}")
 
     def initialize_camera(self):
-        """Initialize Raspberry Pi Camera"""
+        """Initialize Raspberry Pi Camera with 10-bit mode"""
         try:
-            # Initialize PiCamera2
             self.picam = Picamera2()
             
-            # Configure camera
-            preview_config = self.picam.create_preview_configuration(
-                main={"size": (1920, 1080), "format": "RGB888"},
-                lores={"size": (640, 360), "format": "YUV420"},
-                display="lores"
+            # Configure for 10-bit monochrome capture with global shutter
+            # Camera specs from datasheet:
+            # - Resolution: 1456x1088
+            # - Pixel Size: 3.45 µm
+            # - Frame Rate: 60 fps
+            # - Global Shutter
+            # - Monochrome sensor
+            config = self.picam.create_still_configuration(
+                main={"size": (1456, 1088),
+                      "format": "GREY10"},  # 10-bit monochrome format
+                raw={},
+                controls={
+                    "FrameDurationLimits": (16666, 1000000),  # 60fps to 1fps
+                    "ExposureTime": 10000,  # 10ms default exposure
+                    "AnalogueGain": 1.0,
+                    "GlobalShutter": 1  # Enable global shutter mode
+                }
             )
             
-            still_config = self.picam.create_still_configuration(
-                main={"size": (1920, 1080), "format": "RGB888"},
-                lores={"size": (640, 360), "format": "YUV420"}
-            )
-            
-            self.picam.configure(preview_config)
-            
-            # Set camera controls
-            self.picam.set_controls({
-                "FrameDurationLimits": (33333, 33333),  # 30fps
-                "ExposureTime": 10000,  # 10ms exposure
-                "AnalogueGain": 1.0
-            })
-            
-            # Start the camera
+            self.picam.configure(config)
             self.picam.start()
-            time.sleep(2)  # Wait for camera to warm up
             
-            # Test if camera is working
-            test_frame = self.picam.capture_array()
-            if test_frame is not None:
-                print("Successfully connected to Raspberry Pi Camera")
-                print(f"Frame shape: {test_frame.shape}")
-                print(f"Frame type: {test_frame.dtype}")
-                print(f"Frame range: min={test_frame.min()}, max={test_frame.max()}")
-                self.camera_active = True
-                
-                # Create camera frame
-                self.create_camera_preview()
-                
-                # Start camera thread
-                self.camera_thread = threading.Thread(target=self.update_camera_preview, daemon=True)
-                self.camera_thread.start()
-                
-                self.status_var.set("Raspberry Pi Camera initialized")
-            else:
-                self.status_var.set("Could not capture frame from Pi Camera")
-                
+            # Store camera specifications for metadata
+            self.camera_specs = {
+                "resolution": (1456, 1088),
+                "pixel_size_um": 3.45,
+                "sensor_type": "CMOS",
+                "shutter_type": "Global",
+                "bit_depth": 10,
+                "max_frame_rate": 60,
+                "manufacturer": "Sony",
+                "interface": "MIPI"
+            }
+            
+            self.camera_active = True
+            self.status_var.set("Camera initialized in 10-bit mode with global shutter")
         except Exception as e:
-            self.status_var.set(f"Pi Camera initialization error: {str(e)}")
-            print(f"Detailed camera error: {str(e)}")
+            self.status_var.set(f"Camera initialization failed: {str(e)}")
             self.camera_active = False
 
     def update_camera_preview(self):
@@ -592,17 +582,11 @@ class AdvancedPatternGenerator:
                     frame = self.picam.capture_array()
                     
                     if frame is not None:
-                        # Convert to grayscale if needed
-                        if len(frame.shape) == 3:
-                            frame_gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-                        else:
-                            frame_gray = frame
-                        
                         # Store as last frame (at native resolution)
-                        self.last_frame = frame_gray
+                        self.last_frame = frame
                         
                         # Update matplotlib image (display at native resolution)
-                        self.camera_image.set_array(frame_gray)
+                        self.camera_image.set_array(frame)
                         self.camera_canvas.draw_idle()
                 else:
                     # If paused and we have a last frame, keep displaying it
@@ -1605,58 +1589,78 @@ class AdvancedPatternGenerator:
             self.status_var.set(f"Error setting gain: {str(e)}")
 
     def capture_camera_image(self):
-        """Capture current camera frame as target image"""
+        """Capture current camera frame as target image in 10-bit mode"""
         try:
             if self.camera_active:
+                # Capture frame in native 10-bit monochrome format
                 frame = self.picam.capture_array()
+                
                 if frame is not None:
-                    # Convert to grayscale
-                    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+                    # Store raw 10-bit data (no conversion needed as it's already monochrome)
+                    self.raw_capture = frame.copy()
                     
-                    # Resize to match SLM resolution (keep camera preview at native resolution)
-                    # Only resize when using the image for pattern generation
-                    self.target = cv2.resize(gray, (800, 600))
+                    # Resize to match SLM resolution while preserving bit depth
+                    self.target = cv2.resize(frame, (800, 600), interpolation=cv2.INTER_LINEAR)
                     
-                    # Update preview
-                    self.update_preview()
-                    self.status_var.set("Image captured from camera")
+                    # Update preview (scale from 10-bit to 8-bit for display)
+                    preview = (frame * (255.0 / 1023.0)).astype(np.uint8)
+                    self.update_preview(preview)
+                    
+                    self.status_var.set("10-bit image captured from camera")
                 else:
                     self.status_var.set("Failed to capture image from camera")
         except Exception as e:
             self.status_var.set(f"Error capturing image: {str(e)}")
 
     def save_camera_image(self):
-        """Save the current camera frame to a file"""
-        if self.last_frame is None:
-            self.status_var.set("No camera frame to save")
-            return
-            
-        try:
-            # Use zenity file dialog
-            cmd = ['zenity', '--file-selection', '--save',
-                   '--file-filter=Images | *.png *.jpg *.jpeg',
-                   '--title=Save Camera Image']
-            result = subprocess.run(cmd, capture_output=True, text=True)
-            
-            if result.returncode != 0:
-                self.status_var.set("Save cancelled")
-                return
+        """Save the current camera frame to a file with raw option"""
+        if hasattr(self, 'target'):
+            try:
+                filetypes = [
+                    ('Raw 10-bit files', '*.raw'),
+                    ('PNG files', '*.png'),
+                    ('All files', '*.*')
+                ]
+                filename = filedialog.asksaveasfilename(
+                    defaultextension=".raw",  # Default to raw format for 10-bit data
+                    filetypes=filetypes,
+                    title="Save Camera Image"
+                )
                 
-            file_path = result.stdout.strip()
-            if not file_path:
-                return
-                
-            # Add extension if not present
-            if not file_path.lower().endswith(('.png', '.jpg', '.jpeg')):
-                file_path += '.png'
-            
-            # Save the image
-            cv2.imwrite(file_path, self.last_frame)
-            self.status_var.set(f"Camera image saved to: {file_path}")
-            
-        except Exception as e:
-            self.status_var.set(f"Error saving camera image: {str(e)}")
-
+                if filename:
+                    if filename.lower().endswith('.raw'):
+                        if hasattr(self, 'raw_capture'):
+                            # Save raw data with detailed metadata
+                            metadata = {
+                                **self.camera_specs,  # Include all camera specifications
+                                'timestamp': time.strftime("%Y%m%d_%H%M%S"),
+                                'exposure_time_us': self.picam.capture_metadata()['ExposureTime'],
+                                'analog_gain': self.picam.capture_metadata()['AnalogueGain'],
+                                'frame_size': self.raw_capture.shape,
+                                'data_format': 'uint16',  # 10-bit data in 16-bit container
+                                'byte_order': 'little-endian'
+                            }
+                            
+                            # Save metadata in companion JSON file
+                            meta_filename = filename + '.json'
+                            with open(meta_filename, 'w') as f:
+                                json.dump(metadata, f, indent=4)
+                            
+                            # Save raw 10-bit data
+                            self.raw_capture.astype(np.uint16).tofile(filename)
+                            self.status_var.set(f"Raw 10-bit image saved to {filename}")
+                        else:
+                            self.status_var.set("No raw capture available")
+                    else:
+                        # For non-raw formats, scale to 8-bit
+                        scaled_image = (self.target * (255.0 / 1023.0)).astype(np.uint8)
+                        cv2.imwrite(filename, scaled_image)
+                        self.status_var.set(f"8-bit converted image saved to {filename}")
+            except Exception as e:
+                self.status_var.set(f"Error saving image: {str(e)}")
+        else:
+            self.status_var.set("No image to save")
+    
     def _on_algorithm_change(self, *args):
         """Handle algorithm selection change"""
         if self.algorithm_var.get() == "mraf":
