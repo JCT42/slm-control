@@ -537,12 +537,13 @@ class AdvancedPatternGenerator:
         """Initialize camera with IMX296 settings"""
         try:
             self.camera = Picamera2()
-            # Configure for 10-bit monochrome capture
+            # Configure for 10-bit capture using standard RGB format
+            # We'll convert to grayscale after capture
             config = self.camera.create_still_configuration(
                 main={"size": (self.camera_width, self.camera_height),
-                      "format": "GREY"},
+                      "format": "RGB888"},
                 raw={"size": (self.camera_width, self.camera_height),
-                     "format": "GREY10"}
+                     "format": "SRGGB10"}
             )
             self.camera.configure(config)
             
@@ -568,28 +569,35 @@ class AdvancedPatternGenerator:
         while self.camera_active:
             try:
                 if not self.camera_paused:
-                    # Capture raw 10-bit intensity frame
+                    # Capture frame and convert to grayscale
                     frame = self.camera.capture_array()
                     
                     if frame is not None:
+                        # Convert RGB to grayscale while preserving 10-bit range
+                        if len(frame.shape) == 3:
+                            # Use standard RGB to grayscale conversion weights
+                            gray = np.dot(frame[..., :3], [0.2989, 0.5870, 0.1140])
+                        else:
+                            gray = frame
+                        
                         # Store raw intensity values
-                        self.last_frame = frame
+                        self.last_frame = gray
                         
                         # For display, scale to 8-bit while preserving relative intensities
-                        display_frame = (frame / self.camera_max_value * 255).astype(np.uint8)
+                        display_frame = (gray / self.camera_max_value * 255).astype(np.uint8)
                         
-                        # Update histogram with raw 10-bit values
+                        # Update histogram with raw values
                         if hasattr(self, 'hist_ax'):
                             self.hist_ax.clear()
-                            self.hist_ax.hist(frame.flatten(), bins=100, range=(0, self.camera_max_value))
+                            self.hist_ax.hist(gray.flatten(), bins=100, range=(0, self.camera_max_value))
                             self.hist_ax.set_title("Intensity Distribution")
                             self.hist_ax.set_xlabel("Intensity (0-1023)")
                             self.hist_ax.set_ylabel("Frequency")
                             
                             # Add intensity statistics
-                            mean_val = np.mean(frame)
-                            median_val = np.median(frame)
-                            max_val = np.max(frame)
+                            mean_val = np.mean(gray)
+                            median_val = np.median(gray)
+                            max_val = np.max(gray)
                             self.hist_ax.axvline(mean_val, color='r', linestyle='--', 
                                                label=f'Mean: {mean_val:.1f}')
                             self.hist_ax.axvline(median_val, color='g', linestyle=':', 
