@@ -109,8 +109,14 @@ class AdvancedPatternGenerator:
         # Create pattern generator UI
         self.create_pattern_ui()
         
-        # Create camera controller UI
-        self.create_camera_ui()
+        # Initialize camera controller directly
+        if self.camera_controller is None:
+            # Initialize with the full resolution of 1456x1088 to preserve all intensity values
+            # Camera uses RGB888 format as specified in camera_controller.py
+            self.camera_controller = CameraController(resolution=(1456, 1088))
+        
+        # Initialize camera GUI
+        self.camera_gui = CameraGUI(self.camera_frame, self.camera_controller)
         
         # Bind ESC key to quit
         self.root.bind('<Escape>', lambda e: self.quit_application())
