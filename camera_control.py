@@ -213,20 +213,20 @@ class CameraController:
             # Get camera info
             print(f"Camera info: {self.camera.camera_properties}")
             
-            # Configure for 10-bit Y10 capture if possible
-            # First check if Y10 format is supported
-            supported_formats = self.camera.camera_properties['PixelFormats']
-            print(f"Supported pixel formats: {supported_formats}")
+            # Force specific resolution and format based on v4l2-ctl settings
+            # This matches: v4l2-ctl -d /dev/video0 --set-fmt-video=width=1456,height=1088,pixelformat=GREY
+            self.width = 1456
+            self.height = 1088
+            pixel_format = "GREY"  # Use GREY format as specified in v4l2-ctl
             
-            # Use Y10 if available, otherwise fall back to standard formats
-            pixel_format = "Y10" if "Y10" in supported_formats else "YUV420"
-            print(f"Using pixel format: {pixel_format}")
+            print(f"Using resolution: {self.width}x{self.height}, format: {pixel_format}")
             
             preview_width = int(self.width * 0.5)  # Half size for preview
             preview_height = int(self.height * 0.5)
             
             # Create configuration for still and preview
             try:
+                # Try to create a configuration with the GREY format
                 self.camera_config = self.camera.create_still_configuration(
                     main={"size": (self.width, self.height),
                           "format": pixel_format},
@@ -235,13 +235,31 @@ class CameraController:
                     display="lores"
                 )
             except Exception as config_error:
-                print(f"Error creating custom configuration: {str(config_error)}")
-                print("Falling back to default configuration")
-                # Fall back to default configuration
-                self.camera_config = self.camera.create_still_configuration()
-                # Update our width and height to match what was configured
-                self.width = self.camera_config["main"]["size"][0]
-                self.height = self.camera_config["main"]["size"][1]
+                print(f"Error creating GREY format configuration: {str(config_error)}")
+                print("Trying alternative format names...")
+                
+                # Try alternative format names for grayscale
+                for alt_format in ["GREY", "Y8", "GRAY", "MONO", "MONO8"]:
+                    try:
+                        print(f"Trying format: {alt_format}")
+                        self.camera_config = self.camera.create_still_configuration(
+                            main={"size": (self.width, self.height),
+                                  "format": alt_format},
+                            lores={"size": (preview_width, preview_height),
+                                   "format": "YUV420"},
+                            display="lores"
+                        )
+                        print(f"Format {alt_format} worked!")
+                        break
+                    except Exception as alt_error:
+                        print(f"Format {alt_format} failed: {str(alt_error)}")
+                
+                # If all alternative formats fail, fall back to default
+                if "camera_config" not in locals() or self.camera_config is None:
+                    print("All grayscale format attempts failed. Falling back to default configuration")
+                    self.camera_config = self.camera.create_still_configuration(
+                        main={"size": (self.width, self.height)}
+                    )
             
             # Apply configuration
             self.camera.configure(self.camera_config)
@@ -276,6 +294,16 @@ class CameraController:
                 test_frame = self.camera.capture_array()
                 print(f"Test frame captured successfully: {test_frame.shape}, dtype: {test_frame.dtype}")
                 print(f"Frame values - Min: {np.min(test_frame)}, Max: {np.max(test_frame)}, Mean: {np.mean(test_frame):.1f}")
+                
+                # Ensure we're handling the intensity values correctly
+                if test_frame.dtype == np.uint8:
+                    print("8-bit grayscale format detected (values 0-255)")
+                    # For 8-bit, we'll scale to 10-bit for consistency with our intensity processing
+                    self.bit_depth = 8
+                    print("Will scale 8-bit values to 10-bit range (0-1023) for intensity analysis")
+                else:
+                    print(f"Non-standard format detected: {test_frame.dtype}")
+                    self.bit_depth = 10  # Default to 10-bit
             except Exception as capture_error:
                 print(f"Warning: Test frame capture failed: {str(capture_error)}")
                 # Continue anyway as this is just a test
