@@ -48,7 +48,7 @@ class CameraController:
     
     def __init__(self, camera_type: str = "opencv", camera_index: int = 0, 
                  resolution: Tuple[int, int] = (1456, 1088),
-                 bit_depth: int = 10, simulate: bool = False):
+                 bit_depth: int = 10):
         """
         Initialize the camera controller.
         
@@ -57,14 +57,12 @@ class CameraController:
             camera_index: Camera device index for OpenCV cameras
             resolution: Desired camera resolution (width, height)
             bit_depth: Bit depth for intensity values (default: 10-bit)
-            simulate: If True, use a simulated camera when no real camera is available
         """
         self.camera_type = camera_type
         self.camera_index = camera_index
         self.width, self.height = resolution
         self.bit_depth = bit_depth
         self.max_value = 2**bit_depth - 1  # e.g., 1023 for 10-bit
-        self.simulate = simulate
         
         # Camera state
         self.camera = None
@@ -107,8 +105,6 @@ class CameraController:
                 return self._initialize_opencv_camera()
             elif self.camera_type == "picamera2":
                 return self._initialize_picamera2()
-            elif self.simulate:
-                return self._initialize_simulated_camera()
             else:
                 print(f"Unsupported camera type: {self.camera_type}")
                 return False
@@ -246,20 +242,6 @@ class CameraController:
             traceback.print_exc()
             return False
     
-    def _initialize_simulated_camera(self) -> bool:
-        """Initialize a simulated camera"""
-        try:
-            # Create a simulated camera object
-            self.camera = SimulatedCamera(self.width, self.height, self.bit_depth)
-            
-            print("Simulated camera initialized successfully")
-            return True
-            
-        except Exception as e:
-            print(f"Simulated camera initialization error: {str(e)}")
-            traceback.print_exc()
-            return False
-    
     def start(self) -> bool:
         """
         Start the camera capture thread.
@@ -393,10 +375,6 @@ class CameraController:
                     traceback.print_exc()
                     return None
             
-            elif self.camera_type == "simulated":
-                # Simulated camera for testing when no real camera is available
-                return self.camera.capture()
-            
             return None
             
         except Exception as e:
@@ -471,10 +449,6 @@ class CameraController:
                     traceback.print_exc()
                     return None
                     
-            elif self.camera_type == "simulated":
-                # For simulated camera, just get a frame
-                result = self.camera.capture()
-            
             else:
                 print(f"Unsupported camera type for still capture: {self.camera_type}")
                 return None
@@ -817,87 +791,6 @@ class CameraController:
             traceback.print_exc()  # Print detailed error message
 
 
-class SimulatedCamera:
-    """
-    A simulated camera for testing when no real camera is available.
-    Generates patterns with 10-bit intensity values for testing.
-    """
-    def __init__(self, width: int, height: int, bit_depth: int = 10):
-        self.width = width
-        self.height = height
-        self.bit_depth = bit_depth
-        self.max_value = (1 << bit_depth) - 1  # 2^bit_depth - 1
-        self.frame_count = 0
-        
-    def capture(self):
-        """
-        Generate a simulated frame with intensity patterns.
-        Returns a grayscale image with 10-bit values (0-1023).
-        """
-        # Create a time-varying pattern
-        t = time.time() * 0.5
-        self.frame_count += 1
-        
-        # Create coordinate grids
-        x = np.linspace(-3, 3, self.width)
-        y = np.linspace(-3, 3, self.height)
-        xx, yy = np.meshgrid(x, y)
-        
-        # Create a pattern with sine waves and a gaussian envelope
-        r = np.sqrt(xx**2 + yy**2)
-        theta = np.arctan2(yy, xx)
-        
-        # Gaussian envelope
-        gaussian = np.exp(-0.5 * r**2)
-        
-        # Interference pattern (simulating diffraction)
-        waves = np.sin(5.0 * r + t) * 0.5 + 0.5
-        
-        # Combine patterns
-        pattern = waves * gaussian
-        
-        # Normalize to 0-1 range
-        pattern = (pattern - pattern.min()) / (pattern.max() - pattern.min())
-        
-        # Scale to bit depth (0-1023 for 10-bit)
-        pattern = (pattern * self.max_value).astype(np.uint16)
-        
-        # Add some noise (5% of max value)
-        noise = np.random.normal(0, self.max_value * 0.05, pattern.shape)
-        pattern = np.clip(pattern + noise, 0, self.max_value).astype(np.uint16)
-        
-        # Print stats occasionally
-        if self.frame_count % 30 == 0:  # Every 30 frames
-            print(f"Simulated frame stats - Min: {np.min(pattern)}, Max: {np.max(pattern)}, Mean: {np.mean(pattern):.1f}")
-        
-        return pattern
-    
-    def capture_still(self):
-        """
-        Generate a higher quality simulated still image.
-        Returns a grayscale image with 10-bit values (0-1023).
-        """
-        # For still capture, create a more detailed pattern
-        pattern = self.capture()
-        
-        # Add some additional features to make it look different from video frames
-        x = np.linspace(-3, 3, self.width)
-        y = np.linspace(-3, 3, self.height)
-        xx, yy = np.meshgrid(x, y)
-        
-        # Add some additional features
-        features = np.sin(xx * 10) * np.sin(yy * 10) * 0.2 * self.max_value
-        pattern = np.clip(pattern + features, 0, self.max_value).astype(np.uint16)
-        
-        print(f"Simulated still capture - Min: {np.min(pattern)}, Max: {np.max(pattern)}, Mean: {np.mean(pattern):.1f}")
-        
-        return pattern
-        
-    def isOpened(self):
-        """Simulate camera open check"""
-        return True
-
-
 class CameraControlGUI:
     def __init__(self, parent=None, camera=None):
         """
@@ -912,7 +805,7 @@ class CameraControlGUI:
         # Create camera controller if not provided
         if camera is None:
             self.camera = CameraController(camera_type="opencv", camera_index=0, 
-                                         resolution=(640, 480), bit_depth=10, simulate=True)
+                                         resolution=(640, 480), bit_depth=10)
             self.camera.initialize()
         else:
             self.camera = camera
@@ -1245,7 +1138,6 @@ if __name__ == "__main__":
                 print("PiCamera2 module is available - using PiCamera2")
                 camera_type = "picamera2"
                 camera_index = 0
-                use_simulation = False
             except ImportError:
                 print("PiCamera2 module not available, falling back to OpenCV camera")
                 try_picamera2_first = False
@@ -1255,82 +1147,84 @@ if __name__ == "__main__":
             print("Checking for OpenCV cameras...")
             available_cameras = []
             
-            # Try to detect cameras with different backends
+            # Try different backends
             backends = [
-                (cv2.CAP_V4L2, "Video4Linux2"),  # Best for Raspberry Pi
                 (cv2.CAP_ANY, "Auto-detect"),
+                (cv2.CAP_V4L2, "Video4Linux2"),
                 (cv2.CAP_GSTREAMER, "GStreamer"),
-                (cv2.CAP_DSHOW, "DirectShow")
+                (cv2.CAP_DSHOW, "DirectShow (Windows)")
             ]
             
+            # Try each backend
             for backend_id, backend_name in backends:
-                print(f"Checking cameras with {backend_name} backend...")
-                for i in range(3):  # Try first 3 camera indices
-                    try:
-                        cap = cv2.VideoCapture(i, backend_id)
-                        if cap.isOpened():
-                            # Try to read a test frame
-                            ret, frame = cap.read()
-                            if ret and frame is not None:
-                                print(f"  Camera {i} is working with {backend_name} backend")
-                                available_cameras.append((i, backend_id, backend_name))
-                            else:
-                                print(f"  Camera {i} opened but frame capture failed with {backend_name} backend")
-                        cap.release()
-                    except Exception as e:
-                        print(f"  Error checking camera {i} with {backend_name} backend: {str(e)}")
-            
-            # Decide which camera to use
-            if available_cameras:
-                print(f"Found {len(available_cameras)} working camera(s):")
-                for i, (cam_index, backend_id, backend_name) in enumerate(available_cameras):
-                    print(f"  {i+1}. Camera {cam_index} with {backend_name} backend")
+                print(f"Checking for cameras with {backend_name} backend...")
                 
-                # Use the first working camera
+                # Try first 3 camera indices (0, 1, 2)
+                for i in range(3):
+                    cap = cv2.VideoCapture(i, backend_id)
+                    if cap.isOpened():
+                        ret, frame = cap.read()
+                        if ret:
+                            print(f"Found working camera at index {i} with {backend_name} backend")
+                            available_cameras.append((i, backend_id, backend_name))
+                        cap.release()
+            
+            # Use first available camera
+            if available_cameras:
                 camera_index, backend_id, backend_name = available_cameras[0]
                 print(f"Using camera {camera_index} with {backend_name} backend")
                 camera_type = "opencv"
-                use_simulation = False
             else:
                 print("No working OpenCV cameras found.")
-                print("Falling back to simulated camera for testing.")
-                camera_type = "simulated"
-                camera_index = 0
-                use_simulation = True
+                print("Please connect a camera and try again.")
+                exit(1)
         
         # Create camera controller with appropriate settings
         print(f"Initializing camera (type: {camera_type}, index: {camera_index})...")
-        
-        # For scientific analysis, we need to preserve 10-bit intensity values (0-1023)
         camera = CameraController(
             camera_type=camera_type, 
             camera_index=camera_index,
-            resolution=(640, 480), 
-            bit_depth=10,  # Using 10-bit for scientific analysis
-            simulate=use_simulation
+            resolution=(1456, 1088),  # Use full resolution for IMX296
+            bit_depth=10  # Using 10-bit for scientific analysis
         )
         
         # Initialize the camera
         if not camera.initialize():
-            print("Failed to initialize camera. Falling back to simulated camera.")
-            camera = CameraController(
-                camera_type="simulated", 
-                camera_index=0,
-                resolution=(640, 480), 
-                bit_depth=10,  # Preserve 10-bit for consistency
-                simulate=True
-            )
-            if not camera.initialize():
-                print("Failed to initialize simulated camera. Exiting.")
-                exit(1)
+            print("Failed to initialize camera. Please check connections and try again.")
+            exit(1)
         
         print("Camera initialized successfully!")
         
-        # Create and run the GUI
-        print("Starting camera control GUI...")
-        gui = CameraControlGUI(camera=camera)
-        gui.run()
+        # Create GUI
+        root = tk.Tk()
+        root.title("Camera Control")
+        
+        # Create camera control GUI
+        gui = CameraControlGUI(root, camera)
+        
+        # Start the camera
+        camera.start()
+        
+        # Run the GUI
+        root.mainloop()
+        
+        # Clean up
+        camera.stop()
+        print("Camera stopped")
+        
+    except KeyboardInterrupt:
+        print("Interrupted by user")
+        try:
+            camera.stop()
+            print("Camera stopped")
+        except:
+            pass
         
     except Exception as e:
-        print(f"Error in camera control module: {str(e)}")
+        print(f"Error: {str(e)}")
         traceback.print_exc()
+        try:
+            camera.stop()
+            print("Camera stopped")
+        except:
+            pass
