@@ -419,6 +419,23 @@ class AdvancedPatternGenerator:
             self.camera.start()
             time.sleep(1)  # Allow camera to warm up
             
+            # Capture a test frame to ensure camera is working
+            test_frame = self.camera.capture_array()
+            if test_frame is not None:
+                print(f"Camera initialized successfully. Frame shape: {test_frame.shape}")
+                # Convert test frame to grayscale and store as initial frame
+                if len(test_frame.shape) == 3:
+                    gray = np.dot(test_frame[..., :3], [0.2989, 0.5870, 0.1140])
+                else:
+                    gray = test_frame
+                self.last_frame = gray
+                
+                # Update preview with initial frame
+                if hasattr(self, 'preview_img'):
+                    self.preview_img.set_array(gray)
+                    if hasattr(self, 'camera_canvas'):
+                        self.camera_canvas.draw_idle()
+            
             # Start camera preview thread
             self.camera_active = True
             self.camera_paused = False
@@ -434,6 +451,7 @@ class AdvancedPatternGenerator:
 
     def update_camera_preview(self):
         """Update camera preview in a separate thread"""
+        print("Camera preview thread started")
         while self.camera_active:
             try:
                 if not self.camera_paused:
@@ -457,6 +475,7 @@ class AdvancedPatternGenerator:
                             self.preview_ax.set_title(f"Live Preview (10-bit)")
                             if hasattr(self, 'camera_canvas'):
                                 self.camera_canvas.draw_idle()
+                                print(f"Updated preview with frame, max value: {np.max(gray)}")
                 
                 elif hasattr(self, 'paused_frame') and self.paused_frame is not None:
                     # If paused, display the paused frame with a "PAUSED" indicator
@@ -494,38 +513,28 @@ class AdvancedPatternGenerator:
             
         try:
             self.camera_paused = True
-            # Store the last frame for display while paused
-            self.paused_frame = self.last_frame.copy() if hasattr(self, 'last_frame') else None
+            # Store the last frame for display while paused, with a safety check
+            if hasattr(self, 'last_frame') and self.last_frame is not None:
+                self.paused_frame = self.last_frame.copy()
+            else:
+                # Create a blank frame if no last_frame is available
+                self.paused_frame = np.zeros((self.camera_height//4, self.camera_width//4), dtype=np.uint16)
+                
             self.status_var.set("Camera paused")
             
             # Update button appearance
             self.pause_button.configure(style="Accent.TButton")
         except Exception as e:
             self.status_var.set(f"Error pausing camera: {str(e)}")
-    
+            print(f"Error pausing camera: {str(e)}")
+            
     def resume_camera(self):
         """Resume the camera feed"""
-        if not hasattr(self, 'camera_active'):
-            return
-            
-        try:
-            self.camera_active = True
-            self.camera_paused = False
-            
-            # Remove the paused indicator if it exists
-            if hasattr(self, 'paused_indicator') and self.paused_indicator is not None:
-                self.paused_indicator.remove()
-                delattr(self, 'paused_indicator')
-                if hasattr(self, 'camera_canvas'):
-                    self.camera_canvas.draw_idle()
-            
-            # Reset button appearance
-            self.pause_button.configure(style="TButton")
-            self.status_var.set("Camera resumed")
-            
-        except Exception as e:
-            self.status_var.set(f"Error resuming camera: {str(e)}")
-
+        self.camera_active = True
+        self.camera_paused = False
+        self.pause_button.configure(style="TButton")
+        self.status_var.set("Camera resumed")
+        
     def create_phase_shift_controls(self):
         """Create controls for adjusting phase shift to avoid zero-order diffraction"""
         phase_shift_frame = ttk.LabelFrame(self.scrollable_frame, text="Zero-Order Diffraction Control", padding="10")
@@ -996,26 +1005,18 @@ class AdvancedPatternGenerator:
         try:
             # Clean up camera if active
             if self.camera_active:
-                self.camera_active = False
-                self.camera.stop()
+                self.camera_active = False  # Signal thread to stop
+                if hasattr(self, 'camera_thread') and self.camera_thread.is_alive():
+                    self.camera_thread.join(timeout=1.0)  # Wait for thread to finish
                 self.camera.close()
-            
-            # Clean up any OpenCV windows
-            cv2.destroyAllWindows()
-            
-            # Clean up pygame if initialized
-            if pygame.display.get_init():
-                pygame.display.quit()
-            
+                print("Camera resources released")
+        except Exception as e:
+            print(f"Error during cleanup: {str(e)}")
+        finally:
             # Destroy and quit Tkinter
             self.root.destroy()
-            
-        except Exception as e:
-            print(f"Error during application shutdown: {str(e)}")
-            # Force exit if needed
-            import sys
-            sys.exit(0)
-        
+            print("Application closed")
+
     def load_image(self):
         """Load and display target image"""
         try:
