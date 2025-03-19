@@ -6,7 +6,7 @@ images from various camera types, with a focus on scientific imaging application
 
 Features:
 - Support for different camera types (PiCamera2, OpenCV webcams, etc.)
-- 10-bit intensity capture and processing
+- 8-bit intensity capture and processing
 - Real-time display capabilities using OpenCV
 - Histogram and intensity analysis tools
 - Thread-safe operation for integration with GUI applications
@@ -48,7 +48,7 @@ class CameraController:
     
     def __init__(self, camera_type: str = "opencv", camera_index: int = 0, 
                  resolution: Tuple[int, int] = (1456, 1088),
-                 bit_depth: int = 10):
+                 bit_depth: int = 8):
         """
         Initialize the camera controller.
         
@@ -56,13 +56,13 @@ class CameraController:
             camera_type: Type of camera to use ('opencv', 'picamera2', etc.)
             camera_index: Camera device index for OpenCV cameras
             resolution: Desired camera resolution (width, height)
-            bit_depth: Bit depth for intensity values (default: 10-bit)
+            bit_depth: Bit depth for intensity values (default: 8-bit)
         """
         self.camera_type = camera_type
         self.camera_index = camera_index
         self.width, self.height = resolution
         self.bit_depth = bit_depth
-        self.max_value = 2**bit_depth - 1  # e.g., 1023 for 10-bit
+        self.max_value = 2**bit_depth - 1  # e.g., 255 for 8-bit
         
         # Camera state
         self.camera = None
@@ -221,6 +221,9 @@ class CameraController:
             
             print(f"Using resolution: {self.width}x{self.height}, format: {pixel_format}")
             
+            # Set bit depth to 8 for GREY format
+            self.bit_depth = 8
+            
             preview_width = int(self.width * 0.5)  # Half size for preview
             preview_height = int(self.height * 0.5)
             
@@ -284,6 +287,7 @@ class CameraController:
             actual_format = self.camera_config["main"]["format"]
             
             print(f"PiCamera2 initialized at {actual_width}x{actual_height} in {actual_format} format")
+            print(f"Using 8-bit intensity values (0-255)")
             
             # Start the camera to ensure it's working
             self.camera.start()
@@ -294,16 +298,6 @@ class CameraController:
                 test_frame = self.camera.capture_array()
                 print(f"Test frame captured successfully: {test_frame.shape}, dtype: {test_frame.dtype}")
                 print(f"Frame values - Min: {np.min(test_frame)}, Max: {np.max(test_frame)}, Mean: {np.mean(test_frame):.1f}")
-                
-                # Ensure we're handling the intensity values correctly
-                if test_frame.dtype == np.uint8:
-                    print("8-bit grayscale format detected (values 0-255)")
-                    # For 8-bit, we'll scale to 10-bit for consistency with our intensity processing
-                    self.bit_depth = 8
-                    print("Will scale 8-bit values to 10-bit range (0-1023) for intensity analysis")
-                else:
-                    print(f"Non-standard format detected: {test_frame.dtype}")
-                    self.bit_depth = 10  # Default to 10-bit
             except Exception as capture_error:
                 print(f"Warning: Test frame capture failed: {str(capture_error)}")
                 # Continue anyway as this is just a test
@@ -413,28 +407,14 @@ class CameraController:
                 else:
                     gray = frame
                 
-                # For 10-bit depth, we need to scale the 8-bit frame
-                if self.bit_depth > 8:
-                    # Preserve the intensity values for scientific analysis
-                    # Scale from 8-bit (0-255) to 10-bit (0-1023)
-                    scaled = gray.astype(np.float32) * (self.max_value / 255.0)
-                    scaled = scaled.astype(np.uint16)
-                    
-                    # Print some debug info about the frame values occasionally
-                    if np.random.random() < 0.01:  # Only print occasionally (1% of frames)
-                        print(f"Frame stats - Min: {np.min(scaled)}, Max: {np.max(scaled)}, Mean: {np.mean(scaled):.1f}")
-                    
-                    return scaled
-                else:
-                    return gray
+                return gray
                 
             elif self.camera_type == "picamera2":
-                # For Raspberry Pi camera with PiCamera2 and 10-bit mode
+                # For Raspberry Pi camera with PiCamera2 and 8-bit mode
                 try:
                     # Capture a frame
                     frame = self.camera.capture_array()
                     
-                    # Y10 format already provides 10-bit intensity values
                     # No need to convert to grayscale or scale
                     
                     # Print some debug info occasionally
@@ -503,18 +483,12 @@ class CameraController:
                 # Average the frames to reduce noise
                 avg_frame = np.mean(frames, axis=0).astype(np.uint8)
                 
-                # Scale to 10-bit if needed
-                if self.bit_depth > 8:
-                    scaled = avg_frame.astype(np.float32) * (self.max_value / 255.0)
-                    result = scaled.astype(np.uint16)
-                else:
-                    result = avg_frame
-                    
+                result = avg_frame
+                
             elif self.camera_type == "picamera2":
                 # For PiCamera2, capture a high-quality still
                 try:
                     # Configure for a still capture with full resolution
-                    # Y10 format already provides 10-bit intensity values
                     result = self.camera.capture_array()
                     
                 except Exception as e:
@@ -569,14 +543,8 @@ class CameraController:
             if not filename.lower().endswith(('.png', '.jpg', '.jpeg', '.tiff', '.tif')):
                 filename += '.png'
             
-            # Convert to 16-bit for PNG storage (preserving 10-bit values)
-            if self.bit_depth == 10:
-                save_img = (save_image / self.max_value * 65535).astype(np.uint16)
-            else:
-                save_img = save_image.astype(np.uint8)
-            
             # Save the image
-            cv2.imwrite(filename, save_img)
+            cv2.imwrite(filename, save_image)
             
             # Save metadata
             self._save_metadata(filename, save_image)
@@ -598,10 +566,6 @@ class CameraController:
                 f.write(f"Resolution: {image.shape[1]}x{image.shape[0]}\n")
                 f.write(f"Bit Depth: {self.bit_depth}-bit\n")
                 f.write(f"Value Range: 0-{self.max_value}\n")
-                
-                if self.bit_depth == 10:
-                    f.write(f"Stored as: 16-bit PNG\n")
-                    f.write(f"Conversion: Original {self.bit_depth}-bit value * 65535/{self.max_value}\n")
                 
                 f.write(f"Statistics:\n")
                 f.write(f"  Min: {np.min(image):.1f}\n")
@@ -878,7 +842,7 @@ class CameraControlGUI:
         # Create camera controller if not provided
         if camera is None:
             self.camera = CameraController(camera_type="opencv", camera_index=0, 
-                                         resolution=(640, 480), bit_depth=10)
+                                         resolution=(640, 480), bit_depth=8)
             self.camera.initialize()
         else:
             self.camera = camera
@@ -927,7 +891,7 @@ class CameraControlGUI:
         
         # Add intensity info label
         self.intensity_info = ttk.Label(preview_frame, 
-                                      text="Intensity (10-bit) - Max: 0, Mean: 0",
+                                      text="Intensity (8-bit) - Max: 0, Mean: 0",
                                       font=("Arial", 10))
         self.intensity_info.pack(pady=5)
         
@@ -1029,19 +993,16 @@ class CameraControlGUI:
                 # Get intensity stats for display
                 stats = self.camera.get_intensity_stats(frame)
                 self.intensity_info.config(
-                    text=f"Intensity (10-bit) - Min: {stats['min']:.1f}, Max: {stats['max']:.1f}, " +
+                    text=f"Intensity (8-bit) - Min: {stats['min']:.1f}, Max: {stats['max']:.1f}, " +
                          f"Mean: {stats['mean']:.1f}"
                 )
                 
-                # Convert to 8-bit for display
-                display_frame = (frame / self.camera.max_value * 255).astype(np.uint8)
-                
                 # Resize if needed
-                if display_frame.shape[1] != self.preview_width or display_frame.shape[0] != self.preview_height:
-                    display_frame = cv2.resize(display_frame, (self.preview_width, self.preview_height))
+                if frame.shape[1] != self.preview_width or frame.shape[0] != self.preview_height:
+                    frame = cv2.resize(frame, (self.preview_width, self.preview_height))
                 
                 # Convert to RGB format for PIL
-                display_rgb = cv2.cvtColor(display_frame, cv2.COLOR_GRAY2RGB)
+                display_rgb = cv2.cvtColor(frame, cv2.COLOR_GRAY2RGB)
                 
                 # Convert to PIL Image and then to PhotoImage
                 pil_img = Image.fromarray(display_rgb)
@@ -1051,7 +1012,7 @@ class CameraControlGUI:
                 self.preview_canvas.create_image(0, 0, anchor=tk.NW, image=self.tk_img)
                 
                 # Update status
-                self.status_var.set(f"Camera running - {frame.shape[1]}x{frame.shape[0]} at 10-bit depth")
+                self.status_var.set(f"Camera running - {frame.shape[1]}x{frame.shape[0]} at 8-bit depth")
             
         except Exception as e:
             self.status_var.set(f"Preview error: {str(e)}")
@@ -1258,7 +1219,7 @@ if __name__ == "__main__":
             camera_type=camera_type, 
             camera_index=camera_index,
             resolution=(1456, 1088),  # Use full resolution for IMX296
-            bit_depth=10  # Using 10-bit for scientific analysis
+            bit_depth=8  # Using 8-bit for simplicity
         )
         
         # Initialize the camera
