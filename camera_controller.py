@@ -68,7 +68,7 @@ class CameraController:
         
         # Camera settings
         self.settings = {
-            'exposure': 20.0,  # ms
+            'exposure': 10.0,  # ms
             'gain': 1.0,       # analog gain
             'brightness': 0,   # -255 to 255
             'contrast': 1.0,   # 0.0 to 2.0
@@ -262,19 +262,26 @@ class CameraController:
     def generate_histogram(self, frame: np.ndarray) -> np.ndarray:
         """Generate a histogram image from the frame"""
         try:
-            # Create a figure for the histogram
-            fig = Figure(figsize=(4, 3), dpi=100)
+            # Create a figure for the histogram with increased size
+            fig = Figure(figsize=(5, 4), dpi=100)
             ax = fig.add_subplot(111)
+            
+            # Add more padding around the plot for axis labels
+            fig.subplots_adjust(left=0.15, bottom=0.15, right=0.95, top=0.9)
             
             # Calculate histogram - ensure we use the full 8-bit range (0-255)
             hist = cv2.calcHist([frame], [0], None, [256], [0, 256])
             
-            # Plot the histogram
-            ax.plot(hist, color='blue')
+            # Normalize the histogram
+            total_pixels = frame.shape[0] * frame.shape[1]
+            normalized_hist = hist / total_pixels
+            
+            # Plot the normalized histogram
+            ax.plot(normalized_hist, color='blue')
             ax.set_xlim([0, 256])
-            ax.set_title('Intensity Histogram (8-bit)')
+            ax.set_title('Normalized Intensity Histogram (8-bit)')
             ax.set_xlabel('Intensity Value (0-255)')
-            ax.set_ylabel('Pixel Count')
+            ax.set_ylabel('Normalized Pixel Count')
             
             # Add vertical lines at min and max values
             min_val = np.min(frame)
@@ -303,7 +310,7 @@ class CameraController:
         except Exception as e:
             print(f"Error generating histogram: {str(e)}")
             # Return a blank image on error
-            return np.zeros((300, 400, 4), dtype=np.uint8)
+            return np.zeros((400, 500, 4), dtype=np.uint8)
     
     def get_intensity_stats(self, frame: Optional[np.ndarray] = None) -> Dict[str, float]:
         """Get intensity statistics from the frame"""
@@ -418,19 +425,24 @@ class CameraController:
         # Update the setting
         self.settings[setting] = value
         
-        # Apply the setting to the camera
+        # Do not apply the setting to the camera yet
+        print(f"Setting {setting} updated to {value} (not applied yet)")
+        return True
+    
+    def apply_all_settings(self) -> bool:
+        """Apply all current settings to the camera"""
         try:
-            if setting == 'exposure':
-                self.camera.set_controls({"ExposureTime": int(value * 1000)})  # ms to μs
-            elif setting == 'gain':
-                self.camera.set_controls({"AnalogueGain": float(value)})
-            # Other settings are applied during processing
+            # Apply exposure and gain settings to the camera
+            self.camera.set_controls({
+                "ExposureTime": int(self.settings['exposure'] * 1000),  # ms to μs
+                "AnalogueGain": float(self.settings['gain']),
+            })
             
-            print(f"Setting {setting} updated to {value}")
+            print("All camera settings applied")
             return True
             
         except Exception as e:
-            print(f"Error setting {setting}: {str(e)}")
+            print(f"Error applying settings: {str(e)}")
             return False
     
     def get_setting(self, setting: str) -> Optional[Union[float, int]]:
@@ -543,8 +555,8 @@ class CameraGUI:
         histogram_frame.pack(pady=5, fill=tk.X)
         
         self.histogram_canvas = tk.Canvas(histogram_frame,
-                                        width=400,
-                                        height=300,
+                                        width=500,
+                                        height=400,
                                         bg="white")
         self.histogram_canvas.pack(pady=5)
         
@@ -560,8 +572,6 @@ class CameraGUI:
         self.exposure_var = tk.StringVar(value=str(self.camera.settings['exposure']))
         exposure_entry = ttk.Entry(exposure_frame, textvariable=self.exposure_var, width=8)
         exposure_entry.pack(side=tk.RIGHT, padx=5)
-        exposure_entry.bind("<Return>", lambda e: self._update_setting_from_entry('exposure', self.exposure_var))
-        exposure_entry.bind("<FocusOut>", lambda e: self._update_setting_from_entry('exposure', self.exposure_var))
         
         # Gain control
         gain_frame = ttk.Frame(settings_frame)
@@ -570,8 +580,6 @@ class CameraGUI:
         self.gain_var = tk.StringVar(value=str(self.camera.settings['gain']))
         gain_entry = ttk.Entry(gain_frame, textvariable=self.gain_var, width=8)
         gain_entry.pack(side=tk.RIGHT, padx=5)
-        gain_entry.bind("<Return>", lambda e: self._update_setting_from_entry('gain', self.gain_var))
-        gain_entry.bind("<FocusOut>", lambda e: self._update_setting_from_entry('gain', self.gain_var))
         
         # Brightness control
         brightness_frame = ttk.Frame(settings_frame)
@@ -580,8 +588,6 @@ class CameraGUI:
         self.brightness_var = tk.StringVar(value=str(self.camera.settings['brightness']))
         brightness_entry = ttk.Entry(brightness_frame, textvariable=self.brightness_var, width=8)
         brightness_entry.pack(side=tk.RIGHT, padx=5)
-        brightness_entry.bind("<Return>", lambda e: self._update_setting_from_entry('brightness', self.brightness_var))
-        brightness_entry.bind("<FocusOut>", lambda e: self._update_setting_from_entry('brightness', self.brightness_var))
         
         # Contrast control
         contrast_frame = ttk.Frame(settings_frame)
@@ -590,12 +596,18 @@ class CameraGUI:
         self.contrast_var = tk.StringVar(value=str(self.camera.settings['contrast']))
         contrast_entry = ttk.Entry(contrast_frame, textvariable=self.contrast_var, width=8)
         contrast_entry.pack(side=tk.RIGHT, padx=5)
-        contrast_entry.bind("<Return>", lambda e: self._update_setting_from_entry('contrast', self.contrast_var))
-        contrast_entry.bind("<FocusOut>", lambda e: self._update_setting_from_entry('contrast', self.contrast_var))
+        
+        # Settings buttons frame
+        settings_buttons_frame = ttk.Frame(settings_frame)
+        settings_buttons_frame.pack(fill=tk.X, pady=5)
+        
+        # Apply settings button
+        apply_button = ttk.Button(settings_buttons_frame, text="Apply Settings", command=self._on_apply_settings)
+        apply_button.pack(side=tk.LEFT, padx=5)
         
         # Reset button
-        reset_button = ttk.Button(settings_frame, text="Reset Settings", command=self._on_reset)
-        reset_button.pack(pady=5)
+        reset_button = ttk.Button(settings_buttons_frame, text="Reset Settings", command=self._on_reset)
+        reset_button.pack(side=tk.RIGHT, padx=5)
         
         # Control buttons
         control_frame = ttk.Frame(parent)
@@ -617,8 +629,11 @@ class CameraGUI:
                 value = float(value)
             elif setting == 'brightness':
                 value = int(value)
-            self.camera.set_setting(setting, value)
-            self.status_var.set(f"Setting {setting} updated to {value}")
+                
+            # Only update the internal setting value, don't apply to camera yet
+            self.camera.settings[setting] = value
+            self.status_var.set(f"Setting {setting} ready to apply")
+            
         except ValueError:
             self.status_var.set(f"Invalid value for {setting}")
             # Reset to current value
@@ -810,7 +825,7 @@ class CameraGUI:
                     hist_rgb = cv2.cvtColor(hist_img, cv2.COLOR_RGBA2RGB)
                     
                     # Resize to fit canvas
-                    hist_rgb = cv2.resize(hist_rgb, (400, 300))
+                    hist_rgb = cv2.resize(hist_rgb, (500, 400))
                     
                     # Convert to PIL and then to PhotoImage
                     hist_pil = Image.fromarray(hist_rgb)
@@ -822,6 +837,30 @@ class CameraGUI:
         
         # Schedule the next update
         self.root.after(50, self._update_preview)
+    
+    def _on_apply_settings(self):
+        """Handle apply settings button click"""
+        try:
+            # Update all settings from entry fields
+            settings_to_update = {
+                'exposure': self.exposure_var,
+                'gain': self.gain_var,
+                'brightness': self.brightness_var,
+                'contrast': self.contrast_var
+            }
+            
+            # First update all internal settings
+            for setting, var in settings_to_update.items():
+                self._update_setting_from_entry(setting, var)
+            
+            # Then apply all settings at once
+            if self.camera.apply_all_settings():
+                self.status_var.set("All camera settings applied")
+            else:
+                self.status_var.set("Error applying some settings")
+                
+        except Exception as e:
+            self.status_var.set(f"Settings error: {str(e)}")
 
 
 # Example usage
