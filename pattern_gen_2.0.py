@@ -26,13 +26,12 @@ import threading
 import time
 import os
 import subprocess
-from picamera2 import Picamera2
-from libcamera import controls
 import pygame
 from tqdm import tqdm
 import scipy.special
 import traceback
 import datetime
+from PIL import Image, ImageTk
 
 class AdvancedPatternGenerator:
     def __init__(self):
@@ -40,19 +39,10 @@ class AdvancedPatternGenerator:
         # Initialize pygame
         pygame.init()
         
-        # Sony LCX016AL-6 specifications
+        # SLM dimensions
         self.width = 800
         self.height = 600
-        self.pixel_size = 32e-6
-        self.active_area = (26.6e-3, 20.0e-3)
-        self.refresh_rate = 60
-        self.contrast_ratio = 200
-        
-        # IMX296 camera specifications
-        self.camera_width = 1456
-        self.camera_height = 1088
-        self.camera_bit_depth = 10
-        self.camera_max_value = 2**10 - 1  # 1023 for 10-bit
+        self.pixel_pitch = 32e-6  # 32 μm
         
         # Default wavelength
         self.wavelength = 650e-9
@@ -66,11 +56,6 @@ class AdvancedPatternGenerator:
         self.phase_shift_x = 0.0  # Phase shift in x-direction (cycles per image)
         self.phase_shift_y = 0.0  # Phase shift in y-direction (cycles per image)
         
-        # Initialize camera state
-        self.camera_active = False
-        self.camera_paused = False
-        self.last_frame = None  # Store the last frame for pause functionality
-        
         # Simulation parameters
         self.padding_factor = 2
         self.padded_width = self.width * self.padding_factor
@@ -78,7 +63,7 @@ class AdvancedPatternGenerator:
         
         # Calculate important parameters
         self.k = 2 * np.pi / self.wavelength
-        self.dx = self.pixel_size
+        self.dx = self.pixel_pitch
         self.df_x = 1 / (self.padded_width * self.dx)
         self.df_y = 1 / (self.padded_height * self.dx)
         
@@ -113,10 +98,10 @@ class AdvancedPatternGenerator:
         
         # Create tabs
         self.pattern_frame = ttk.Frame(self.notebook)
-        self.camera_frame = ttk.Frame(self.notebook)
+        self.settings_frame = ttk.Frame(self.notebook)
         
         self.notebook.add(self.pattern_frame, text="Pattern Generator")
-        self.notebook.add(self.camera_frame, text="Camera")
+        self.notebook.add(self.settings_frame, text="Settings")
         
         # Create status bar
         status_frame = ttk.Frame(self.main_frame)
@@ -130,18 +115,6 @@ class AdvancedPatternGenerator:
         # Create pattern generator UI
         self.create_pattern_ui()
         
-        # Create camera preview
-        self.setup_camera_tab()
-        
-        # Initialize camera if available
-        try:
-            self.initialize_camera()
-        except Exception as e:
-            self.status_var.set(f"Camera initialization failed: {str(e)}")
-            print(f"Camera initialization error: {str(e)}")
-            self.camera_active = False
-            self.setup_disabled_camera_ui()
-        
         # Bind ESC key to quit
         self.root.bind('<Escape>', lambda e: self.quit_application())
         # Also bind using protocol for window close button
@@ -150,279 +123,187 @@ class AdvancedPatternGenerator:
         # Bind mouse wheel to scrolling
         self.root.bind("<MouseWheel>", self._on_mousewheel)
 
-    def setup_disabled_camera_ui(self):
-        """Set up a disabled camera UI when camera initialization fails"""
-        # Clear existing camera tab contents
-        for widget in self.camera_frame.winfo_children():
-            widget.destroy()
-            
-        # Create frame for camera preview
-        preview_frame = ttk.LabelFrame(self.camera_frame, text="Camera Preview (Disabled)")
-        preview_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
-        
-        # Create a message indicating camera is disabled
-        camera_disabled_frame = ttk.Frame(preview_frame)
-        camera_disabled_frame.pack(fill=tk.BOTH, expand=True)
-        
-        ttk.Label(camera_disabled_frame, 
-                 text="Camera functionality disabled due to initialization issues.",
-                 font=("Arial", 14)).pack(pady=20)
-        
-        ttk.Label(camera_disabled_frame, 
-                 text="Please check your camera connection and restart the application.",
-                 font=("Arial", 12)).pack(pady=10)
-        
-        # Create frame for camera controls (disabled)
-        controls_frame = ttk.LabelFrame(preview_frame, text="Camera Controls (Disabled)")
-        controls_frame.pack(side=tk.RIGHT, fill=tk.Y, padx=10, pady=10)
-        
-        # Disabled buttons
-        self.pause_button = ttk.Button(controls_frame, text="Pause Camera", state="disabled")
-        self.pause_button.pack(fill=tk.X, pady=5)
-        
-        self.capture_button = ttk.Button(controls_frame, text="Capture Image", state="disabled")
-        self.capture_button.pack(fill=tk.X, pady=5)
-        
-        self.save_button = ttk.Button(controls_frame, text="Save Image", state="disabled")
-        self.save_button.pack(fill=tk.X, pady=5)
+    def _on_mousewheel(self, event):
+        """Handle mouse wheel scrolling"""
+        self.canvas.yview_scroll(int(-1*(event.delta/120)), "units")
 
-    def initialize_camera(self):
-        """Initialize camera with IMX296 settings"""
-        try:
-            # Initialize camera
-            self.camera = Picamera2()
-            
-            # Check if camera is available
-            if not self.camera:
-                self.status_var.set("Camera not available")
-                print("Camera not available")
-                self.camera_active = False
-                return
-            
-            # Use a simpler configuration approach to avoid the copy() error
-            try:
-                # Create a simple configuration dictionary instead of using create_still_configuration
-                simple_config = {
-                    "main": {
-                        "size": (self.camera_width, self.camera_height),
-                        "format": "RGB888"
-                    }
-                }
-                self.camera.configure(simple_config)
-                print("Camera configured with simple config")
-            except Exception as e:
-                self.status_var.set(f"Camera configuration error: {str(e)}")
-                print(f"Camera configuration error: {str(e)}")
-                self.camera_active = False
-                return
-            
-            # Set initial exposure and gain
-            try:
-                self.camera.set_controls({
-                    "ExposureTime": int(self.exposure_var.get() * 1000),
-                    "AnalogueGain": self.gain_var.get()
-                })
-            except Exception as e:
-                print(f"Warning: Could not set camera controls: {str(e)}")
-                
-            # Start the camera
-            try:
-                self.camera.start()
-                time.sleep(1)  # Allow camera to warm up
-                print("Camera started successfully")
-            except Exception as e:
-                self.status_var.set(f"Camera start error: {str(e)}")
-                print(f"Camera start error: {str(e)}")
-                self.camera_active = False
-                return
-                
-            # Create a blank initial frame
-            self.last_frame = np.zeros((self.camera_height//4, self.camera_width//4), dtype=np.uint16)
-            
-            # Start camera preview thread
-            self.camera_active = True
-            self.camera_paused = False
-            self.camera_thread = threading.Thread(target=self.update_camera_preview, daemon=True)
-            self.camera_thread.start()
-            
-            self.status_var.set("Camera initialized successfully")
-            
-        except Exception as e:
-            self.status_var.set(f"Camera initialization failed: {str(e)}")
-            print(f"Camera initialization error: {str(e)}")
-            self.camera_active = False
+    def create_pattern_ui(self):
+        """Create pattern generator UI"""
+        # Create canvas for scrolling
+        self.canvas = tk.Canvas(self.pattern_frame)
+        scrollbar = ttk.Scrollbar(self.pattern_frame, orient="vertical", command=self.canvas.yview)
+        self.scrollable_frame = ttk.Frame(self.canvas)
+        
+        # Configure scrolling
+        self.scrollable_frame.bind(
+            "<Configure>",
+            lambda e: self.canvas.configure(scrollregion=self.canvas.bbox("all"))
+        )
+        self.canvas.create_window((0, 0), window=self.scrollable_frame, anchor="nw", width=self.canvas.winfo_width())
+        
+        # Configure canvas scrolling
+        self.canvas.configure(yscrollcommand=scrollbar.set)
+        
+        # Pack scrollbar and canvas
+        scrollbar.pack(side="right", fill="y")
+        self.canvas.pack(side="left", fill="both", expand=True)
+        
+        # Configure canvas resize
+        self.canvas.bind('<Configure>', self._on_canvas_configure)
+        
+        # Create frames for different sections
+        self.control_frame = ttk.LabelFrame(self.scrollable_frame, text="Controls", padding="10")
+        self.control_frame.pack(fill=tk.X, padx=5, pady=5)
+        
+        self.preview_frame = ttk.LabelFrame(self.scrollable_frame, text="Pattern Preview", padding="10")
+        self.preview_frame.pack(fill=tk.X, padx=5, pady=5)
+        
+        # Add status bar
+        self.status_bar = ttk.Label(self.scrollable_frame, textvariable=self.status_var)
+        self.status_bar.pack(fill=tk.X, padx=5, pady=5)
+        
+        # Create controls
+        self.create_controls()
+        
+        # Create preview area
+        self.create_preview()
+        
+        # Add phase shift controls
+        self.create_phase_shift_controls()
+        
+    def _on_canvas_configure(self, event):
+        """Handle canvas resize"""
+        width = event.width
+        self.canvas.itemconfig(1, width=width)
 
-    def setup_camera_tab(self):
-        """Set up the camera tab with preview and controls"""
-        # Create frame for camera preview
-        preview_frame = ttk.LabelFrame(self.camera_frame, text="Camera Preview (10-bit)")
-        preview_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+    def create_controls(self):
+        """Create parameter control widgets"""
+        # Add buttons frame
+        buttons_frame = ttk.Frame(self.control_frame)
+        buttons_frame.pack(fill=tk.X, pady=5)
         
-        # Create matplotlib figure for camera preview
-        self.camera_fig = plt.Figure(figsize=(10, 8))
-        self.camera_canvas = FigureCanvasTkAgg(self.camera_fig, master=preview_frame)
-        self.camera_canvas.get_tk_widget().pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        # Load target image button
+        self.load_button = ttk.Button(buttons_frame, text="Load Target Image", command=self.load_image)
+        self.load_button.pack(side=tk.LEFT, padx=5)
         
-        # Create single axes for camera preview
-        self.preview_ax = self.camera_fig.add_subplot(111)
-        self.preview_ax.set_title("Camera Preview (10-bit)")
+        # Load pattern button
+        self.load_pattern_button = ttk.Button(buttons_frame, text="Load Pattern", command=self.load_pattern)
+        self.load_pattern_button.pack(side=tk.LEFT, padx=5)
         
-        # Create initial empty image with correct dimensions
-        empty_img = np.zeros((self.camera_height//4, self.camera_width//4), dtype=np.uint16)
-        self.preview_img = self.preview_ax.imshow(empty_img, cmap='gray', vmin=0, vmax=1023)
-        self.camera_fig.colorbar(self.preview_img, ax=self.preview_ax, label="Intensity (0-1023)")
-        self.preview_ax.axis('off')
+        # Send to SLM button
+        self.send_to_slm_button = ttk.Button(buttons_frame, text="Send to SLM", command=self.send_to_slm)
+        self.send_to_slm_button.pack(side=tk.LEFT, padx=5)
         
-        # Create frame for camera controls
-        controls_frame = ttk.LabelFrame(preview_frame, text="Camera Controls")
-        controls_frame.pack(side=tk.RIGHT, fill=tk.Y, padx=10, pady=10)
+        # Save pattern button
+        self.save_button = ttk.Button(buttons_frame, text="Save Pattern", command=self.save_pattern)
+        self.save_button.pack(side=tk.LEFT, padx=5)
         
-        # Pause/Resume button
-        self.pause_text = tk.StringVar(value="Pause Camera")
-        self.pause_button = ttk.Button(controls_frame, textvariable=self.pause_text, 
-                                      command=self.toggle_camera_pause)
-        self.pause_button.pack(fill=tk.X, pady=5)
+        # Create a notebook for tabbed parameter groups
+        param_notebook = ttk.Notebook(self.control_frame)
+        param_notebook.pack(fill=tk.X, pady=5)
         
-        # Capture button
-        self.capture_button = ttk.Button(controls_frame, text="Capture Image", 
-                                        command=self.capture_camera_image)
-        self.capture_button.pack(fill=tk.X, pady=5)
+        # Modulation mode tab
+        mode_frame = ttk.Frame(param_notebook)
+        param_notebook.add(mode_frame, text="Modulation")
         
-        # Save button
-        self.save_button = ttk.Button(controls_frame, text="Save Image", 
-                                     command=self.save_camera_image)
-        self.save_button.pack(fill=tk.X, pady=5)
+        # Modulation mode selection
+        ttk.Label(mode_frame, text="Mode:").grid(row=0, column=0, padx=5, pady=5)
+        self.mode_var = tk.StringVar(value="Phase")
+        mode_menu = ttk.OptionMenu(mode_frame, self.mode_var, "Phase", "Phase", "Amplitude", "Combined")
+        mode_menu.grid(row=0, column=1, padx=5, pady=5)
         
-        # Exposure control
-        exposure_frame = ttk.LabelFrame(controls_frame, text="Exposure Settings")
-        exposure_frame.pack(fill=tk.X, pady=10)
+        # Input beam selection
+        ttk.Label(mode_frame, text="Input Beam:").grid(row=0, column=2, padx=5, pady=5)
+        self.beam_type_var = tk.StringVar(value="Gaussian")
+        beam_types = ["Gaussian", "Super Gaussian", "Top Hat", "Bessel", "LG01", "Custom"]
+        beam_menu = ttk.OptionMenu(mode_frame, self.beam_type_var, "Gaussian", *beam_types, 
+                                 command=self._on_beam_type_change)
+        beam_menu.grid(row=0, column=3, padx=5, pady=5)
         
-        ttk.Label(exposure_frame, text="Exposure Time (ms):").pack(anchor=tk.W)
-        self.exposure_var = tk.DoubleVar(value=20.0)
-        exposure_scale = ttk.Scale(exposure_frame, from_=1.0, to=100.0, 
-                                  variable=self.exposure_var, 
-                                  command=lambda v: self.update_camera_exposure())
-        exposure_scale.pack(fill=tk.X)
+        # Amplitude coupling
+        ttk.Label(mode_frame, text="Amplitude Coupling:").grid(row=0, column=4, padx=5, pady=5)
+        self.amp_coupling_var = tk.StringVar(value="0.1")
+        ttk.Entry(mode_frame, textvariable=self.amp_coupling_var, width=10).grid(row=0, column=5, padx=5, pady=5)
         
-        # Gain control
-        ttk.Label(exposure_frame, text="Gain:").pack(anchor=tk.W)
-        self.gain_var = tk.DoubleVar(value=1.0)
-        gain_scale = ttk.Scale(exposure_frame, from_=1.0, to=8.0, 
-                              variable=self.gain_var, 
-                              command=lambda v: self.update_camera_exposure())
-        gain_scale.pack(fill=tk.X)
+        # Phase coupling
+        ttk.Label(mode_frame, text="Phase Coupling:").grid(row=0, column=6, padx=5, pady=5)
+        self.phase_coupling_var = tk.StringVar(value="0.1")
+        ttk.Entry(mode_frame, textvariable=self.phase_coupling_var, width=10).grid(row=0, column=7, padx=5, pady=5)
         
-        # Initialize camera
-        self.initialize_camera()
+        # Algorithm parameters tab
+        algo_frame = ttk.Frame(param_notebook)
+        param_notebook.add(algo_frame, text="Algorithm")
+        
+        # Algorithm selection
+        ttk.Label(algo_frame, text="Algorithm:").grid(row=0, column=0, padx=5, pady=5)
+        self.algorithm_var = tk.StringVar(value="gs")
+        algorithm_menu = ttk.OptionMenu(algo_frame, self.algorithm_var, "gs", "gs", "mraf")
+        algorithm_menu.grid(row=0, column=1, padx=5, pady=5)
+        
+        # Number of iterations
+        ttk.Label(algo_frame, text="Iterations:").grid(row=0, column=2, padx=5, pady=5)
+        self.iterations_var = tk.StringVar(value="10")
+        ttk.Entry(algo_frame, textvariable=self.iterations_var, width=10).grid(row=0, column=3, padx=5, pady=5)
+        
+        # MRAF parameters frame (initially hidden)
+        self.mraf_frame = ttk.Frame(algo_frame)
+        self.mraf_frame.grid(row=1, column=0, columnspan=8, padx=5, pady=5)
+        
+        # MRAF mixing parameter
+        ttk.Label(self.mraf_frame, text="Mixing Parameter:").grid(row=0, column=0, padx=5, pady=5)
+        self.mixing_parameter_var = tk.StringVar(value="0.5")
+        ttk.Entry(self.mraf_frame, textvariable=self.mixing_parameter_var, width=10).grid(row=0, column=1, padx=5, pady=5)
+        
+        # Signal region ratio
+        ttk.Label(self.mraf_frame, text="Signal Region Ratio:").grid(row=0, column=2, padx=5, pady=5)
+        self.signal_region_ratio_var = tk.StringVar(value="0.3")
+        ttk.Entry(self.mraf_frame, textvariable=self.signal_region_ratio_var, width=10).grid(row=0, column=3, padx=5, pady=5)
+        
+        # Error parameters frame
+        error_frame = ttk.LabelFrame(algo_frame, text="Error Parameters")
+        error_frame.grid(row=3, column=0, columnspan=8, padx=5, pady=5, sticky="ew")
+        
+        # Tolerance
+        ttk.Label(error_frame, text="Tolerance:").grid(row=0, column=0, padx=5, pady=5)
+        self.tolerance_var = tk.StringVar(value="1e-35")
+        ttk.Entry(error_frame, textvariable=self.tolerance_var, width=10).grid(row=0, column=1, padx=5, pady=5)
+        
+        # Show error plot checkbox
+        self.show_error_plot_var = tk.BooleanVar(value=True)
+        ttk.Checkbutton(error_frame, text="Show Error Plot", variable=self.show_error_plot_var).grid(row=0, column=4, padx=5, pady=5)
+        
+        # Add event handler for algorithm selection
+        self.algorithm_var.trace_add("write", self._on_algorithm_change)
+        
+        # Beam width factor
+        ttk.Label(algo_frame, text="Beam Width:").grid(row=0, column=4, padx=5, pady=5)
+        self.beam_width_var = tk.StringVar(value="1.0")
+        ttk.Entry(algo_frame, textvariable=self.beam_width_var, width=10).grid(row=0, column=5, padx=5, pady=5)
+        
+        # Phase range
+        ttk.Label(algo_frame, text="Phase Range (π):").grid(row=0, column=6, padx=5, pady=5)
+        self.phase_range_var = tk.StringVar(value="2.0")
+        ttk.Entry(algo_frame, textvariable=self.phase_range_var, width=10).grid(row=0, column=7, padx=5, pady=5)
+        
+        # Optical parameters tab
+        optical_frame = ttk.Frame(param_notebook)
+        param_notebook.add(optical_frame, text="Optical")
+        
+        # Wavelength
+        ttk.Label(optical_frame, text="Wavelength (nm):").grid(row=0, column=0, padx=5, pady=5)
+        self.wavelength_var = tk.StringVar(value="650")
+        wavelength_entry = ttk.Entry(optical_frame, textvariable=self.wavelength_var, width=10)
+        wavelength_entry.grid(row=0, column=1, padx=5, pady=5)
+        wavelength_entry.bind('<Return>', lambda e: self.update_wavelength())
+        
+        # Gamma correction
+        ttk.Label(optical_frame, text="Gamma:").grid(row=0, column=2, padx=5, pady=5)
+        self.gamma_var = tk.StringVar(value="0.7")
+        ttk.Entry(optical_frame, textvariable=self.gamma_var, width=10).grid(row=0, column=3, padx=5, pady=5)
+        
+        # Generate button
+        ttk.Button(self.control_frame, text="Generate Pattern", command=self.generate_pattern).pack(pady=10)
 
-    def update_camera_preview(self):
-        """Update camera preview in a separate thread"""
-        print("Camera preview thread started")
-        
-        # Safety check - make sure we have a camera
-        if not hasattr(self, 'camera_active') or not self.camera_active:
-            print("Camera not initialized properly, preview thread exiting")
-            self.camera_active = False
-            return
-            
-        while self.camera_active:
-            try:
-                if not self.camera_paused:
-                    # Capture frame and convert to grayscale
-                    try:
-                        frame = self.camera.capture_array()
-                    except Exception as e:
-                        print(f"Error capturing frame: {str(e)}")
-                        time.sleep(0.5)  # Wait a bit longer on error
-                        continue
-                    
-                    if frame is not None:
-                        # Convert RGB to grayscale while preserving 10-bit range
-                        try:
-                            if len(frame.shape) == 3:
-                                # Use standard RGB to grayscale conversion weights
-                                gray = np.dot(frame[..., :3], [0.2989, 0.5870, 0.1140])
-                            else:
-                                gray = frame
-                            
-                            # Store raw intensity values
-                            self.last_frame = gray
-                            
-                            # Update preview with raw 10-bit values
-                            if hasattr(self, 'preview_img') and self.preview_img is not None:
-                                self.preview_img.set_array(gray)
-                                if hasattr(self, 'preview_ax'):
-                                    self.preview_ax.set_title(f"Live Preview (10-bit)")
-                                if hasattr(self, 'camera_canvas') and self.camera_canvas is not None:
-                                    try:
-                                        self.camera_canvas.draw_idle()
-                                        print(f"Updated preview with frame, max value: {np.max(gray)}")
-                                    except Exception as e:
-                                        print(f"Error updating canvas: {str(e)}")
-                        except Exception as e:
-                            print(f"Error processing frame: {str(e)}")
-                
-                elif hasattr(self, 'paused_frame') and self.paused_frame is not None:
-                    # If paused, display the paused frame with a "PAUSED" indicator
-                    if hasattr(self, 'preview_ax') and not hasattr(self, 'paused_indicator'):
-                        try:
-                            # Add a text overlay indicating the camera is paused
-                            self.paused_indicator = self.preview_ax.text(
-                                0.5, 0.5, "PAUSED", 
-                                color='red', fontsize=24, fontweight='bold',
-                                horizontalalignment='center', verticalalignment='center',
-                                transform=self.preview_ax.transAxes
-                            )
-                            if hasattr(self, 'camera_canvas') and self.camera_canvas is not None:
-                                self.camera_canvas.draw_idle()
-                        except Exception as e:
-                            print(f"Error adding paused indicator: {str(e)}")
-                
-                # Add a small sleep to prevent high CPU usage
-                time.sleep(0.033)  # ~30 FPS
-                
-            except Exception as e:
-                print(f"Camera preview error: {str(e)}")
-                time.sleep(0.1)  # Sleep briefly on error
-
-    def toggle_camera_pause(self):
-        """Toggle camera pause state"""
-        if self.camera_paused:
-            self.resume_camera()
-            self.pause_text.set("Pause Camera")
-        else:
-            self.pause_camera()
-            self.pause_text.set("Resume Camera")
-    
-    def pause_camera(self):
-        """Pause the camera feed"""
-        if not hasattr(self, 'camera_active') or not self.camera_active:
-            return
-            
-        try:
-            self.camera_paused = True
-            # Store the last frame for display while paused, with a safety check
-            if hasattr(self, 'last_frame') and self.last_frame is not None:
-                self.paused_frame = self.last_frame.copy()
-            else:
-                # Create a blank frame if no last_frame is available
-                self.paused_frame = np.zeros((self.camera_height//4, self.camera_width//4), dtype=np.uint16)
-                
-            self.status_var.set("Camera paused")
-            
-            # Update button appearance
-            self.pause_button.configure(style="Accent.TButton")
-        except Exception as e:
-            self.status_var.set(f"Error pausing camera: {str(e)}")
-            print(f"Error pausing camera: {str(e)}")
-            
-    def resume_camera(self):
-        """Resume the camera feed"""
-        self.camera_active = True
-        self.camera_paused = False
-        self.pause_button.configure(style="TButton")
-        self.status_var.set("Camera resumed")
-        
     def create_phase_shift_controls(self):
         """Create controls for adjusting phase shift to avoid zero-order diffraction"""
         phase_shift_frame = ttk.LabelFrame(self.scrollable_frame, text="Zero-Order Diffraction Control", padding="10")
@@ -891,18 +772,16 @@ class AdvancedPatternGenerator:
         """Clean up and quit the application"""
         print("Quitting application...")
         try:
-            # Clean up camera if active
-            if self.camera_active:
-                self.camera_active = False  # Signal thread to stop
-                if hasattr(self, 'camera_thread') and self.camera_thread.is_alive():
-                    self.camera_thread.join(timeout=1.0)  # Wait for thread to finish
-                self.camera.close()
-                print("Camera resources released")
-        except Exception as e:
-            print(f"Error during cleanup: {str(e)}")
-        finally:
+            # Clean up pygame if initialized
+            if pygame.display.get_init():
+                pygame.display.quit()
+            
             # Destroy and quit Tkinter
             self.root.destroy()
+            
+        except Exception as e:
+            print(f"Error in main loop: {str(e)}")
+        finally:
             print("Application closed")
 
     def load_image(self):
@@ -996,12 +875,6 @@ class AdvancedPatternGenerator:
 
     def safe_plot_save(self, figure, default_filename=None):
         """Safely save a plot by temporarily pausing the camera to avoid OpenCV threading issues"""
-        # Temporarily pause camera if it's running
-        camera_was_active = False
-        if hasattr(self, 'camera_active') and self.camera_active:
-            camera_was_active = True
-            self.pause_camera()
-            
         try:
             # Create a file dialog to get save location
             filetypes = [('PNG', '*.png'), ('PDF', '*.pdf'), ('SVG', '*.svg'), ('JPEG', '*.jpg')]
@@ -1017,28 +890,7 @@ class AdvancedPatternGenerator:
                 self.status_var.set(f"Figure saved to {filename}")
         except Exception as e:
             self.status_var.set(f"Error saving figure: {str(e)}")
-        finally:
-            # Resume camera if it was active
-            if camera_was_active:
-                self.resume_camera()
 
-    def pause_camera(self):
-        """Pause the camera feed"""
-        if not hasattr(self, 'camera_active') or not self.camera_active:
-            return
-            
-        self.camera_active = False
-        self.camera_paused = True
-        self.pause_button.configure(text="Resume Camera", command=self.resume_camera)
-        self.status_var.set("Camera feed paused")
-        
-    def resume_camera(self):
-        """Resume the camera feed"""
-        self.camera_active = True
-        self.camera_paused = False
-        self.pause_button.configure(text="Pause Camera", command=self.pause_camera)
-        self.status_var.set("Camera feed resumed")
-        
     def generate_input_beam(self):
         """Generate input beam profile based on selected type"""
         try:
@@ -1527,188 +1379,12 @@ class AdvancedPatternGenerator:
             traceback.print_exc()
             return None, None, "Error in pattern generation"
 
-    def set_exposure(self, exposure_ms):
-        """Set camera exposure time in milliseconds"""
-        try:
-            exposure_us = int(exposure_ms * 1000)  # Convert to microseconds
-            self.camera.set_controls({"ExposureTime": exposure_us})
-            self.status_var.set(f"Exposure set to {exposure_ms}ms")
-        except Exception as e:
-            self.status_var.set(f"Error setting exposure: {str(e)}")
-
-    def set_gain(self, gain):
-        """Set camera analog gain"""
-        try:
-            self.camera.set_controls({"AnalogueGain": gain})
-            self.status_var.set(f"Gain set to {gain}")
-        except Exception as e:
-            self.status_var.set(f"Error setting gain: {str(e)}")
-
-    def capture_camera_image(self):
-        """Capture a still image from the camera"""
-        if not self.camera_active:
-            self.status_var.set("Camera not active")
-            messagebox.showerror("Camera Error", "Camera is not active")
-            return
-            
-        try:
-            # Pause the camera preview temporarily
-            was_paused = self.camera_paused
-            if not was_paused:
-                self.pause_camera()
-            
-            # Capture a high-quality still image
-            frame = self.camera.capture_array()
-            
-            # Convert to grayscale while preserving 10-bit range
-            if len(frame.shape) == 3:
-                # Use standard RGB to grayscale conversion weights
-                gray = np.dot(frame[..., :3], [0.2989, 0.5870, 0.1140])
-            else:
-                gray = frame
-            
-            # Store the captured intensity image (10-bit values)
-            self.captured_intensity = gray
-            
-            # Update the preview with the captured image (10-bit)
-            if hasattr(self, 'preview_img'):
-                self.preview_img.set_array(gray)
-                
-                # Add a text overlay indicating this is a captured image
-                if hasattr(self, 'capture_indicator'):
-                    self.capture_indicator.remove()
-                self.capture_indicator = self.preview_ax.text(
-                    0.5, 0.05, "CAPTURED IMAGE", 
-                    color='green', fontsize=16, fontweight='bold',
-                    horizontalalignment='center', verticalalignment='bottom',
-                    transform=self.preview_ax.transAxes,
-                    bbox=dict(facecolor='white', alpha=0.7, edgecolor='green', boxstyle='round,pad=0.5')
-                )
-                
-                # Update the canvas
-                self.camera_canvas.draw()
-            
-            # Update the histogram with the captured image
-            self.update_histogram()
-            
-            # Resume camera if it wasn't paused before
-            if not was_paused:
-                self.resume_camera()
-                
-        except Exception as e:
-            self.status_var.set(f"Error capturing image: {str(e)}")
-            messagebox.showerror("Capture Error", str(e))
-            # Try to resume camera
-            if not was_paused:
-                self.resume_camera()
-
-    def save_camera_image(self):
-        """Save the captured camera image"""
-        if not hasattr(self, 'captured_intensity'):
-            self.status_var.set("No image captured to save")
-            messagebox.showwarning("Save Image", "No image has been captured yet")
-            return
-            
-        try:
-            # Use zenity file dialog
-            cmd = ['zenity', '--file-selection', '--save', 
-                   '--file-filter=PNG files | *.png', 
-                   '--title=Save Captured Image']
-            result = subprocess.run(cmd, capture_output=True, text=True)
-            
-            save_path = result.stdout.strip()
-            if not save_path:
-                return
-            
-            # Add extension if not present
-            if not save_path.lower().endswith(('.png', '.jpg', '.jpeg')):
-                save_path += '.png'
-            
-            # Save the image with full 10-bit precision
-            # Convert to 16-bit for PNG storage (10-bit values will be preserved)
-            save_img = (self.captured_intensity / self.camera_max_value * 65535).astype(np.uint16)
-            cv2.imwrite(save_path, save_img)
-            
-            # Also save a metadata file with information about the image
-            metadata_path = save_path + '.txt'
-            with open(metadata_path, 'w') as f:
-                f.write(f"Camera: IMX296 Monochrome\n")
-                f.write(f"Resolution: {self.captured_intensity.shape[1]}x{self.captured_intensity.shape[0]}\n")
-                f.write(f"Bit Depth: 10-bit\n")
-                f.write(f"Original Value Range: 0-{self.camera_max_value}\n")
-                f.write(f"Stored as: 16-bit PNG\n")
-                f.write(f"Conversion: Original 10-bit value * 65535/{self.camera_max_value}\n")
-                f.write(f"Statistics:\n")
-                f.write(f"  Min: {np.min(self.captured_intensity):.1f}\n")
-                f.write(f"  Max: {np.max(self.captured_intensity):.1f}\n")
-                f.write(f"  Mean: {np.mean(self.captured_intensity):.1f}\n")
-                f.write(f"  Median: {np.median(self.captured_intensity):.1f}\n")
-                f.write(f"  Standard Deviation: {np.std(self.captured_intensity):.1f}\n")
-                f.write(f"Timestamp: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
-            
-            self.status_var.set(f"Image saved to {save_path}")
-            messagebox.showinfo("Save Image", f"Image saved to:\n{save_path}\n\nMetadata saved to:\n{metadata_path}")
-            
-        except Exception as e:
-            self.status_var.set(f"Error saving image: {str(e)}")
-            messagebox.showerror("Save Error", str(e))
-
     def _on_algorithm_change(self, *args):
         """Handle algorithm selection change"""
         if self.algorithm_var.get() == "mraf":
             self.mraf_frame.grid(row=1, column=0, columnspan=8, padx=5, pady=5)
         else:
             self.mraf_frame.grid_remove()
-
-    def send_camera_to_slm(self):
-        """Send the captured camera image to the SLM as an intensity target"""
-        if not hasattr(self, 'captured_intensity'):
-            self.status_var.set("No image captured to send to SLM")
-            messagebox.showwarning("Send to SLM", "No image has been captured yet")
-            return
-            
-        try:
-            # Resize the intensity image to SLM resolution
-            resized_intensity = cv2.resize(self.captured_intensity, (self.width, self.height))
-            
-            # Store as target intensity (not phase)
-            self.target = resized_intensity
-            
-            # Update the status
-            self.status_var.set("Camera image sent to SLM as intensity target")
-            
-            # Switch to pattern generator tab
-            self.notebook.select(0)  # Select first tab (Pattern Generator)
-            
-            # Update the preview
-            self.update_preview()
-            
-            messagebox.showinfo("Send to SLM", 
-                              "Camera image sent to pattern generator as intensity target.\n\n" +
-                              "Note: This is using the raw intensity values as a target. " +
-                              "You still need to generate a pattern or use 'Send to SLM' " +
-                              "in the pattern tab to display on the SLM.")
-            
-        except Exception as e:
-            self.status_var.set(f"Error sending to pattern generator: {str(e)}")
-            messagebox.showerror("Send to SLM Error", str(e))
-
-    def on_closing(self):
-        """Handle window closing event"""
-        try:
-            # Clean up camera resources if active
-            if hasattr(self, 'camera') and self.camera_active:
-                self.camera_active = False  # Signal thread to stop
-                if hasattr(self, 'camera_thread') and self.camera_thread.is_alive():
-                    self.camera_thread.join(timeout=1.0)  # Wait for thread to finish
-                self.camera.close()
-                print("Camera resources released")
-        except Exception as e:
-            print(f"Error during cleanup: {str(e)}")
-        finally:
-            # Destroy the window
-            self.root.destroy()
-            print("Application closed")
 
 class PatternGenerator:
     def __init__(self, target_intensity, signal_region_mask=None, mixing_parameter=0.4):
