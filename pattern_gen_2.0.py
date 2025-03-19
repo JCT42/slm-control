@@ -134,7 +134,13 @@ class AdvancedPatternGenerator:
         self.setup_camera_tab()
         
         # Initialize camera if available
-        self.initialize_camera()
+        try:
+            self.initialize_camera()
+        except Exception as e:
+            self.status_var.set(f"Camera initialization failed: {str(e)}")
+            print(f"Camera initialization error: {str(e)}")
+            self.camera_active = False
+            self.setup_disabled_camera_ui()
         
         # Bind ESC key to quit
         self.root.bind('<Escape>', lambda e: self.quit_application())
@@ -144,186 +150,107 @@ class AdvancedPatternGenerator:
         # Bind mouse wheel to scrolling
         self.root.bind("<MouseWheel>", self._on_mousewheel)
 
-    def _on_mousewheel(self, event):
-        """Handle mouse wheel scrolling"""
-        self.canvas.yview_scroll(int(-1*(event.delta/120)), "units")
+    def setup_disabled_camera_ui(self):
+        """Set up a disabled camera UI when camera initialization fails"""
+        # Clear existing camera tab contents
+        for widget in self.camera_frame.winfo_children():
+            widget.destroy()
+            
+        # Create frame for camera preview
+        preview_frame = ttk.LabelFrame(self.camera_frame, text="Camera Preview (Disabled)")
+        preview_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+        
+        # Create a message indicating camera is disabled
+        camera_disabled_frame = ttk.Frame(preview_frame)
+        camera_disabled_frame.pack(fill=tk.BOTH, expand=True)
+        
+        ttk.Label(camera_disabled_frame, 
+                 text="Camera functionality disabled due to initialization issues.",
+                 font=("Arial", 14)).pack(pady=20)
+        
+        ttk.Label(camera_disabled_frame, 
+                 text="Please check your camera connection and restart the application.",
+                 font=("Arial", 12)).pack(pady=10)
+        
+        # Create frame for camera controls (disabled)
+        controls_frame = ttk.LabelFrame(preview_frame, text="Camera Controls (Disabled)")
+        controls_frame.pack(side=tk.RIGHT, fill=tk.Y, padx=10, pady=10)
+        
+        # Disabled buttons
+        self.pause_button = ttk.Button(controls_frame, text="Pause Camera", state="disabled")
+        self.pause_button.pack(fill=tk.X, pady=5)
+        
+        self.capture_button = ttk.Button(controls_frame, text="Capture Image", state="disabled")
+        self.capture_button.pack(fill=tk.X, pady=5)
+        
+        self.save_button = ttk.Button(controls_frame, text="Save Image", state="disabled")
+        self.save_button.pack(fill=tk.X, pady=5)
 
-    def create_pattern_ui(self):
-        """Create pattern generator UI"""
-        # Create canvas for scrolling
-        self.canvas = tk.Canvas(self.pattern_frame)
-        scrollbar = ttk.Scrollbar(self.pattern_frame, orient="vertical", command=self.canvas.yview)
-        self.scrollable_frame = ttk.Frame(self.canvas)
-        
-        # Configure scrolling
-        self.scrollable_frame.bind(
-            "<Configure>",
-            lambda e: self.canvas.configure(scrollregion=self.canvas.bbox("all"))
-        )
-        self.canvas.create_window((0, 0), window=self.scrollable_frame, anchor="nw", width=self.canvas.winfo_width())
-        
-        # Configure canvas scrolling
-        self.canvas.configure(yscrollcommand=scrollbar.set)
-        
-        # Pack scrollbar and canvas
-        scrollbar.pack(side="right", fill="y")
-        self.canvas.pack(side="left", fill="both", expand=True)
-        
-        # Configure canvas resize
-        self.canvas.bind('<Configure>', self._on_canvas_configure)
-        
-        # Create frames for different sections
-        self.control_frame = ttk.LabelFrame(self.scrollable_frame, text="Controls", padding="10")
-        self.control_frame.pack(fill=tk.X, padx=5, pady=5)
-        
-        self.preview_frame = ttk.LabelFrame(self.scrollable_frame, text="Pattern Preview", padding="10")
-        self.preview_frame.pack(fill=tk.X, padx=5, pady=5)
-        
-        # Add status bar
-        self.status_bar = ttk.Label(self.scrollable_frame, textvariable=self.status_var)
-        self.status_bar.pack(fill=tk.X, padx=5, pady=5)
-        
-        # Create controls
-        self.create_controls()
-        
-        # Create preview area
-        self.create_preview()
-        
-        # Add phase shift controls
-        self.create_phase_shift_controls()
-    
-    def _on_canvas_configure(self, event):
-        """Handle canvas resize"""
-        width = event.width
-        self.canvas.itemconfig(1, width=width)
-
-    def create_controls(self):
-        """Create parameter control widgets"""
-        # Add buttons frame
-        buttons_frame = ttk.Frame(self.control_frame)
-        buttons_frame.pack(fill=tk.X, pady=5)
-        
-        # Load target image button
-        self.load_button = ttk.Button(buttons_frame, text="Load Target Image", command=self.load_image)
-        self.load_button.pack(side=tk.LEFT, padx=5)
-        
-        # Load pattern button
-        self.load_pattern_button = ttk.Button(buttons_frame, text="Load Pattern", command=self.load_pattern)
-        self.load_pattern_button.pack(side=tk.LEFT, padx=5)
-        
-        # Send to SLM button
-        self.send_to_slm_button = ttk.Button(buttons_frame, text="Send to SLM", command=self.send_to_slm)
-        self.send_to_slm_button.pack(side=tk.LEFT, padx=5)
-        
-        # Save pattern button
-        self.save_button = ttk.Button(buttons_frame, text="Save Pattern", command=self.save_pattern)
-        self.save_button.pack(side=tk.LEFT, padx=5)
-        
-        # Create a notebook for tabbed parameter groups
-        param_notebook = ttk.Notebook(self.control_frame)
-        param_notebook.pack(fill=tk.X, pady=5)
-        
-        # Modulation mode tab
-        mode_frame = ttk.Frame(param_notebook)
-        param_notebook.add(mode_frame, text="Modulation")
-        
-        # Modulation mode selection
-        ttk.Label(mode_frame, text="Mode:").grid(row=0, column=0, padx=5, pady=5)
-        self.mode_var = tk.StringVar(value="Phase")
-        mode_menu = ttk.OptionMenu(mode_frame, self.mode_var, "Phase", "Phase", "Amplitude", "Combined")
-        mode_menu.grid(row=0, column=1, padx=5, pady=5)
-        
-        # Input beam selection
-        ttk.Label(mode_frame, text="Input Beam:").grid(row=0, column=2, padx=5, pady=5)
-        self.beam_type_var = tk.StringVar(value="Gaussian")
-        beam_types = ["Gaussian", "Super Gaussian", "Top Hat", "Bessel", "LG01", "Custom"]
-        beam_menu = ttk.OptionMenu(mode_frame, self.beam_type_var, "Gaussian", *beam_types, 
-                                 command=self._on_beam_type_change)
-        beam_menu.grid(row=0, column=3, padx=5, pady=5)
-        
-        # Amplitude coupling
-        ttk.Label(mode_frame, text="Amplitude Coupling:").grid(row=0, column=4, padx=5, pady=5)
-        self.amp_coupling_var = tk.StringVar(value="0.1")
-        ttk.Entry(mode_frame, textvariable=self.amp_coupling_var, width=10).grid(row=0, column=5, padx=5, pady=5)
-        
-        # Phase coupling
-        ttk.Label(mode_frame, text="Phase Coupling:").grid(row=0, column=6, padx=5, pady=5)
-        self.phase_coupling_var = tk.StringVar(value="0.1")
-        ttk.Entry(mode_frame, textvariable=self.phase_coupling_var, width=10).grid(row=0, column=7, padx=5, pady=5)
-        
-        # Algorithm parameters tab
-        algo_frame = ttk.Frame(param_notebook)
-        param_notebook.add(algo_frame, text="Algorithm")
-        
-        # Algorithm selection
-        ttk.Label(algo_frame, text="Algorithm:").grid(row=0, column=0, padx=5, pady=5)
-        self.algorithm_var = tk.StringVar(value="gs")
-        algorithm_menu = ttk.OptionMenu(algo_frame, self.algorithm_var, "gs", "gs", "mraf")
-        algorithm_menu.grid(row=0, column=1, padx=5, pady=5)
-        
-        # Number of iterations
-        ttk.Label(algo_frame, text="Iterations:").grid(row=0, column=2, padx=5, pady=5)
-        self.iterations_var = tk.StringVar(value="10")
-        ttk.Entry(algo_frame, textvariable=self.iterations_var, width=10).grid(row=0, column=3, padx=5, pady=5)
-        
-        # MRAF parameters frame (initially hidden)
-        self.mraf_frame = ttk.Frame(algo_frame)
-        self.mraf_frame.grid(row=1, column=0, columnspan=8, padx=5, pady=5)
-        
-        # MRAF mixing parameter
-        ttk.Label(self.mraf_frame, text="Mixing Parameter:").grid(row=0, column=0, padx=5, pady=5)
-        self.mixing_parameter_var = tk.StringVar(value="0.5")
-        ttk.Entry(self.mraf_frame, textvariable=self.mixing_parameter_var, width=10).grid(row=0, column=1, padx=5, pady=5)
-        
-        # Signal region ratio
-        ttk.Label(self.mraf_frame, text="Signal Region Ratio:").grid(row=0, column=2, padx=5, pady=5)
-        self.signal_region_ratio_var = tk.StringVar(value="0.3")
-        ttk.Entry(self.mraf_frame, textvariable=self.signal_region_ratio_var, width=10).grid(row=0, column=3, padx=5, pady=5)
-        
-        # Error parameters frame
-        error_frame = ttk.LabelFrame(algo_frame, text="Error Parameters")
-        error_frame.grid(row=3, column=0, columnspan=8, padx=5, pady=5, sticky="ew")
-        
-        # Tolerance
-        ttk.Label(error_frame, text="Tolerance:").grid(row=0, column=0, padx=5, pady=5)
-        self.tolerance_var = tk.StringVar(value="1e-35")
-        ttk.Entry(error_frame, textvariable=self.tolerance_var, width=10).grid(row=0, column=1, padx=5, pady=5)
-        
-        # Show error plot checkbox
-        self.show_error_plot_var = tk.BooleanVar(value=True)
-        ttk.Checkbutton(error_frame, text="Show Error Plot", variable=self.show_error_plot_var).grid(row=0, column=4, padx=5, pady=5)
-        
-        # Add event handler for algorithm selection
-        self.algorithm_var.trace_add("write", self._on_algorithm_change)
-        
-        # Beam width factor
-        ttk.Label(algo_frame, text="Beam Width:").grid(row=0, column=4, padx=5, pady=5)
-        self.beam_width_var = tk.StringVar(value="1.0")
-        ttk.Entry(algo_frame, textvariable=self.beam_width_var, width=10).grid(row=0, column=5, padx=5, pady=5)
-        
-        # Phase range
-        ttk.Label(algo_frame, text="Phase Range (π):").grid(row=0, column=6, padx=5, pady=5)
-        self.phase_range_var = tk.StringVar(value="2.0")
-        ttk.Entry(algo_frame, textvariable=self.phase_range_var, width=10).grid(row=0, column=7, padx=5, pady=5)
-        
-        # Optical parameters tab
-        optical_frame = ttk.Frame(param_notebook)
-        param_notebook.add(optical_frame, text="Optical")
-        
-        # Wavelength
-        ttk.Label(optical_frame, text="Wavelength (nm):").grid(row=0, column=0, padx=5, pady=5)
-        self.wavelength_var = tk.StringVar(value="650")
-        wavelength_entry = ttk.Entry(optical_frame, textvariable=self.wavelength_var, width=10)
-        wavelength_entry.grid(row=0, column=1, padx=5, pady=5)
-        wavelength_entry.bind('<Return>', lambda e: self.update_wavelength())
-        
-        # Gamma correction
-        ttk.Label(optical_frame, text="Gamma:").grid(row=0, column=2, padx=5, pady=5)
-        self.gamma_var = tk.StringVar(value="0.7")
-        ttk.Entry(optical_frame, textvariable=self.gamma_var, width=10).grid(row=0, column=3, padx=5, pady=5)
-        
-        # Generate button
-        ttk.Button(self.control_frame, text="Generate Pattern", command=self.generate_pattern).pack(pady=10)
+    def initialize_camera(self):
+        """Initialize camera with IMX296 settings"""
+        try:
+            # Initialize camera
+            self.camera = Picamera2()
+            
+            # Check if camera is available
+            if not self.camera:
+                self.status_var.set("Camera not available")
+                print("Camera not available")
+                self.camera_active = False
+                return
+            
+            # Use a simpler configuration approach to avoid the copy() error
+            try:
+                # Create a simple configuration dictionary instead of using create_still_configuration
+                simple_config = {
+                    "main": {
+                        "size": (self.camera_width, self.camera_height),
+                        "format": "RGB888"
+                    }
+                }
+                self.camera.configure(simple_config)
+                print("Camera configured with simple config")
+            except Exception as e:
+                self.status_var.set(f"Camera configuration error: {str(e)}")
+                print(f"Camera configuration error: {str(e)}")
+                self.camera_active = False
+                return
+            
+            # Set initial exposure and gain
+            try:
+                self.camera.set_controls({
+                    "ExposureTime": int(self.exposure_var.get() * 1000),
+                    "AnalogueGain": self.gain_var.get()
+                })
+            except Exception as e:
+                print(f"Warning: Could not set camera controls: {str(e)}")
+                
+            # Start the camera
+            try:
+                self.camera.start()
+                time.sleep(1)  # Allow camera to warm up
+                print("Camera started successfully")
+            except Exception as e:
+                self.status_var.set(f"Camera start error: {str(e)}")
+                print(f"Camera start error: {str(e)}")
+                self.camera_active = False
+                return
+                
+            # Create a blank initial frame
+            self.last_frame = np.zeros((self.camera_height//4, self.camera_width//4), dtype=np.uint16)
+            
+            # Start camera preview thread
+            self.camera_active = True
+            self.camera_paused = False
+            self.camera_thread = threading.Thread(target=self.update_camera_preview, daemon=True)
+            self.camera_thread.start()
+            
+            self.status_var.set("Camera initialized successfully")
+            
+        except Exception as e:
+            self.status_var.set(f"Camera initialization failed: {str(e)}")
+            print(f"Camera initialization error: {str(e)}")
+            self.camera_active = False
 
     def setup_camera_tab(self):
         """Set up the camera tab with preview and controls"""
@@ -388,98 +315,12 @@ class AdvancedPatternGenerator:
         # Initialize camera
         self.initialize_camera()
 
-    def initialize_camera(self):
-        """Initialize camera with IMX296 settings"""
-        try:
-            # Initialize camera
-            self.camera = Picamera2()
-            
-            # Check if camera is available
-            if not self.camera:
-                self.status_var.set("Camera not available")
-                print("Camera not available")
-                self.camera_active = False
-                return
-            
-            # Configure for 10-bit capture using standard RGB format
-            # We'll convert to grayscale after capture
-            try:
-                config = self.camera.create_still_configuration(
-                    main={"size": (self.camera_width, self.camera_height),
-                          "format": "RGB888"},
-                    raw={"size": (self.camera_width, self.camera_height),
-                         "format": "SRGGB10"}
-                )
-                self.camera.configure(config)
-            except Exception as e:
-                self.status_var.set(f"Camera configuration error: {str(e)}")
-                print(f"Camera configuration error: {str(e)}")
-                self.camera_active = False
-                return
-            
-            # Set initial exposure and gain
-            try:
-                self.camera.set_controls({
-                    "ExposureTime": int(self.exposure_var.get() * 1000),
-                    "AnalogueGain": self.gain_var.get()
-                })
-            except Exception as e:
-                print(f"Warning: Could not set camera controls: {str(e)}")
-                
-            # Start the camera
-            try:
-                self.camera.start()
-                time.sleep(1)  # Allow camera to warm up
-                print("Camera started successfully")
-            except Exception as e:
-                self.status_var.set(f"Camera start error: {str(e)}")
-                print(f"Camera start error: {str(e)}")
-                self.camera_active = False
-                return
-                
-            # Create a blank initial frame
-            self.last_frame = np.zeros((self.camera_height//4, self.camera_width//4), dtype=np.uint16)
-            
-            # Try to capture a test frame to ensure camera is working
-            try:
-                test_frame = self.camera.capture_array()
-                if test_frame is not None:
-                    print(f"Camera initialized successfully. Frame shape: {test_frame.shape}")
-                    # Convert test frame to grayscale and store as initial frame
-                    if len(test_frame.shape) == 3:
-                        gray = np.dot(test_frame[..., :3], [0.2989, 0.5870, 0.1140])
-                    else:
-                        gray = test_frame
-                    self.last_frame = gray
-                    
-                    # Update preview with initial frame
-                    if hasattr(self, 'preview_img'):
-                        self.preview_img.set_array(gray)
-                        if hasattr(self, 'camera_canvas'):
-                            self.camera_canvas.draw_idle()
-            except Exception as e:
-                print(f"Warning: Could not capture test frame: {str(e)}")
-                # Continue anyway, as camera might still work
-            
-            # Start camera preview thread
-            self.camera_active = True
-            self.camera_paused = False
-            self.camera_thread = threading.Thread(target=self.update_camera_preview, daemon=True)
-            self.camera_thread.start()
-            
-            self.status_var.set("Camera initialized successfully")
-            
-        except Exception as e:
-            self.status_var.set(f"Camera initialization failed: {str(e)}")
-            print(f"Camera initialization error: {str(e)}")
-            self.camera_active = False
-
     def update_camera_preview(self):
         """Update camera preview in a separate thread"""
         print("Camera preview thread started")
         
         # Safety check - make sure we have a camera
-        if not hasattr(self, 'camera') or self.camera is None:
+        if not hasattr(self, 'camera_active') or not self.camera_active:
             print("Camera not initialized properly, preview thread exiting")
             self.camera_active = False
             return
