@@ -262,8 +262,8 @@ class CameraController:
     def generate_histogram(self, frame: np.ndarray) -> np.ndarray:
         """Generate a histogram image from the frame"""
         try:
-            # Create a figure for the histogram with increased size
-            fig = Figure(figsize=(5, 4), dpi=100)
+            # Create a figure for the histogram with a smaller size
+            fig = Figure(figsize=(4.5, 3.5), dpi=100)
             ax = fig.add_subplot(111)
             
             # Add more padding around the plot for axis labels
@@ -310,7 +310,7 @@ class CameraController:
         except Exception as e:
             print(f"Error generating histogram: {str(e)}")
             # Return a blank image on error
-            return np.zeros((400, 500, 4), dtype=np.uint8)
+            return np.zeros((350, 450, 4), dtype=np.uint8)
     
     def get_intensity_stats(self, frame: Optional[np.ndarray] = None) -> Dict[str, float]:
         """Get intensity statistics from the frame"""
@@ -504,13 +504,9 @@ class CameraGUI:
     
     def _create_widgets(self):
         """Create the GUI widgets"""
-        # Main frame
-        main_frame = ttk.Frame(self.root, padding=10)
-        main_frame.pack(fill=tk.BOTH, expand=True)
-        
-        # Create a notebook for tabs
-        notebook = ttk.Notebook(main_frame)
-        notebook.pack(fill=tk.BOTH, expand=True, pady=5)
+        # Main notebook
+        notebook = ttk.Notebook(self.root)
+        notebook.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
         
         # Preview tab
         preview_tab = ttk.Frame(notebook)
@@ -520,9 +516,12 @@ class CameraGUI:
         self._create_preview_area(preview_tab)
         
         # Status bar
-        self.status_var = tk.StringVar(value="Ready")
-        status_bar = ttk.Label(main_frame, textvariable=self.status_var, relief=tk.SUNKEN, anchor=tk.W)
-        status_bar.pack(fill=tk.X, pady=(5, 0))
+        status_frame = ttk.Frame(self.root)
+        status_frame.pack(fill=tk.X, side=tk.BOTTOM, pady=2)
+        
+        self.status_var = tk.StringVar(value="Camera ready")
+        status_label = ttk.Label(status_frame, textvariable=self.status_var, anchor=tk.W)
+        status_label.pack(fill=tk.X, padx=5)
     
     def _create_preview_area(self, parent):
         """Create the camera preview area"""
@@ -550,13 +549,25 @@ class CameraGUI:
                                       font=("Arial", 10))
         self.intensity_info.pack(pady=5)
         
-        # Histogram canvas
+        # Control buttons for preview pane
+        control_frame = ttk.Frame(preview_pane)
+        control_frame.pack(fill=tk.X, pady=5)
+        
+        ttk.Button(control_frame, text="Capture", command=self._on_capture).pack(side=tk.LEFT, padx=5)
+        ttk.Button(control_frame, text="Save", command=self._on_save).pack(side=tk.LEFT, padx=5)
+        
+        # Pause/Resume toggle button
+        self.pause_text = tk.StringVar(value="Pause Camera")
+        self.pause_button = ttk.Button(control_frame, textvariable=self.pause_text, command=self._on_toggle_pause)
+        self.pause_button.pack(side=tk.LEFT, padx=5)
+        
+        # Histogram canvas - reduced size
         histogram_frame = ttk.LabelFrame(right_pane, text="Histogram")
         histogram_frame.pack(pady=5, fill=tk.X)
         
         self.histogram_canvas = tk.Canvas(histogram_frame,
-                                        width=500,
-                                        height=400,
+                                        width=450,
+                                        height=350,
                                         bg="white")
         self.histogram_canvas.pack(pady=5)
         
@@ -608,18 +619,6 @@ class CameraGUI:
         # Reset button
         reset_button = ttk.Button(settings_buttons_frame, text="Reset Settings", command=self._on_reset)
         reset_button.pack(side=tk.RIGHT, padx=5)
-        
-        # Control buttons
-        control_frame = ttk.Frame(parent)
-        control_frame.pack(fill=tk.X, pady=5)
-        
-        ttk.Button(control_frame, text="Capture", command=self._on_capture).pack(side=tk.LEFT, padx=5)
-        ttk.Button(control_frame, text="Save", command=self._on_save).pack(side=tk.LEFT, padx=5)
-        
-        # Pause/Resume toggle button
-        self.pause_text = tk.StringVar(value="Pause Camera")
-        self.pause_button = ttk.Button(control_frame, textvariable=self.pause_text, command=self._on_toggle_pause)
-        self.pause_button.pack(side=tk.LEFT, padx=5)  # Added this line
     
     def _update_setting_from_entry(self, setting, var):
         """Update a camera setting from an entry field"""
@@ -825,7 +824,7 @@ class CameraGUI:
                     hist_rgb = cv2.cvtColor(hist_img, cv2.COLOR_RGBA2RGB)
                     
                     # Resize to fit canvas
-                    hist_rgb = cv2.resize(hist_rgb, (500, 400))
+                    hist_rgb = cv2.resize(hist_rgb, (450, 350))
                     
                     # Convert to PIL and then to PhotoImage
                     hist_pil = Image.fromarray(hist_rgb)
