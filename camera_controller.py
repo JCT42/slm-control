@@ -642,18 +642,87 @@ class CameraGUI:
     def _on_capture(self):
         """Handle capture button click"""
         try:
-            frame = self.camera.capture_high_quality_frame()
-            if frame is not None:
-                # Show the captured frame
-                with self.camera.lock:
-                    self.camera.latest_frame = frame
-                    self.camera.latest_histogram = self.camera.generate_histogram(frame)
+            # Get the current frame
+            frame = self.camera.get_latest_frame()
+            
+            if frame is None:
+                self.status_var.set("No frame available to capture")
+                return
                 
-                self.status_var.set("Frame captured")
+            # Create default capture directory
+            default_dir = "/home/surena/slm-control/Captures"
+            
+            # Create a default filename with timestamp
+            default_filename = f"image_{time.strftime('%Y%m%d_%H%M%S')}.png"
+            default_path = os.path.join(default_dir, default_filename)
+            
+            # Make sure the default directory exists
+            os.makedirs(default_dir, exist_ok=True)
+            
+            # Check if zenity is available
+            zenity_available = False
+            try:
+                # Check if zenity is installed
+                result = subprocess.run(["which", "zenity"], capture_output=True, text=True)
+                zenity_available = result.returncode == 0
+            except Exception:
+                zenity_available = False
+                
+            # Use zenity if available
+            if zenity_available:
+                try:
+                    # Run zenity file selection dialog
+                    cmd = [
+                        "zenity", "--file-selection",
+                        "--save",
+                        "--filename", default_path,
+                        "--title", "Save Captured Image",
+                        "--file-filter", "Images | *.png *.jpg *.jpeg *.tif *.tiff"
+                    ]
+                    
+                    # Execute zenity command
+                    result = subprocess.run(cmd, capture_output=True, text=True)
+                    
+                    # Check if user canceled
+                    if result.returncode != 0:
+                        self.status_var.set("Capture canceled")
+                        return
+                        
+                    # Get the selected filename
+                    filename = result.stdout.strip()
+                    
+                    # If empty, user canceled
+                    if not filename:
+                        self.status_var.set("Capture canceled")
+                        return
+                        
+                    # Save the frame
+                    if self.camera.save_frame(filename, frame):
+                        self.status_var.set(f"Image captured and saved to {filename}")
+                    else:
+                        self.status_var.set("Failed to save captured image")
+                        
+                except Exception as zenity_error:
+                    print(f"Zenity error: {str(zenity_error)}")
+                    self.status_var.set(f"Zenity error: {str(zenity_error)}")
+                    
+                    # Fallback to default path
+                    if self.camera.save_frame(default_path, frame):
+                        self.status_var.set(f"Image captured and saved to {default_path}")
+                    else:
+                        self.status_var.set("Failed to save captured image")
             else:
-                self.status_var.set("Failed to capture frame")
+                # Zenity not available, use default path
+                print("Zenity not available, saving to default path")
+                if self.camera.save_frame(default_path, frame):
+                    self.status_var.set(f"Image captured and saved to {default_path}")
+                else:
+                    self.status_var.set("Failed to save captured image")
+                
         except Exception as e:
             self.status_var.set(f"Capture error: {str(e)}")
+            print(f"Capture error: {str(e)}")
+            traceback.print_exc()
     
     def _on_save(self):
         """Handle save button click"""
