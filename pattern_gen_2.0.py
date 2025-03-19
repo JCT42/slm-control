@@ -510,7 +510,7 @@ class AdvancedPatternGenerator:
         
         # Histogram
         self.hist_ax = self.camera_fig.add_subplot(gs[1])
-        self.hist_ax.set_title("Intensity Histogram")
+        self.hist_ax.set_title("Intensity Histogram (Press 'Update Histogram' to refresh)")
         self.hist_ax.set_xlabel("Intensity (0-1023)")
         self.hist_ax.set_ylabel("Frequency")
         self.hist_ax.grid(True, alpha=0.3)
@@ -561,6 +561,11 @@ class AdvancedPatternGenerator:
                                command=self.save_camera_image)
         save_button.pack(fill=tk.X, padx=5, pady=5)
         
+        # Update Histogram button
+        update_hist_button = ttk.Button(actions_frame, text="Update Histogram", 
+                                      command=self.update_histogram)
+        update_hist_button.pack(fill=tk.X, padx=5, pady=5)
+        
         # Pause/Resume button
         self.pause_text = tk.StringVar(value="Pause Camera")
         self.pause_button = ttk.Button(actions_frame, textvariable=self.pause_text,
@@ -577,6 +582,55 @@ class AdvancedPatternGenerator:
                              text="Camera captures 10-bit intensity values (0-1023). Images are saved with full precision.",
                              font=("Arial", 10, "italic"))
         info_label.pack(pady=5)
+        
+    def update_histogram(self):
+        """Update the histogram with current frame data"""
+        if not hasattr(self, 'last_frame') or self.last_frame is None:
+            self.status_var.set("No frame available for histogram")
+            return
+            
+        try:
+            # Get the current frame
+            gray = self.last_frame
+            
+            # Update histogram with raw values
+            if hasattr(self, 'hist_ax'):
+                self.hist_ax.clear()
+                self.hist_ax.hist(gray.flatten(), bins=100, range=(0, self.camera_max_value))
+                self.hist_ax.set_title("Intensity Distribution (10-bit)")
+                self.hist_ax.set_xlabel("Intensity (0-1023)")
+                self.hist_ax.set_ylabel("Frequency")
+                
+                # Add intensity statistics
+                mean_val = np.mean(gray)
+                median_val = np.median(gray)
+                max_val = np.max(gray)
+                min_val = np.min(gray)
+                std_val = np.std(gray)
+                
+                self.hist_ax.axvline(mean_val, color='r', linestyle='--', 
+                                   label=f'Mean: {mean_val:.1f}')
+                self.hist_ax.axvline(median_val, color='g', linestyle=':', 
+                                   label=f'Median: {median_val:.1f}')
+                self.hist_ax.axvline(max_val, color='purple', linestyle='-.', 
+                                   label=f'Max: {max_val:.1f}')
+                
+                # Add more detailed statistics to the legend
+                self.hist_ax.legend(title=f"Min: {min_val:.1f}, StdDev: {std_val:.1f}")
+                
+                # Draw the updated canvas
+                if hasattr(self, 'camera_canvas'):
+                    self.camera_canvas.draw()
+                
+                # Update status with detailed intensity info
+                self.status_var.set(
+                    f"Intensity stats - Min: {min_val:.1f}, Max: {max_val:.1f}, " +
+                    f"Mean: {mean_val:.1f}, Median: {median_val:.1f}, StdDev: {std_val:.1f}"
+                )
+                
+        except Exception as e:
+            self.status_var.set(f"Error updating histogram: {str(e)}")
+            print(f"Histogram update error: {str(e)}")
     
     def toggle_camera_pause(self):
         """Toggle camera pause state"""
@@ -679,31 +733,13 @@ class AdvancedPatternGenerator:
                             self.preview_img.set_array(gray)
                             self.preview_ax.set_title(f"Live Preview (10-bit) - {gray.shape[1]}x{gray.shape[0]}")
                         
-                        # Update histogram with raw values
-                        if hasattr(self, 'hist_ax'):
-                            self.hist_ax.clear()
-                            self.hist_ax.hist(gray.flatten(), bins=100, range=(0, self.camera_max_value))
-                            self.hist_ax.set_title("Intensity Distribution (10-bit)")
-                            self.hist_ax.set_xlabel("Intensity (0-1023)")
-                            self.hist_ax.set_ylabel("Frequency")
-                            
-                            # Add intensity statistics
-                            mean_val = np.mean(gray)
-                            median_val = np.median(gray)
-                            max_val = np.max(gray)
-                            self.hist_ax.axvline(mean_val, color='r', linestyle='--', 
-                                               label=f'Mean: {mean_val:.1f}')
-                            self.hist_ax.axvline(median_val, color='g', linestyle=':', 
-                                               label=f'Median: {median_val:.1f}')
-                            self.hist_ax.axvline(max_val, color='purple', linestyle='-.', 
-                                               label=f'Max: {max_val:.1f}')
-                            self.hist_ax.legend()
-                        
                         # Draw the updated canvas
                         if hasattr(self, 'camera_canvas'):
                             self.camera_canvas.draw_idle()  # Use draw_idle for better performance
                         
-                        # Update status with intensity info
+                        # Update status with basic intensity info
+                        max_val = np.max(gray)
+                        mean_val = np.mean(gray)
                         self.status_var.set(f"Intensity (10-bit) - Max: {max_val:.1f}, Mean: {mean_val:.1f}")
                 
                 elif hasattr(self, 'paused_frame') and self.paused_frame is not None:
@@ -1139,17 +1175,13 @@ class AdvancedPatternGenerator:
             default_name = f"pattern_{timestamp}.png"
             
             # Use zenity file dialog
-            cmd = ['zenity', '--file-selection', '--save',
+            cmd = ['zenity', '--file-selection', '--save', 
                    '--filename=' + default_name,
                    '--file-filter=Images | *.png *.jpg *.jpeg *.bmp *.tif *.tiff',
                    '--title=Save Pattern',
                    '--confirm-overwrite']
             result = subprocess.run(cmd, capture_output=True, text=True)
             
-            if result.returncode != 0:
-                self.status_var.set("Pattern save cancelled")
-                return
-                
             save_path = result.stdout.strip()
             if not save_path:
                 return
@@ -1756,28 +1788,11 @@ class AdvancedPatternGenerator:
                     bbox=dict(facecolor='white', alpha=0.7, edgecolor='green', boxstyle='round,pad=0.5')
                 )
                 
-                # Update histogram with captured image data
-                self.hist_ax.clear()
-                self.hist_ax.hist(gray.flatten(), bins=100, range=(0, self.camera_max_value))
-                self.hist_ax.set_title("Captured Image Intensity Distribution (10-bit)")
-                
-                # Add intensity statistics
-                mean_val = np.mean(gray)
-                median_val = np.median(gray)
-                max_val = np.max(gray)
-                self.hist_ax.axvline(mean_val, color='r', linestyle='--', 
-                                   label=f'Mean: {mean_val:.1f}')
-                self.hist_ax.axvline(median_val, color='g', linestyle=':', 
-                                   label=f'Median: {median_val:.1f}')
-                self.hist_ax.axvline(max_val, color='purple', linestyle='-.', 
-                                   label=f'Max: {max_val:.1f}')
-                self.hist_ax.legend()
-                
-                # Redraw the canvas
+                # Update the canvas
                 self.camera_canvas.draw()
             
-            # Update status
-            self.status_var.set(f"Image captured (10-bit) - Max: {max_val:.1f}, Mean: {mean_val:.1f}")
+            # Update the histogram with the captured image
+            self.update_histogram()
             
             # Resume camera if it wasn't paused before
             if not was_paused:
