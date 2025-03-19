@@ -118,7 +118,7 @@ class AdvancedPatternGenerator:
         # Bind ESC key to quit
         self.root.bind('<Escape>', lambda e: self.quit_application())
         # Also bind using protocol for window close button
-        self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
+        self.root.protocol("WM_DELETE_WINDOW", self.quit_application)
         
         # Bind mouse wheel to scrolling
         self.root.bind("<MouseWheel>", self._on_mousewheel)
