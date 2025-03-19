@@ -668,14 +668,42 @@ class AdvancedPatternGenerator:
                 if hasattr(self, 'camera_canvas'):
                     self.camera_canvas.draw_idle()
             
+            # Clear the paused frame to ensure we don't keep displaying it
+            if hasattr(self, 'paused_frame'):
+                self.paused_frame = None
+            
             # Restart camera thread if it's not running
             if not hasattr(self, 'camera_thread') or not self.camera_thread.is_alive():
                 self.camera_thread = threading.Thread(target=self.update_camera_preview, daemon=True)
                 self.camera_thread.start()
             
             # Update button appearance
-            self.pause_button.configure(text="Pause Camera", command=self.pause_camera)
-            self.status_var.set("Camera feed resumed")
+            self.pause_button.configure(style="TButton")
+            self.status_var.set("Camera resumed")
+            
+            # Force an immediate frame capture to refresh the display
+            if hasattr(self, 'camera') and self.camera is not None:
+                try:
+                    frame = self.camera.capture_array()
+                    if frame is not None:
+                        # Convert RGB to grayscale while preserving 10-bit range
+                        if len(frame.shape) == 3:
+                            gray = np.dot(frame[..., :3], [0.2989, 0.5870, 0.1140])
+                        else:
+                            gray = frame
+                        
+                        # Update preview with fresh frame
+                        if hasattr(self, 'preview_img'):
+                            self.preview_img.set_array(gray)
+                            self.preview_ax.set_title(f"Live Preview (10-bit) - {gray.shape[1]}x{gray.shape[0]}")
+                            if hasattr(self, 'camera_canvas'):
+                                self.camera_canvas.draw_idle()
+                        
+                        # Store as last frame
+                        self.last_frame = gray
+                except Exception as e:
+                    self.status_var.set(f"Error capturing frame: {str(e)}")
+                    
         except Exception as e:
             self.status_var.set(f"Error resuming camera: {str(e)}")
     
