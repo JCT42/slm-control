@@ -29,7 +29,6 @@ class CameraController:
         """
         # Default camera configuration
         self.default_config = {
-            'device': '/dev/video0',  # Camera device path
             'width': 1456,           # IMX296 native width
             'height': 1088,          # IMX296 native height
             'bit_depth': 10,         # 10-bit camera
@@ -76,8 +75,8 @@ class CameraController:
     def initialize(self):
         """Initialize the camera with configured settings"""
         try:
-            # Create camera instance with specific device
-            self.camera = Picamera2(camera_id=self.config['device'])
+            # Create camera instance without device parameter
+            self.camera = Picamera2()
             
             # Configure for 10-bit Y10 capture
             preview_width = int(self.config['width'] * self.config['preview_scale'])
@@ -105,7 +104,7 @@ class CameraController:
             
             # Mark as initialized
             self.is_initialized = True
-            print(f"Camera initialized: {self.config['device']} at {self.config['width']}x{self.config['height']} in {self.config['pixel_format']} format")
+            print(f"Camera initialized: {self.config['width']}x{self.config['height']} in {self.config['pixel_format']} format")
             return True
             
         except Exception as e:
@@ -365,7 +364,7 @@ class CameraController:
             # Save metadata file with important information about the intensity values
             metadata_filename = filename + '.txt'
             with open(metadata_filename, 'w') as f:
-                f.write(f"Camera: IMX296 Monochrome at {self.config['device']}\n")
+                f.write(f"Camera: IMX296 Monochrome at {self.config['width']}x{self.config['height']}\n")
                 f.write(f"Resolution: {frame.shape[1]}x{frame.shape[0]}\n")
                 f.write(f"Bit Depth: {self.config['bit_depth']}-bit\n")
                 f.write(f"Pixel Format: {self.config['pixel_format']}\n")

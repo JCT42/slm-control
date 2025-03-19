@@ -207,8 +207,8 @@ class CameraController:
                 print("PiCamera2 is not available. Please install it with: pip install picamera2")
                 return False
                 
-            # Create camera instance with specific device
-            self.camera = Picamera2(camera_id=0)  # Use default camera (typically /dev/video0)
+            # Create camera instance - don't use camera_id parameter as it's not supported in some versions
+            self.camera = Picamera2()  # Use default camera
             
             # Configure for 10-bit Y10 capture
             preview_width = int(self.width * 0.5)  # Half size for preview
