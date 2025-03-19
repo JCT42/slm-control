@@ -654,15 +654,28 @@ class AdvancedPatternGenerator:
     
     def resume_camera(self):
         """Resume the camera feed"""
-        if not hasattr(self, 'camera_active') or not self.camera_active:
+        if not hasattr(self, 'camera_active'):
             return
             
         try:
+            self.camera_active = True
             self.camera_paused = False
-            self.status_var.set("Camera resumed")
+            
+            # Remove the paused indicator if it exists
+            if hasattr(self, 'paused_indicator') and self.paused_indicator is not None:
+                self.paused_indicator.remove()
+                delattr(self, 'paused_indicator')
+                if hasattr(self, 'camera_canvas'):
+                    self.camera_canvas.draw_idle()
+            
+            # Restart camera thread if it's not running
+            if not hasattr(self, 'camera_thread') or not self.camera_thread.is_alive():
+                self.camera_thread = threading.Thread(target=self.update_camera_preview, daemon=True)
+                self.camera_thread.start()
             
             # Update button appearance
-            self.pause_button.configure(style="TButton")
+            self.pause_button.configure(text="Pause Camera", command=self.pause_camera)
+            self.status_var.set("Camera feed resumed")
         except Exception as e:
             self.status_var.set(f"Error resuming camera: {str(e)}")
     
