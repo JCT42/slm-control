@@ -572,11 +572,6 @@ class AdvancedPatternGenerator:
                                      command=self.toggle_camera_pause)
         self.pause_button.pack(fill=tk.X, padx=5, pady=5)
         
-        # Send to SLM button
-        send_to_slm_button = ttk.Button(actions_frame, text="Use as Target Image",
-                                      command=self.send_camera_to_slm)
-        send_to_slm_button.pack(fill=tk.X, padx=5, pady=5)
-        
         # Add info label
         info_label = ttk.Label(camera_container, 
                              text="Camera captures 10-bit intensity values (0-1023). Images are saved with full precision.",
@@ -1232,14 +1227,14 @@ class AdvancedPatternGenerator:
             
         self.camera_active = False
         self.camera_paused = True
-        self.pause_camera_button.configure(text="Resume Camera", command=self.resume_camera)
+        self.pause_button.configure(text="Resume Camera", command=self.resume_camera)
         self.status_var.set("Camera feed paused")
         
     def resume_camera(self):
         """Resume the camera feed"""
         self.camera_active = True
         self.camera_paused = False
-        self.pause_camera_button.configure(text="Pause Camera", command=self.pause_camera)
+        self.pause_button.configure(text="Pause Camera", command=self.pause_camera)
         self.status_var.set("Camera feed resumed")
         
     def generate_input_beam(self):
