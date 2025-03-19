@@ -5,7 +5,7 @@ This module provides a flexible camera interface for capturing and processing
 images from various camera types, with a focus on scientific imaging applications.
 
 Features:
-- Support for different camera types (PiCamera, OpenCV webcams, etc.)
+- Support for different camera types (PiCamera2, OpenCV webcams, etc.)
 - 10-bit intensity capture and processing
 - Real-time display capabilities using OpenCV
 - Histogram and intensity analysis tools
@@ -16,6 +16,7 @@ Dependencies:
 - OpenCV (cv2)
 - NumPy
 - Threading
+- PiCamera2 (for Raspberry Pi cameras)
 """
 
 import cv2
@@ -30,6 +31,14 @@ import tkinter as tk
 from tkinter import ttk
 from PIL import Image, ImageTk
 
+# Try to import picamera2, but don't fail if not available
+try:
+    from picamera2 import Picamera2
+    PICAMERA2_AVAILABLE = True
+except ImportError:
+    PICAMERA2_AVAILABLE = False
+    print("PiCamera2 not available - Raspberry Pi camera support will be limited")
+
 
 class CameraController:
     """
@@ -39,21 +48,23 @@ class CameraController:
     
     def __init__(self, camera_type: str = "opencv", camera_index: int = 0, 
                  resolution: Tuple[int, int] = (1456, 1088),
-                 bit_depth: int = 10):
+                 bit_depth: int = 10, simulate: bool = False):
         """
         Initialize the camera controller.
         
         Args:
-            camera_type: Type of camera to use ('opencv', 'picamera', etc.)
+            camera_type: Type of camera to use ('opencv', 'picamera2', etc.)
             camera_index: Camera device index for OpenCV cameras
             resolution: Desired camera resolution (width, height)
             bit_depth: Bit depth for intensity values (default: 10-bit)
+            simulate: If True, use a simulated camera when no real camera is available
         """
         self.camera_type = camera_type
         self.camera_index = camera_index
         self.width, self.height = resolution
         self.bit_depth = bit_depth
         self.max_value = 2**bit_depth - 1  # e.g., 1023 for 10-bit
+        self.simulate = simulate
         
         # Camera state
         self.camera = None
@@ -94,8 +105,10 @@ class CameraController:
         try:
             if self.camera_type == "opencv":
                 return self._initialize_opencv_camera()
-            elif self.camera_type == "picamera":
-                return self._initialize_picamera()
+            elif self.camera_type == "picamera2":
+                return self._initialize_picamera2()
+            elif self.simulate:
+                return self._initialize_simulated_camera()
             else:
                 print(f"Unsupported camera type: {self.camera_type}")
                 return False
@@ -107,66 +120,36 @@ class CameraController:
     def _initialize_opencv_camera(self) -> bool:
         """Initialize an OpenCV camera"""
         try:
-            # Create camera object
-            self.camera = cv2.VideoCapture(self.camera_index)
+            # Try different backends in order of preference
+            backends = [
+                cv2.CAP_ANY,          # Auto-detect
+                cv2.CAP_V4L2,         # Video4Linux2
+                cv2.CAP_GSTREAMER,    # GStreamer
+                cv2.CAP_DSHOW         # DirectShow (Windows)
+            ]
             
+            # Try each backend until one works
+            for backend in backends:
+                print(f"Trying camera backend: {backend}")
+                self.camera = cv2.VideoCapture(self.camera_index, backend)
+                
+                if self.camera.isOpened():
+                    print(f"Successfully opened camera with backend: {backend}")
+                    break
+            
+            # If none of the backends worked, try one last time with default
+            if not self.camera.isOpened():
+                print("All backends failed, trying default...")
+                self.camera = cv2.VideoCapture(self.camera_index)
+            
+            # Final check
             if not self.camera.isOpened():
                 print(f"Failed to open camera {self.camera_index}")
                 return False
             
-            # Set camera properties
-            # Note: Not all cameras support all properties
-            # Try to set each property and report success/failure
-            
-            # Set resolution
-            width_success = self.camera.set(cv2.CAP_PROP_FRAME_WIDTH, float(self.width))
-            height_success = self.camera.set(cv2.CAP_PROP_FRAME_HEIGHT, float(self.height))
-            
-            if not (width_success and height_success):
-                print("Warning: Failed to set camera resolution")
-            
-            # Set exposure (convert ms to seconds for OpenCV)
-            if 'exposure' in self.settings:
-                # Ensure exposure is a float value
-                exposure_value = float(self.settings['exposure'])
-                # First, disable auto exposure
-                if not self.settings['auto_exposure']:
-                    auto_exp_success = self.camera.set(cv2.CAP_PROP_AUTO_EXPOSURE, 0.0)  # 0 = manual, 1 = auto
-                    if not auto_exp_success:
-                        print("Warning: Failed to disable auto exposure")
-                
-                # Then set manual exposure
-                exp_success = self.camera.set(cv2.CAP_PROP_EXPOSURE, exposure_value)
-                if not exp_success:
-                    print(f"Warning: Failed to set exposure to {exposure_value}")
-                else:
-                    print(f"Set exposure to {exposure_value}")
-            
-            # Set gain
-            if 'gain' in self.settings:
-                # Ensure gain is a float value
-                gain_value = float(self.settings['gain'])
-                gain_success = self.camera.set(cv2.CAP_PROP_GAIN, gain_value)
-                if not gain_success:
-                    print(f"Warning: Failed to set gain to {gain_value}")
-                else:
-                    print(f"Set gain to {gain_value}")
-            
-            # Set brightness
-            if 'brightness' in self.settings:
-                # Ensure brightness is a float value
-                brightness_value = float(self.settings['brightness'])
-                brightness_success = self.camera.set(cv2.CAP_PROP_BRIGHTNESS, brightness_value)
-                if not brightness_success:
-                    print(f"Warning: Failed to set brightness to {brightness_value}")
-            
-            # Set contrast
-            if 'contrast' in self.settings:
-                # Ensure contrast is a float value
-                contrast_value = float(self.settings['contrast'])
-                contrast_success = self.camera.set(cv2.CAP_PROP_CONTRAST, contrast_value)
-                if not contrast_success:
-                    print(f"Warning: Failed to set contrast to {contrast_value}")
+            # Set resolution - don't check for success as not all cameras support this
+            self.camera.set(cv2.CAP_PROP_FRAME_WIDTH, float(self.width))
+            self.camera.set(cv2.CAP_PROP_FRAME_HEIGHT, float(self.height))
             
             # Get actual camera resolution (may differ from requested)
             actual_width = int(self.camera.get(cv2.CAP_PROP_FRAME_WIDTH))
@@ -180,6 +163,39 @@ class CameraController:
                 self.width = actual_width
                 self.height = actual_height
             
+            # Try to set camera properties, but don't fail if they're not supported
+            try:
+                # Try to disable auto exposure
+                if not self.settings['auto_exposure']:
+                    self.camera.set(cv2.CAP_PROP_AUTO_EXPOSURE, 0.0)  # 0 = manual
+                
+                # Try to set exposure
+                if 'exposure' in self.settings:
+                    self.camera.set(cv2.CAP_PROP_EXPOSURE, float(self.settings['exposure']))
+                
+                # Try to set gain
+                if 'gain' in self.settings:
+                    self.camera.set(cv2.CAP_PROP_GAIN, float(self.settings['gain']))
+                
+                # Try to set brightness
+                if 'brightness' in self.settings:
+                    self.camera.set(cv2.CAP_PROP_BRIGHTNESS, float(self.settings['brightness']))
+                
+                # Try to set contrast
+                if 'contrast' in self.settings:
+                    self.camera.set(cv2.CAP_PROP_CONTRAST, float(self.settings['contrast']))
+            except Exception as e:
+                print(f"Warning: Could not set some camera properties: {str(e)}")
+                # Continue anyway - these are not critical
+            
+            # Verify camera is working by capturing a test frame
+            ret, test_frame = self.camera.read()
+            if not ret or test_frame is None:
+                print("Warning: Camera opened but test frame capture failed")
+                # We'll continue anyway and hope it starts working
+            else:
+                print(f"Test frame captured successfully: {test_frame.shape}")
+            
             return True
             
         except Exception as e:
@@ -187,74 +203,60 @@ class CameraController:
             traceback.print_exc()
             return False
     
-    def _initialize_picamera(self) -> bool:
-        """Initialize a Raspberry Pi Camera"""
+    def _initialize_picamera2(self) -> bool:
+        """Initialize a Raspberry Pi Camera using PiCamera2"""
         try:
-            # Import picamera module
-            import picamera
-            import picamera.array
+            # Check if PiCamera2 is available
+            if not PICAMERA2_AVAILABLE:
+                print("PiCamera2 is not available. Please install it with: pip install picamera2")
+                return False
+                
+            # Create camera instance with specific device
+            self.camera = Picamera2(camera_id=0)  # Use default camera (typically /dev/video0)
             
-            # Create camera object
-            self.camera = picamera.PiCamera()
+            # Configure for 10-bit Y10 capture
+            preview_width = int(self.width * 0.5)  # Half size for preview
+            preview_height = int(self.height * 0.5)
             
-            # Set resolution
-            self.camera.resolution = (self.width, self.height)
+            # Create configuration for still and preview
+            # For Y10 format, we need to use the correct configuration
+            self.camera_config = self.camera.create_still_configuration(
+                main={"size": (self.width, self.height),
+                      "format": "Y10"},  # 10-bit Y-only format
+                lores={"size": (preview_width, preview_height),
+                       "format": "YUV420"},
+                display="lores"
+            )
             
-            # Set framerate (30fps is a good default)
-            self.camera.framerate = 30
+            # Apply configuration
+            self.camera.configure(self.camera_config)
             
-            # Set sensor mode for 10-bit capture if using IMX296 sensor
-            # Mode 6 is typically 10-bit mode for newer Pi cameras
-            try:
-                self.camera.sensor_mode = 6  # 10-bit mode
-                print("Set PiCamera to sensor mode 6 (10-bit)")
-            except:
-                print("Could not set sensor mode 6, using default mode")
+            # Set initial camera controls
+            self.camera.set_controls({
+                "ExposureTime": int(self.settings['exposure'] * 1000),  # Convert ms to μs
+                "AnalogueGain": float(self.settings['gain']),
+                "FrameDurationLimits": (33333, 33333),  # Target ~30fps
+            })
             
-            # Set exposure mode to 'off' for manual control
-            if not self.settings['auto_exposure']:
-                self.camera.exposure_mode = 'off'
-            
-            # Set exposure time (in microseconds)
-            if 'exposure' in self.settings:
-                # Convert ms to μs
-                exposure_us = int(self.settings['exposure'] * 1000)
-                self.camera.shutter_speed = exposure_us
-                print(f"Set PiCamera exposure to {exposure_us} μs")
-            
-            # Set gain
-            if 'gain' in self.settings:
-                # PiCamera gain is typically between 1-16
-                self.camera.analog_gain = float(self.settings['gain'])
-                print(f"Set PiCamera gain to {self.settings['gain']}")
-            
-            # Set brightness (PiCamera uses -100 to 100 scale)
-            if 'brightness' in self.settings:
-                # Convert 0-255 scale to -100 to 100
-                brightness = int((self.settings['brightness'] / 255) * 200 - 100)
-                self.camera.brightness = brightness
-            
-            # Set contrast (PiCamera uses -100 to 100 scale)
-            if 'contrast' in self.settings:
-                # Convert 0-255 scale to -100 to 100
-                contrast = int((self.settings['contrast'] / 255) * 200 - 100)
-                self.camera.contrast = contrast
-            
-            # Create a PiRGBArray for capturing frames
-            self.rawCapture = picamera.array.PiRGBArray(self.camera, size=(self.width, self.height))
-            
-            # Wait for camera to initialize
-            time.sleep(2)
-            
-            print("PiCamera initialized successfully")
+            print(f"PiCamera2 initialized at {self.width}x{self.height} in Y10 format")
             return True
             
-        except ImportError:
-            print("PiCamera module not available. Please install it with:")
-            print("sudo apt-get install python3-picamera")
-            return False
         except Exception as e:
-            print(f"PiCamera initialization error: {str(e)}")
+            print(f"PiCamera2 initialization error: {str(e)}")
+            traceback.print_exc()
+            return False
+    
+    def _initialize_simulated_camera(self) -> bool:
+        """Initialize a simulated camera"""
+        try:
+            # Create a simulated camera object
+            self.camera = SimulatedCamera(self.width, self.height, self.bit_depth)
+            
+            print("Simulated camera initialized successfully")
+            return True
+            
+        except Exception as e:
+            print(f"Simulated camera initialization error: {str(e)}")
             traceback.print_exc()
             return False
     
@@ -294,7 +296,7 @@ class CameraController:
         if self.camera is not None:
             if self.camera_type == "opencv":
                 self.camera.release()
-            elif self.camera_type == "picamera":
+            elif self.camera_type == "picamera2":
                 self.camera.close()
             
             self.camera = None
@@ -352,44 +354,54 @@ class CameraController:
                 
                 # Convert to grayscale if not already
                 if len(frame.shape) > 2:
-                    frame = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-                
-                # For 10-bit depth, we need to scale the 8-bit frame
-                if self.bit_depth > 8:
-                    # Scale from 8-bit (0-255) to 10-bit (0-1023)
-                    frame = frame.astype(np.float32) * (self.max_value / 255.0)
-                    frame = frame.astype(np.uint16)
-                    
-                    # Print some debug info about the frame values
-                    if np.random.random() < 0.01:  # Only print occasionally (1% of frames)
-                        print(f"Frame stats - Min: {np.min(frame)}, Max: {np.max(frame)}, Mean: {np.mean(frame):.1f}")
-                
-                return frame
-                
-            elif self.camera_type == "picamera":
-                # PiCamera capture is handled differently
-                # Capture a frame
-                self.camera.capture(self.rawCapture, format="bgr", use_video_port=True)
-                
-                # Get the frame
-                frame = self.rawCapture.array
-                
-                # Convert to grayscale while preserving bit depth
-                if len(frame.shape) == 3:
-                    gray = np.dot(frame[..., :3], [0.2989, 0.5870, 0.1140])
+                    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
                 else:
                     gray = frame
                 
-                # Reset the raw capture array
-                self.rawCapture.truncate(0)
+                # For 10-bit depth, we need to scale the 8-bit frame
+                if self.bit_depth > 8:
+                    # Preserve the intensity values for scientific analysis
+                    # Scale from 8-bit (0-255) to 10-bit (0-1023)
+                    scaled = gray.astype(np.float32) * (self.max_value / 255.0)
+                    scaled = scaled.astype(np.uint16)
+                    
+                    # Print some debug info about the frame values occasionally
+                    if np.random.random() < 0.01:  # Only print occasionally (1% of frames)
+                        print(f"Frame stats - Min: {np.min(scaled)}, Max: {np.max(scaled)}, Mean: {np.mean(scaled):.1f}")
+                    
+                    return scaled
+                else:
+                    return gray
                 
-                return gray
+            elif self.camera_type == "picamera2":
+                # For Raspberry Pi camera with PiCamera2 and 10-bit mode
+                try:
+                    # Capture a frame
+                    frame = self.camera.capture_array()
+                    
+                    # Y10 format already provides 10-bit intensity values
+                    # No need to convert to grayscale or scale
+                    
+                    # Print some debug info occasionally
+                    if np.random.random() < 0.01:
+                        print(f"PiCamera2 frame stats - Min: {np.min(frame)}, Max: {np.max(frame)}, Mean: {np.mean(frame):.1f}")
+                    
+                    return frame
+                    
+                except Exception as e:
+                    print(f"PiCamera2 frame capture error: {str(e)}")
+                    traceback.print_exc()
+                    return None
+            
+            elif self.camera_type == "simulated":
+                # Simulated camera for testing when no real camera is available
+                return self.camera.capture()
             
             return None
             
         except Exception as e:
             print(f"Frame capture error: {str(e)}")
-            traceback.print_exc()  # Print detailed error message
+            traceback.print_exc()
             return None
     
     def get_frame(self) -> Optional[np.ndarray]:
@@ -432,61 +444,56 @@ class CameraController:
                         else:
                             gray = frame
                         frames.append(gray)
-                    time.sleep(0.05)
                 
-                if frames:
-                    # Average the frames
-                    still_frame = np.mean(frames, axis=0).astype(np.float32)
-                    
-                    # Scale to 10-bit range if needed
-                    if self.bit_depth == 10 and still_frame.max() <= 255:
-                        still_frame = still_frame * (1023/255)
-                    
-                    # Store the captured frame
-                    self.last_captured_frame = still_frame
-                    
-                    # Resume if it wasn't paused before
-                    if not was_paused:
-                        self.resume()
-                        
-                    return still_frame
-            
-            elif self.camera_type == "picamera":
-                # For PiCamera, we can request a high-quality still
-                self.camera.capture(self.rawCapture, format="bgr", use_video_port=False)
+                if not frames:
+                    print("Failed to capture any frames")
+                    return None
                 
-                # Get the frame
-                still_frame = self.rawCapture.array
+                # Average the frames to reduce noise
+                avg_frame = np.mean(frames, axis=0).astype(np.uint8)
                 
-                # Convert to grayscale while preserving bit depth
-                if len(still_frame.shape) == 3:
-                    gray = np.dot(still_frame[..., :3], [0.2989, 0.5870, 0.1140])
+                # Scale to 10-bit if needed
+                if self.bit_depth > 8:
+                    scaled = avg_frame.astype(np.float32) * (self.max_value / 255.0)
+                    result = scaled.astype(np.uint16)
                 else:
-                    gray = still_frame
-                
-                # Reset the raw capture array
-                self.rawCapture.truncate(0)
-                
-                # Store the captured frame
-                self.last_captured_frame = gray
-                
-                # Resume if it wasn't paused before
-                if not was_paused:
-                    self.resume()
+                    result = avg_frame
                     
-                return gray
+            elif self.camera_type == "picamera2":
+                # For PiCamera2, capture a high-quality still
+                try:
+                    # Configure for a still capture with full resolution
+                    # Y10 format already provides 10-bit intensity values
+                    result = self.camera.capture_array()
+                    
+                except Exception as e:
+                    print(f"PiCamera2 still capture error: {str(e)}")
+                    traceback.print_exc()
+                    return None
+                    
+            elif self.camera_type == "simulated":
+                # For simulated camera, just get a frame
+                result = self.camera.capture()
             
-            # Resume if it wasn't paused before
+            else:
+                print(f"Unsupported camera type for still capture: {self.camera_type}")
+                return None
+            
+            # Store the captured frame
+            with self.lock:
+                self.last_captured_frame = result.copy()
+            
+            # Restore previous pause state
             if not was_paused:
                 self.resume()
                 
-            return None
+            return result
             
         except Exception as e:
             print(f"Still capture error: {str(e)}")
-            traceback.print_exc()  # Print detailed error message
+            traceback.print_exc()
             
-            # Make sure to resume if it wasn't paused before
+            # Restore previous pause state
             if not was_paused:
                 self.resume()
                 
@@ -640,22 +647,32 @@ class CameraController:
                         self.settings[setting] = old_value
                         return False
                 
-            elif self.camera_type == "picamera" and self.camera is not None:
+            elif self.camera_type == "picamera2" and self.camera is not None:
                 if setting == 'exposure':
                     # Convert ms to μs
-                    self.camera.shutter_speed = int(value * 1000)
+                    self.camera.set_controls({
+                        "ExposureTime": int(value * 1000),
+                    })
                 elif setting == 'gain':
-                    self.camera.analog_gain = float(value)
+                    self.camera.set_controls({
+                        "AnalogueGain": float(value),
+                    })
                 elif setting == 'brightness':
                     # Convert 0-255 to -100 to 100
                     brightness = int((value / 255) * 200 - 100)
-                    self.camera.brightness = brightness
+                    self.camera.set_controls({
+                        "Brightness": brightness,
+                    })
                 elif setting == 'contrast':
                     # Convert 0-255 to -100 to 100
                     contrast = int((value / 255) * 200 - 100)
-                    self.camera.contrast = contrast
+                    self.camera.set_controls({
+                        "Contrast": contrast,
+                    })
                 elif setting == 'auto_exposure':
-                    self.camera.exposure_mode = 'auto' if value else 'off'
+                    self.camera.set_controls({
+                        "AeEnable": value,
+                    })
             
             return True
             
@@ -800,6 +817,87 @@ class CameraController:
             traceback.print_exc()  # Print detailed error message
 
 
+class SimulatedCamera:
+    """
+    A simulated camera for testing when no real camera is available.
+    Generates patterns with 10-bit intensity values for testing.
+    """
+    def __init__(self, width: int, height: int, bit_depth: int = 10):
+        self.width = width
+        self.height = height
+        self.bit_depth = bit_depth
+        self.max_value = (1 << bit_depth) - 1  # 2^bit_depth - 1
+        self.frame_count = 0
+        
+    def capture(self):
+        """
+        Generate a simulated frame with intensity patterns.
+        Returns a grayscale image with 10-bit values (0-1023).
+        """
+        # Create a time-varying pattern
+        t = time.time() * 0.5
+        self.frame_count += 1
+        
+        # Create coordinate grids
+        x = np.linspace(-3, 3, self.width)
+        y = np.linspace(-3, 3, self.height)
+        xx, yy = np.meshgrid(x, y)
+        
+        # Create a pattern with sine waves and a gaussian envelope
+        r = np.sqrt(xx**2 + yy**2)
+        theta = np.arctan2(yy, xx)
+        
+        # Gaussian envelope
+        gaussian = np.exp(-0.5 * r**2)
+        
+        # Interference pattern (simulating diffraction)
+        waves = np.sin(5.0 * r + t) * 0.5 + 0.5
+        
+        # Combine patterns
+        pattern = waves * gaussian
+        
+        # Normalize to 0-1 range
+        pattern = (pattern - pattern.min()) / (pattern.max() - pattern.min())
+        
+        # Scale to bit depth (0-1023 for 10-bit)
+        pattern = (pattern * self.max_value).astype(np.uint16)
+        
+        # Add some noise (5% of max value)
+        noise = np.random.normal(0, self.max_value * 0.05, pattern.shape)
+        pattern = np.clip(pattern + noise, 0, self.max_value).astype(np.uint16)
+        
+        # Print stats occasionally
+        if self.frame_count % 30 == 0:  # Every 30 frames
+            print(f"Simulated frame stats - Min: {np.min(pattern)}, Max: {np.max(pattern)}, Mean: {np.mean(pattern):.1f}")
+        
+        return pattern
+    
+    def capture_still(self):
+        """
+        Generate a higher quality simulated still image.
+        Returns a grayscale image with 10-bit values (0-1023).
+        """
+        # For still capture, create a more detailed pattern
+        pattern = self.capture()
+        
+        # Add some additional features to make it look different from video frames
+        x = np.linspace(-3, 3, self.width)
+        y = np.linspace(-3, 3, self.height)
+        xx, yy = np.meshgrid(x, y)
+        
+        # Add some additional features
+        features = np.sin(xx * 10) * np.sin(yy * 10) * 0.2 * self.max_value
+        pattern = np.clip(pattern + features, 0, self.max_value).astype(np.uint16)
+        
+        print(f"Simulated still capture - Min: {np.min(pattern)}, Max: {np.max(pattern)}, Mean: {np.mean(pattern):.1f}")
+        
+        return pattern
+        
+    def isOpened(self):
+        """Simulate camera open check"""
+        return True
+
+
 class CameraControlGUI:
     def __init__(self, parent=None, camera=None):
         """
@@ -814,7 +912,7 @@ class CameraControlGUI:
         # Create camera controller if not provided
         if camera is None:
             self.camera = CameraController(camera_type="opencv", camera_index=0, 
-                                         resolution=(640, 480), bit_depth=10)
+                                         resolution=(640, 480), bit_depth=10, simulate=True)
             self.camera.initialize()
         else:
             self.camera = camera
@@ -1137,41 +1235,94 @@ if __name__ == "__main__":
     print("Starting camera control module...")
     
     try:
-        # Check available cameras
-        print("Checking available cameras...")
-        available_cameras = []
-        for i in range(3):  # Try first 3 camera indices
-            cap = cv2.VideoCapture(i)
-            if cap.isOpened():
-                available_cameras.append(i)
-                cap.release()
+        # On Raspberry Pi, prioritize PiCamera2
+        try_picamera2_first = True  # Set to True for Raspberry Pi
         
-        if not available_cameras:
-            print("No OpenCV cameras found. Trying PiCamera...")
-            # Try to import picamera to check if it's available
+        if try_picamera2_first:
+            print("Checking for PiCamera2 (recommended for Raspberry Pi)...")
             try:
-                import picamera
-                print("PiCamera module is available")
-                camera_type = "picamera"
+                import picamera2
+                print("PiCamera2 module is available - using PiCamera2")
+                camera_type = "picamera2"
                 camera_index = 0
+                use_simulation = False
             except ImportError:
-                print("PiCamera module not available")
-                print("No cameras detected. Please check your camera connection.")
-                exit(1)
-        else:
-            print(f"Found {len(available_cameras)} OpenCV camera(s) at indices: {available_cameras}")
-            camera_type = "opencv"
-            camera_index = available_cameras[0]
+                print("PiCamera2 module not available, falling back to OpenCV camera")
+                try_picamera2_first = False
+        
+        # If PiCamera2 not available or not prioritized, try OpenCV cameras
+        if not try_picamera2_first:
+            print("Checking for OpenCV cameras...")
+            available_cameras = []
+            
+            # Try to detect cameras with different backends
+            backends = [
+                (cv2.CAP_V4L2, "Video4Linux2"),  # Best for Raspberry Pi
+                (cv2.CAP_ANY, "Auto-detect"),
+                (cv2.CAP_GSTREAMER, "GStreamer"),
+                (cv2.CAP_DSHOW, "DirectShow")
+            ]
+            
+            for backend_id, backend_name in backends:
+                print(f"Checking cameras with {backend_name} backend...")
+                for i in range(3):  # Try first 3 camera indices
+                    try:
+                        cap = cv2.VideoCapture(i, backend_id)
+                        if cap.isOpened():
+                            # Try to read a test frame
+                            ret, frame = cap.read()
+                            if ret and frame is not None:
+                                print(f"  Camera {i} is working with {backend_name} backend")
+                                available_cameras.append((i, backend_id, backend_name))
+                            else:
+                                print(f"  Camera {i} opened but frame capture failed with {backend_name} backend")
+                        cap.release()
+                    except Exception as e:
+                        print(f"  Error checking camera {i} with {backend_name} backend: {str(e)}")
+            
+            # Decide which camera to use
+            if available_cameras:
+                print(f"Found {len(available_cameras)} working camera(s):")
+                for i, (cam_index, backend_id, backend_name) in enumerate(available_cameras):
+                    print(f"  {i+1}. Camera {cam_index} with {backend_name} backend")
+                
+                # Use the first working camera
+                camera_index, backend_id, backend_name = available_cameras[0]
+                print(f"Using camera {camera_index} with {backend_name} backend")
+                camera_type = "opencv"
+                use_simulation = False
+            else:
+                print("No working OpenCV cameras found.")
+                print("Falling back to simulated camera for testing.")
+                camera_type = "simulated"
+                camera_index = 0
+                use_simulation = True
         
         # Create camera controller with appropriate settings
         print(f"Initializing camera (type: {camera_type}, index: {camera_index})...")
-        camera = CameraController(camera_type=camera_type, camera_index=camera_index,
-                                 resolution=(640, 480), bit_depth=10)
+        
+        # For scientific analysis, we need to preserve 10-bit intensity values (0-1023)
+        camera = CameraController(
+            camera_type=camera_type, 
+            camera_index=camera_index,
+            resolution=(640, 480), 
+            bit_depth=10,  # Using 10-bit for scientific analysis
+            simulate=use_simulation
+        )
         
         # Initialize the camera
         if not camera.initialize():
-            print("Failed to initialize camera. Please check your camera connection and permissions.")
-            exit(1)
+            print("Failed to initialize camera. Falling back to simulated camera.")
+            camera = CameraController(
+                camera_type="simulated", 
+                camera_index=0,
+                resolution=(640, 480), 
+                bit_depth=10,  # Preserve 10-bit for consistency
+                simulate=True
+            )
+            if not camera.initialize():
+                print("Failed to initialize simulated camera. Exiting.")
+                exit(1)
         
         print("Camera initialized successfully!")
         
