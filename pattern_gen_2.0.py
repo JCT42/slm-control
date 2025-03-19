@@ -526,6 +526,7 @@ class AdvancedPatternGenerator:
         except Exception as e:
             self.status_var.set(f"Error updating preview: {str(e)}")
             print(f"Detailed error: {str(e)}")
+            traceback.print_exc()
 
     def generate_pattern(self):
         """Generate pattern based on current settings"""
@@ -616,11 +617,12 @@ class AdvancedPatternGenerator:
     def load_pattern(self):
         """Load a pattern from file"""
         try:
-            # Use zenity file dialog
+            # Use zenity file dialog with improved error handling for Raspberry Pi
             cmd = ['zenity', '--file-selection',
                    '--file-filter=Images | *.png *.jpg *.jpeg *.bmp *.tif *.tiff',
                    '--title=Select Pattern']
-            result = subprocess.run(cmd, capture_output=True, text=True)
+            
+            result = subprocess.run(cmd, capture_output=True, text=True, check=False)
             
             if result.returncode != 0:
                 self.status_var.set("Pattern loading cancelled")
@@ -633,11 +635,11 @@ class AdvancedPatternGenerator:
             # Load the pattern
             pattern = cv2.imread(file_path, cv2.IMREAD_GRAYSCALE)
             if pattern is None:
-                raise ValueError("Could not load pattern")
+                raise ValueError(f"Could not load pattern from {file_path}")
                 
             # Resize if necessary
-            if pattern.shape != (600, 800):
-                pattern = cv2.resize(pattern, (800, 600))
+            if pattern.shape != (self.height, self.width):
+                pattern = cv2.resize(pattern, (self.width, self.height))
             
             self.pattern = pattern
             self.slm_phase = (pattern.astype(float) / 255.0 * 2 * np.pi - np.pi)
@@ -649,13 +651,39 @@ class AdvancedPatternGenerator:
             self.ax2.set_xticks([])
             self.ax2.set_yticks([])
             
+            # Simulate reconstruction
+            try:
+                # Create complex field from phase
+                slm_field = np.exp(1j * self.slm_phase)
+                
+                # Propagate to far field
+                reconstruction = np.fft.fftshift(np.fft.fft2(slm_field))
+                intensity = np.abs(reconstruction)**2
+                
+                # Normalize for display
+                normalized = intensity / np.max(intensity)
+                
+                # Update reconstruction plot
+                self.ax3.clear()
+                self.ax3.imshow(normalized, cmap='viridis')
+                self.ax3.set_title('Simulated Reconstruction')
+                self.ax3.set_xticks([])
+                self.ax3.set_yticks([])
+            except Exception as sim_error:
+                print(f"Could not simulate reconstruction: {str(sim_error)}")
+                # Continue anyway
+            
+            # Update the canvas
             self.preview_canvas.draw()
-            self.status_var.set(f"Pattern loaded from: {file_path}")
+            
+            self.status_var.set(f"Loaded pattern: {os.path.basename(file_path)}")
+            print(f"Successfully loaded pattern: {file_path}")
             
         except Exception as e:
             self.status_var.set(f"Error loading pattern: {str(e)}")
-            print(f"Detailed error: {str(e)}")
-
+            print(f"Detailed error loading pattern: {str(e)}")
+            traceback.print_exc()
+    
     def send_to_slm(self):
         """Send pattern to SLM via HDMI-A-2"""
         if not hasattr(self, 'pattern'):
@@ -910,7 +938,7 @@ class AdvancedPatternGenerator:
                        '--file-filter=Images | *.png *.jpg *.jpeg *.tif', 
                        '--filename=' + default_path,
                        '--title=Save Camera Image']
-                result = subprocess.run(cmd, capture_output=True, text=True)
+                result = subprocess.run(cmd, capture_output=True, text=True, check=False)
                 
                 if result.returncode == 0:
                     save_path = result.stdout.strip()
@@ -1120,11 +1148,12 @@ class AdvancedPatternGenerator:
     def load_image(self):
         """Load and display target image"""
         try:
-            # Use zenity file dialog
+            # Use zenity file dialog with improved error handling for Raspberry Pi
             cmd = ['zenity', '--file-selection',
                    '--file-filter=Images | *.png *.jpg *.jpeg *.bmp *.tif *.tiff',
                    '--title=Select Target Image']
-            result = subprocess.run(cmd, capture_output=True, text=True)
+            
+            result = subprocess.run(cmd, capture_output=True, text=True, check=False)
             
             if result.returncode != 0:
                 self.status_var.set("Image loading cancelled")
@@ -1140,10 +1169,18 @@ class AdvancedPatternGenerator:
                 raise ValueError("Failed to load image")
             
             # Resize if needed
-            if img.shape != (600, 800):
-                img = cv2.resize(img, (800, 600))
+            if img.shape != (self.height, self.width):
+                img = cv2.resize(img, (self.width, self.height))
             
             self.target = img.astype(float) / 255.0
+            
+            # Create padded target for processing
+            self.padded_target = np.zeros((self.padded_height, self.padded_width))
+            start_y = (self.padded_height - self.height) // 2
+            end_y = start_y + self.height
+            start_x = (self.padded_width - self.width) // 2
+            end_x = start_x + self.width
+            self.padded_target[start_y:end_y, start_x:end_x] = self.target
             
             # Update preview plots
             self.ax1.clear()
@@ -1166,11 +1203,13 @@ class AdvancedPatternGenerator:
             self.preview_canvas.draw()
             
             self.status_var.set(f"Loaded image: {os.path.basename(filename)}")
+            print(f"Successfully loaded target image: {filename}")
             
         except Exception as e:
             self.status_var.set(f"Error loading image: {str(e)}")
-            print(f"Detailed error: {str(e)}")
-
+            print(f"Detailed error loading image: {str(e)}")
+            traceback.print_exc()
+    
     def save_pattern(self):
         """Save the generated pattern"""
         if not hasattr(self, 'pattern'):
@@ -1188,7 +1227,7 @@ class AdvancedPatternGenerator:
                    '--file-filter=Images | *.png *.jpg *.jpeg *.bmp *.tif *.tiff',
                    '--title=Save Pattern',
                    '--confirm-overwrite']
-            result = subprocess.run(cmd, capture_output=True, text=True)
+            result = subprocess.run(cmd, capture_output=True, text=True, check=False)
             
             save_path = result.stdout.strip()
             if not save_path:
@@ -1200,11 +1239,14 @@ class AdvancedPatternGenerator:
             
             # Save the pattern
             cv2.imwrite(save_path, self.pattern)
-            self.status_var.set(f"Pattern saved to: {save_path}")
+            
+            self.status_var.set(f"Pattern saved to: {os.path.basename(save_path)}")
             
         except Exception as e:
             self.status_var.set(f"Error saving pattern: {str(e)}")
-
+            print(f"Detailed error: {str(e)}")
+            traceback.print_exc()
+    
     def safe_plot_save(self, figure, default_filename=None):
         """Safely save a plot by temporarily pausing the camera to avoid OpenCV threading issues"""
         try:
@@ -1222,7 +1264,9 @@ class AdvancedPatternGenerator:
                 self.status_var.set(f"Figure saved to {filename}")
         except Exception as e:
             self.status_var.set(f"Error saving figure: {str(e)}")
-
+            print(f"Detailed error: {str(e)}")
+            traceback.print_exc()
+    
     def generate_input_beam(self):
         """Generate input beam profile based on selected type"""
         try:
@@ -1285,7 +1329,7 @@ class AdvancedPatternGenerator:
             cmd = ['zenity', '--file-selection',
                    '--file-filter=Images | *.png *.jpg *.jpeg *.bmp *.tif *.tiff',
                    '--title=Select Custom Input Beam Profile']
-            result = subprocess.run(cmd, capture_output=True, text=True)
+            result = subprocess.run(cmd, capture_output=True, text=True, check=False)
             
             if result.returncode != 0:
                 self.status_var.set("Custom beam loading cancelled")
@@ -1853,8 +1897,9 @@ class CameraController:
         self.is_running = True
         self.is_paused = False
         self.thread = threading.Thread(target=self._capture_thread)
-        self.thread.daemon = True
+        self.thread.daemon = True  # Thread will be terminated when main program exits
         self.thread.start()
+        self.status_var.set("Camera started")
         
         print("Camera started")
         return True
