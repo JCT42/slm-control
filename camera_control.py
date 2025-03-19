@@ -24,6 +24,7 @@ import threading
 import time
 import subprocess
 import os
+import traceback  # Add traceback for better error reporting
 from typing import Tuple, Optional, Dict, Any, Callable
 import tkinter as tk
 from tkinter import ttk
@@ -92,7 +93,7 @@ class CameraController:
         """
         try:
             if self.camera_type == "opencv":
-                return self._initialize_opencv()
+                return self._initialize_opencv_camera()
             elif self.camera_type == "picamera":
                 return self._initialize_picamera()
             else:
@@ -100,96 +101,162 @@ class CameraController:
                 return False
         except Exception as e:
             print(f"Camera initialization error: {str(e)}")
+            traceback.print_exc()  # Print detailed error message
             return False
     
-    def _initialize_opencv(self) -> bool:
-        """Initialize an OpenCV-based camera"""
+    def _initialize_opencv_camera(self) -> bool:
+        """Initialize an OpenCV camera"""
         try:
+            # Create camera object
             self.camera = cv2.VideoCapture(self.camera_index)
             
-            # Set resolution
-            self.camera.set(cv2.CAP_PROP_FRAME_WIDTH, self.width)
-            self.camera.set(cv2.CAP_PROP_FRAME_HEIGHT, self.height)
-            
-            # Try to set 10-bit pixel format if available
-            # Note: This may not be supported on all cameras
-            self.camera.set(cv2.CAP_PROP_CONVERT_RGB, False)  # Get raw data
-            
-            # Apply initial settings
-            self._apply_opencv_settings()
-            
-            # Check if camera is opened successfully
             if not self.camera.isOpened():
-                print("Failed to open camera")
+                print(f"Failed to open camera {self.camera_index}")
                 return False
+            
+            # Set camera properties
+            # Note: Not all cameras support all properties
+            # Try to set each property and report success/failure
+            
+            # Set resolution
+            width_success = self.camera.set(cv2.CAP_PROP_FRAME_WIDTH, float(self.width))
+            height_success = self.camera.set(cv2.CAP_PROP_FRAME_HEIGHT, float(self.height))
+            
+            if not (width_success and height_success):
+                print("Warning: Failed to set camera resolution")
+            
+            # Set exposure (convert ms to seconds for OpenCV)
+            if 'exposure' in self.settings:
+                # Ensure exposure is a float value
+                exposure_value = float(self.settings['exposure'])
+                # First, disable auto exposure
+                if not self.settings['auto_exposure']:
+                    auto_exp_success = self.camera.set(cv2.CAP_PROP_AUTO_EXPOSURE, 0.0)  # 0 = manual, 1 = auto
+                    if not auto_exp_success:
+                        print("Warning: Failed to disable auto exposure")
                 
-            # Read actual resolution (may differ from requested)
-            actual_width = self.camera.get(cv2.CAP_PROP_FRAME_WIDTH)
-            actual_height = self.camera.get(cv2.CAP_PROP_FRAME_HEIGHT)
-            print(f"Camera initialized at resolution: {actual_width}x{actual_height}")
+                # Then set manual exposure
+                exp_success = self.camera.set(cv2.CAP_PROP_EXPOSURE, exposure_value)
+                if not exp_success:
+                    print(f"Warning: Failed to set exposure to {exposure_value}")
+                else:
+                    print(f"Set exposure to {exposure_value}")
+            
+            # Set gain
+            if 'gain' in self.settings:
+                # Ensure gain is a float value
+                gain_value = float(self.settings['gain'])
+                gain_success = self.camera.set(cv2.CAP_PROP_GAIN, gain_value)
+                if not gain_success:
+                    print(f"Warning: Failed to set gain to {gain_value}")
+                else:
+                    print(f"Set gain to {gain_value}")
+            
+            # Set brightness
+            if 'brightness' in self.settings:
+                # Ensure brightness is a float value
+                brightness_value = float(self.settings['brightness'])
+                brightness_success = self.camera.set(cv2.CAP_PROP_BRIGHTNESS, brightness_value)
+                if not brightness_success:
+                    print(f"Warning: Failed to set brightness to {brightness_value}")
+            
+            # Set contrast
+            if 'contrast' in self.settings:
+                # Ensure contrast is a float value
+                contrast_value = float(self.settings['contrast'])
+                contrast_success = self.camera.set(cv2.CAP_PROP_CONTRAST, contrast_value)
+                if not contrast_success:
+                    print(f"Warning: Failed to set contrast to {contrast_value}")
+            
+            # Get actual camera resolution (may differ from requested)
+            actual_width = int(self.camera.get(cv2.CAP_PROP_FRAME_WIDTH))
+            actual_height = int(self.camera.get(cv2.CAP_PROP_FRAME_HEIGHT))
+            
+            print(f"Camera initialized with resolution: {actual_width}x{actual_height}")
+            
+            # Update resolution if different from requested
+            if actual_width != self.width or actual_height != self.height:
+                print(f"Note: Requested {self.width}x{self.height} but got {actual_width}x{actual_height}")
+                self.width = actual_width
+                self.height = actual_height
             
             return True
             
         except Exception as e:
             print(f"OpenCV camera initialization error: {str(e)}")
+            traceback.print_exc()
             return False
     
     def _initialize_picamera(self) -> bool:
         """Initialize a Raspberry Pi Camera"""
         try:
-            # Import PiCamera modules here to avoid dependency issues on non-Pi systems
-            from picamera2 import Picamera2
-            from libcamera import controls
+            # Import picamera module
+            import picamera
+            import picamera.array
             
-            self.camera = Picamera2()
+            # Create camera object
+            self.camera = picamera.PiCamera()
             
-            # Configure for 10-bit capture
-            config = self.camera.create_still_configuration(
-                main={"size": (self.width, self.height),
-                      "format": "RGB888"},
-                raw={"size": (self.width, self.height),
-                     "format": "SRGGB10"}
-            )
-            self.camera.configure(config)
+            # Set resolution
+            self.camera.resolution = (self.width, self.height)
             
-            # Set initial exposure and gain
-            self.camera.set_controls({
-                "ExposureTime": int(self.settings['exposure'] * 1000),  # Convert ms to μs
-                "AnalogueGain": self.settings['gain']
-            })
+            # Set framerate (30fps is a good default)
+            self.camera.framerate = 30
             
-            # Start the camera
-            self.camera.start()
+            # Set sensor mode for 10-bit capture if using IMX296 sensor
+            # Mode 6 is typically 10-bit mode for newer Pi cameras
+            try:
+                self.camera.sensor_mode = 6  # 10-bit mode
+                print("Set PiCamera to sensor mode 6 (10-bit)")
+            except:
+                print("Could not set sensor mode 6, using default mode")
             
+            # Set exposure mode to 'off' for manual control
+            if not self.settings['auto_exposure']:
+                self.camera.exposure_mode = 'off'
+            
+            # Set exposure time (in microseconds)
+            if 'exposure' in self.settings:
+                # Convert ms to μs
+                exposure_us = int(self.settings['exposure'] * 1000)
+                self.camera.shutter_speed = exposure_us
+                print(f"Set PiCamera exposure to {exposure_us} μs")
+            
+            # Set gain
+            if 'gain' in self.settings:
+                # PiCamera gain is typically between 1-16
+                self.camera.analog_gain = float(self.settings['gain'])
+                print(f"Set PiCamera gain to {self.settings['gain']}")
+            
+            # Set brightness (PiCamera uses -100 to 100 scale)
+            if 'brightness' in self.settings:
+                # Convert 0-255 scale to -100 to 100
+                brightness = int((self.settings['brightness'] / 255) * 200 - 100)
+                self.camera.brightness = brightness
+            
+            # Set contrast (PiCamera uses -100 to 100 scale)
+            if 'contrast' in self.settings:
+                # Convert 0-255 scale to -100 to 100
+                contrast = int((self.settings['contrast'] / 255) * 200 - 100)
+                self.camera.contrast = contrast
+            
+            # Create a PiRGBArray for capturing frames
+            self.rawCapture = picamera.array.PiRGBArray(self.camera, size=(self.width, self.height))
+            
+            # Wait for camera to initialize
+            time.sleep(2)
+            
+            print("PiCamera initialized successfully")
             return True
             
         except ImportError:
-            print("PiCamera modules not available. Are you running on a Raspberry Pi?")
+            print("PiCamera module not available. Please install it with:")
+            print("sudo apt-get install python3-picamera")
             return False
         except Exception as e:
             print(f"PiCamera initialization error: {str(e)}")
+            traceback.print_exc()
             return False
-    
-    def _apply_opencv_settings(self) -> None:
-        """Apply settings to an OpenCV camera"""
-        if self.camera is None or self.camera_type != "opencv":
-            return
-            
-        # Set exposure (convert ms to OpenCV's exposure values)
-        self.camera.set(cv2.CAP_PROP_AUTO_EXPOSURE, 0 if not self.settings['auto_exposure'] else 1)
-        if not self.settings['auto_exposure']:
-            # OpenCV exposure is logarithmic and platform-dependent
-            # This is an approximation that may need adjustment
-            self.camera.set(cv2.CAP_PROP_EXPOSURE, np.log(self.settings['exposure']) / np.log(2))
-        
-        # Set gain
-        self.camera.set(cv2.CAP_PROP_GAIN, self.settings['gain'])
-        
-        # Set other parameters
-        self.camera.set(cv2.CAP_PROP_BRIGHTNESS, self.settings['brightness'])
-        self.camera.set(cv2.CAP_PROP_CONTRAST, self.settings['contrast'])
-        self.camera.set(cv2.CAP_PROP_SATURATION, self.settings['saturation'])
-        self.camera.set(cv2.CAP_PROP_HUE, self.settings['hue'])
     
     def start(self) -> bool:
         """
@@ -228,7 +295,6 @@ class CameraController:
             if self.camera_type == "opencv":
                 self.camera.release()
             elif self.camera_type == "picamera":
-                self.camera.stop()
                 self.camera.close()
             
             self.camera = None
@@ -261,6 +327,7 @@ class CameraController:
                     
             except Exception as e:
                 print(f"Camera capture error: {str(e)}")
+                traceback.print_exc()  # Print detailed error message
                 time.sleep(0.1)  # Longer sleep on error
     
     def _capture_frame(self) -> Optional[np.ndarray]:
@@ -268,32 +335,44 @@ class CameraController:
         Capture a single frame from the camera.
         
         Returns:
-            np.ndarray or None: Captured frame as a numpy array, or None on failure
+            np.ndarray: Captured frame as a numpy array, or None if capture failed
         """
+        # Check if camera exists
         if self.camera is None:
             return None
             
         try:
             if self.camera_type == "opencv":
+                # Capture frame from OpenCV camera
                 ret, frame = self.camera.read()
-                if not ret:
+                
+                if not ret or frame is None:
                     print("Failed to capture frame")
                     return None
                 
-                # Convert to grayscale while preserving bit depth
-                if len(frame.shape) == 3:
-                    gray = np.dot(frame[..., :3], [0.2989, 0.5870, 0.1140])
-                else:
-                    gray = frame
+                # Convert to grayscale if not already
+                if len(frame.shape) > 2:
+                    frame = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
                 
-                # Scale to 10-bit range if needed
-                if self.bit_depth == 10 and gray.max() <= 255:
-                    gray = gray * (1023/255)
+                # For 10-bit depth, we need to scale the 8-bit frame
+                if self.bit_depth > 8:
+                    # Scale from 8-bit (0-255) to 10-bit (0-1023)
+                    frame = frame.astype(np.float32) * (self.max_value / 255.0)
+                    frame = frame.astype(np.uint16)
+                    
+                    # Print some debug info about the frame values
+                    if np.random.random() < 0.01:  # Only print occasionally (1% of frames)
+                        print(f"Frame stats - Min: {np.min(frame)}, Max: {np.max(frame)}, Mean: {np.mean(frame):.1f}")
                 
-                return gray
+                return frame
                 
             elif self.camera_type == "picamera":
-                frame = self.camera.capture_array()
+                # PiCamera capture is handled differently
+                # Capture a frame
+                self.camera.capture(self.rawCapture, format="bgr", use_video_port=True)
+                
+                # Get the frame
+                frame = self.rawCapture.array
                 
                 # Convert to grayscale while preserving bit depth
                 if len(frame.shape) == 3:
@@ -301,12 +380,16 @@ class CameraController:
                 else:
                     gray = frame
                 
-                return gray
+                # Reset the raw capture array
+                self.rawCapture.truncate(0)
                 
+                return gray
+            
             return None
             
         except Exception as e:
             print(f"Frame capture error: {str(e)}")
+            traceback.print_exc()  # Print detailed error message
             return None
     
     def get_frame(self) -> Optional[np.ndarray]:
@@ -314,7 +397,7 @@ class CameraController:
         Get the current frame (thread-safe).
         
         Returns:
-            np.ndarray or None: Current frame, or None if not available
+            np.ndarray: Current frame, or None if not available
         """
         with self.lock:
             if self.current_frame is not None:
@@ -326,7 +409,7 @@ class CameraController:
         Capture a high-quality still image.
         
         Returns:
-            np.ndarray or None: Captured still image, or None on failure
+            np.ndarray: Captured still image, or None on failure
         """
         try:
             # Temporarily pause continuous capture
@@ -345,7 +428,7 @@ class CameraController:
                     ret, frame = self.camera.read()
                     if ret:
                         if len(frame.shape) == 3:
-                            gray = np.dot(frame[..., :3], [0.2989, 0.5870, 0.1140])
+                            gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
                         else:
                             gray = frame
                         frames.append(gray)
@@ -370,13 +453,19 @@ class CameraController:
             
             elif self.camera_type == "picamera":
                 # For PiCamera, we can request a high-quality still
-                still_frame = self.camera.capture_array()
+                self.camera.capture(self.rawCapture, format="bgr", use_video_port=False)
+                
+                # Get the frame
+                still_frame = self.rawCapture.array
                 
                 # Convert to grayscale while preserving bit depth
                 if len(still_frame.shape) == 3:
                     gray = np.dot(still_frame[..., :3], [0.2989, 0.5870, 0.1140])
                 else:
                     gray = still_frame
+                
+                # Reset the raw capture array
+                self.rawCapture.truncate(0)
                 
                 # Store the captured frame
                 self.last_captured_frame = gray
@@ -395,6 +484,7 @@ class CameraController:
             
         except Exception as e:
             print(f"Still capture error: {str(e)}")
+            traceback.print_exc()  # Print detailed error message
             
             # Make sure to resume if it wasn't paused before
             if not was_paused:
@@ -441,6 +531,7 @@ class CameraController:
             
         except Exception as e:
             print(f"Error saving image: {str(e)}")
+            traceback.print_exc()  # Print detailed error message
             return False
     
     def _save_metadata(self, image_filename: str, image: np.ndarray) -> None:
@@ -475,35 +566,103 @@ class CameraController:
                 
         except Exception as e:
             print(f"Error saving metadata: {str(e)}")
+            traceback.print_exc()  # Print detailed error message
     
     def set_setting(self, setting: str, value: Any) -> bool:
         """
         Set a camera setting.
         
         Args:
-            setting: Name of the setting to change
+            setting: Setting name to change
             value: New value for the setting
             
         Returns:
             bool: True if setting was changed, False otherwise
         """
-        if setting not in self.settings:
-            print(f"Unknown setting: {setting}")
+        try:
+            # Update the setting in our dictionary
+            if setting not in self.settings:
+                print(f"Unknown setting: {setting}")
+                return False
+                
+            # Store the old value
+            old_value = self.settings[setting]
+            
+            # Update with new value
+            self.settings[setting] = value
+            
+            # Apply the setting to the camera
+            if self.camera_type == "opencv":
+                if self.camera is None:
+                    print("Camera not initialized")
+                    return False
+                    
+                if setting == 'exposure':
+                    # First disable auto exposure if setting manual exposure
+                    if not self.settings['auto_exposure']:
+                        self.camera.set(cv2.CAP_PROP_AUTO_EXPOSURE, 0.0)  # 0 = manual
+                    # Then set manual exposure value
+                    success = self.camera.set(cv2.CAP_PROP_EXPOSURE, float(value))
+                    if not success:
+                        print(f"Failed to set exposure to {value}")
+                        self.settings[setting] = old_value
+                        return False
+                    print(f"Set exposure to {value}")
+                    
+                elif setting == 'gain':
+                    success = self.camera.set(cv2.CAP_PROP_GAIN, float(value))
+                    if not success:
+                        print(f"Failed to set gain to {value}")
+                        self.settings[setting] = old_value
+                        return False
+                    print(f"Set gain to {value}")
+                    
+                elif setting == 'brightness':
+                    success = self.camera.set(cv2.CAP_PROP_BRIGHTNESS, float(value))
+                    if not success:
+                        print(f"Failed to set brightness to {value}")
+                        self.settings[setting] = old_value
+                        return False
+                        
+                elif setting == 'contrast':
+                    success = self.camera.set(cv2.CAP_PROP_CONTRAST, float(value))
+                    if not success:
+                        print(f"Failed to set contrast to {value}")
+                        self.settings[setting] = old_value
+                        return False
+                        
+                elif setting == 'auto_exposure':
+                    # Convert boolean to float (0.0 or 1.0)
+                    auto_value = 1.0 if value else 0.0
+                    success = self.camera.set(cv2.CAP_PROP_AUTO_EXPOSURE, auto_value)
+                    if not success:
+                        print(f"Failed to set auto_exposure to {value}")
+                        self.settings[setting] = old_value
+                        return False
+                
+            elif self.camera_type == "picamera" and self.camera is not None:
+                if setting == 'exposure':
+                    # Convert ms to μs
+                    self.camera.shutter_speed = int(value * 1000)
+                elif setting == 'gain':
+                    self.camera.analog_gain = float(value)
+                elif setting == 'brightness':
+                    # Convert 0-255 to -100 to 100
+                    brightness = int((value / 255) * 200 - 100)
+                    self.camera.brightness = brightness
+                elif setting == 'contrast':
+                    # Convert 0-255 to -100 to 100
+                    contrast = int((value / 255) * 200 - 100)
+                    self.camera.contrast = contrast
+                elif setting == 'auto_exposure':
+                    self.camera.exposure_mode = 'auto' if value else 'off'
+            
+            return True
+            
+        except Exception as e:
+            print(f"Error setting {setting}: {str(e)}")
+            traceback.print_exc()
             return False
-        
-        # Update the setting
-        self.settings[setting] = value
-        
-        # Apply the setting to the camera
-        if self.camera_type == "opencv":
-            self._apply_opencv_settings()
-        elif self.camera_type == "picamera" and self.camera is not None:
-            if setting == 'exposure':
-                self.camera.set_controls({"ExposureTime": int(value * 1000)})  # ms to μs
-            elif setting == 'gain':
-                self.camera.set_controls({"AnalogueGain": value})
-        
-        return True
     
     def get_histogram_data(self, image: Optional[np.ndarray] = None, 
                           bins: int = 100) -> Tuple[np.ndarray, np.ndarray]:
@@ -638,6 +797,7 @@ class CameraController:
                 
         except Exception as e:
             print(f"Error saving metadata: {str(e)}")
+            traceback.print_exc()  # Print detailed error message
 
 
 class CameraControlGUI:
@@ -831,6 +991,7 @@ class CameraControlGUI:
             
         except Exception as e:
             self.status_var.set(f"Preview error: {str(e)}")
+            traceback.print_exc()  # Print detailed error message
         
         # Schedule the next update (30 FPS)
         if self.root:
@@ -871,6 +1032,7 @@ class CameraControlGUI:
                 
         except Exception as e:
             self.status_var.set(f"Error saving image: {str(e)}")
+            traceback.print_exc()  # Print detailed error message
     
     def toggle_recording(self):
         """Toggle video recording on/off using zenity file dialog"""
@@ -915,6 +1077,7 @@ class CameraControlGUI:
                 
         except Exception as e:
             self.status_var.set(f"Error toggling recording: {str(e)}")
+            traceback.print_exc()  # Print detailed error message
     
     def toggle_pause(self):
         """Toggle camera pause/resume"""
@@ -930,6 +1093,7 @@ class CameraControlGUI:
                 
         except Exception as e:
             self.status_var.set(f"Error toggling pause: {str(e)}")
+            traceback.print_exc()  # Print detailed error message
     
     def set_camera_setting(self, setting, value):
         """Set a camera setting"""
@@ -941,6 +1105,7 @@ class CameraControlGUI:
                 
         except Exception as e:
             self.status_var.set(f"Error setting {setting}: {str(e)}")
+            traceback.print_exc()  # Print detailed error message
     
     def run(self):
         """Run the GUI (only if created as standalone)"""
@@ -964,16 +1129,57 @@ class CameraControlGUI:
                 
         except Exception as e:
             print(f"Error during shutdown: {str(e)}")
+            traceback.print_exc()  # Print detailed error message
 
 
 # Example usage
 if __name__ == "__main__":
-    # Create a camera controller
-    camera = CameraController(camera_type="opencv", camera_index=0, 
-                             resolution=(640, 480), bit_depth=10)
+    print("Starting camera control module...")
     
-    # Create a GUI
-    gui = CameraControlGUI(camera=camera)
-    
-    # Run the GUI
-    gui.run()
+    try:
+        # Check available cameras
+        print("Checking available cameras...")
+        available_cameras = []
+        for i in range(3):  # Try first 3 camera indices
+            cap = cv2.VideoCapture(i)
+            if cap.isOpened():
+                available_cameras.append(i)
+                cap.release()
+        
+        if not available_cameras:
+            print("No OpenCV cameras found. Trying PiCamera...")
+            # Try to import picamera to check if it's available
+            try:
+                import picamera
+                print("PiCamera module is available")
+                camera_type = "picamera"
+                camera_index = 0
+            except ImportError:
+                print("PiCamera module not available")
+                print("No cameras detected. Please check your camera connection.")
+                exit(1)
+        else:
+            print(f"Found {len(available_cameras)} OpenCV camera(s) at indices: {available_cameras}")
+            camera_type = "opencv"
+            camera_index = available_cameras[0]
+        
+        # Create camera controller with appropriate settings
+        print(f"Initializing camera (type: {camera_type}, index: {camera_index})...")
+        camera = CameraController(camera_type=camera_type, camera_index=camera_index,
+                                 resolution=(640, 480), bit_depth=10)
+        
+        # Initialize the camera
+        if not camera.initialize():
+            print("Failed to initialize camera. Please check your camera connection and permissions.")
+            exit(1)
+        
+        print("Camera initialized successfully!")
+        
+        # Create and run the GUI
+        print("Starting camera control GUI...")
+        gui = CameraControlGUI(camera=camera)
+        gui.run()
+        
+    except Exception as e:
+        print(f"Error in camera control module: {str(e)}")
+        traceback.print_exc()
