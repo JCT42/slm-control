@@ -833,6 +833,17 @@ class AdvancedPatternGenerator:
             self.status_var.set(f"Error loading image: {str(e)}")
             print(f"Detailed error: {str(e)}")
 
+    def create_camera_ui(self):
+        """Create the camera controller UI"""
+        # Initialize camera controller if not already done
+        if self.camera_controller is None:
+            # Initialize with the full resolution of 1456x1088 to preserve all intensity values
+            # Camera uses RGB888 format as specified in camera_controller.py
+            self.camera_controller = CameraController(resolution=(1456, 1088))
+        
+        # Initialize camera GUI
+        self.camera_gui = CameraGUI(self.camera_frame, self.camera_controller)
+
     def save_pattern(self):
         """Save the generated pattern"""
         if not hasattr(self, 'pattern'):
@@ -2311,17 +2322,6 @@ class CameraGUI:
             self.status_var.set("Camera settings applied")
         else:
             self.status_var.set("Failed to apply settings - check values")
-
-    def create_camera_ui(self):
-        """Create the camera controller UI"""
-        # Initialize camera controller if not already done
-        if self.camera_controller is None:
-            # Initialize with the full resolution of 1456x1088 to preserve all intensity values
-            # Camera uses RGB888 format as specified in camera_controller.py
-            self.camera_controller = CameraController(resolution=(1456, 1088))
-        
-        # Initialize camera GUI
-        self.camera_gui = CameraGUI(self.camera_frame, self.camera_controller)
 
 if __name__ == "__main__":
     app = AdvancedPatternGenerator()
