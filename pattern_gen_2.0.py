@@ -114,11 +114,9 @@ class AdvancedPatternGenerator:
         # Create tabs
         self.pattern_frame = ttk.Frame(self.notebook)
         self.camera_frame = ttk.Frame(self.notebook)
-        self.settings_frame = ttk.Frame(self.notebook)
         
         self.notebook.add(self.pattern_frame, text="Pattern Generator")
         self.notebook.add(self.camera_frame, text="Camera")
-        self.notebook.add(self.settings_frame, text="Settings")
         
         # Create status bar
         status_frame = ttk.Frame(self.main_frame)
@@ -193,7 +191,7 @@ class AdvancedPatternGenerator:
         
         # Add phase shift controls
         self.create_phase_shift_controls()
-        
+    
     def _on_canvas_configure(self, event):
         """Handle canvas resize"""
         width = event.width
@@ -329,12 +327,8 @@ class AdvancedPatternGenerator:
 
     def setup_camera_tab(self):
         """Set up the camera tab with preview and controls"""
-        # Create main frame for camera tab
-        camera_tab = ttk.Frame(self.notebook)
-        self.notebook.add(camera_tab, text="Camera")
-        
         # Create frame for camera preview
-        preview_frame = ttk.LabelFrame(camera_tab, text="Camera Preview (10-bit)")
+        preview_frame = ttk.LabelFrame(self.camera_frame, text="Camera Preview (10-bit)")
         preview_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
         
         # Create matplotlib figure for camera preview
@@ -397,44 +391,75 @@ class AdvancedPatternGenerator:
     def initialize_camera(self):
         """Initialize camera with IMX296 settings"""
         try:
+            # Initialize camera
             self.camera = Picamera2()
+            
+            # Check if camera is available
+            if not self.camera:
+                self.status_var.set("Camera not available")
+                print("Camera not available")
+                self.camera_active = False
+                return
             
             # Configure for 10-bit capture using standard RGB format
             # We'll convert to grayscale after capture
-            config = self.camera.create_still_configuration(
-                main={"size": (self.camera_width, self.camera_height),
-                      "format": "RGB888"},
-                raw={"size": (self.camera_width, self.camera_height),
-                     "format": "SRGGB10"}
-            )
-            self.camera.configure(config)
+            try:
+                config = self.camera.create_still_configuration(
+                    main={"size": (self.camera_width, self.camera_height),
+                          "format": "RGB888"},
+                    raw={"size": (self.camera_width, self.camera_height),
+                         "format": "SRGGB10"}
+                )
+                self.camera.configure(config)
+            except Exception as e:
+                self.status_var.set(f"Camera configuration error: {str(e)}")
+                print(f"Camera configuration error: {str(e)}")
+                self.camera_active = False
+                return
             
             # Set initial exposure and gain
-            self.camera.set_controls({
-                "ExposureTime": int(self.exposure_var.get() * 1000),
-                "AnalogueGain": self.gain_var.get()
-            })
-            
-            # Start the camera
-            self.camera.start()
-            time.sleep(1)  # Allow camera to warm up
-            
-            # Capture a test frame to ensure camera is working
-            test_frame = self.camera.capture_array()
-            if test_frame is not None:
-                print(f"Camera initialized successfully. Frame shape: {test_frame.shape}")
-                # Convert test frame to grayscale and store as initial frame
-                if len(test_frame.shape) == 3:
-                    gray = np.dot(test_frame[..., :3], [0.2989, 0.5870, 0.1140])
-                else:
-                    gray = test_frame
-                self.last_frame = gray
+            try:
+                self.camera.set_controls({
+                    "ExposureTime": int(self.exposure_var.get() * 1000),
+                    "AnalogueGain": self.gain_var.get()
+                })
+            except Exception as e:
+                print(f"Warning: Could not set camera controls: {str(e)}")
                 
-                # Update preview with initial frame
-                if hasattr(self, 'preview_img'):
-                    self.preview_img.set_array(gray)
-                    if hasattr(self, 'camera_canvas'):
-                        self.camera_canvas.draw_idle()
+            # Start the camera
+            try:
+                self.camera.start()
+                time.sleep(1)  # Allow camera to warm up
+                print("Camera started successfully")
+            except Exception as e:
+                self.status_var.set(f"Camera start error: {str(e)}")
+                print(f"Camera start error: {str(e)}")
+                self.camera_active = False
+                return
+                
+            # Create a blank initial frame
+            self.last_frame = np.zeros((self.camera_height//4, self.camera_width//4), dtype=np.uint16)
+            
+            # Try to capture a test frame to ensure camera is working
+            try:
+                test_frame = self.camera.capture_array()
+                if test_frame is not None:
+                    print(f"Camera initialized successfully. Frame shape: {test_frame.shape}")
+                    # Convert test frame to grayscale and store as initial frame
+                    if len(test_frame.shape) == 3:
+                        gray = np.dot(test_frame[..., :3], [0.2989, 0.5870, 0.1140])
+                    else:
+                        gray = test_frame
+                    self.last_frame = gray
+                    
+                    # Update preview with initial frame
+                    if hasattr(self, 'preview_img'):
+                        self.preview_img.set_array(gray)
+                        if hasattr(self, 'camera_canvas'):
+                            self.camera_canvas.draw_idle()
+            except Exception as e:
+                print(f"Warning: Could not capture test frame: {str(e)}")
+                # Continue anyway, as camera might still work
             
             # Start camera preview thread
             self.camera_active = True
@@ -452,43 +477,65 @@ class AdvancedPatternGenerator:
     def update_camera_preview(self):
         """Update camera preview in a separate thread"""
         print("Camera preview thread started")
+        
+        # Safety check - make sure we have a camera
+        if not hasattr(self, 'camera') or self.camera is None:
+            print("Camera not initialized properly, preview thread exiting")
+            self.camera_active = False
+            return
+            
         while self.camera_active:
             try:
                 if not self.camera_paused:
                     # Capture frame and convert to grayscale
-                    frame = self.camera.capture_array()
+                    try:
+                        frame = self.camera.capture_array()
+                    except Exception as e:
+                        print(f"Error capturing frame: {str(e)}")
+                        time.sleep(0.5)  # Wait a bit longer on error
+                        continue
                     
                     if frame is not None:
                         # Convert RGB to grayscale while preserving 10-bit range
-                        if len(frame.shape) == 3:
-                            # Use standard RGB to grayscale conversion weights
-                            gray = np.dot(frame[..., :3], [0.2989, 0.5870, 0.1140])
-                        else:
-                            gray = frame
-                        
-                        # Store raw intensity values
-                        self.last_frame = gray
-                        
-                        # Update preview with raw 10-bit values
-                        if hasattr(self, 'preview_img'):
-                            self.preview_img.set_array(gray)
-                            self.preview_ax.set_title(f"Live Preview (10-bit)")
-                            if hasattr(self, 'camera_canvas'):
-                                self.camera_canvas.draw_idle()
-                                print(f"Updated preview with frame, max value: {np.max(gray)}")
+                        try:
+                            if len(frame.shape) == 3:
+                                # Use standard RGB to grayscale conversion weights
+                                gray = np.dot(frame[..., :3], [0.2989, 0.5870, 0.1140])
+                            else:
+                                gray = frame
+                            
+                            # Store raw intensity values
+                            self.last_frame = gray
+                            
+                            # Update preview with raw 10-bit values
+                            if hasattr(self, 'preview_img') and self.preview_img is not None:
+                                self.preview_img.set_array(gray)
+                                if hasattr(self, 'preview_ax'):
+                                    self.preview_ax.set_title(f"Live Preview (10-bit)")
+                                if hasattr(self, 'camera_canvas') and self.camera_canvas is not None:
+                                    try:
+                                        self.camera_canvas.draw_idle()
+                                        print(f"Updated preview with frame, max value: {np.max(gray)}")
+                                    except Exception as e:
+                                        print(f"Error updating canvas: {str(e)}")
+                        except Exception as e:
+                            print(f"Error processing frame: {str(e)}")
                 
                 elif hasattr(self, 'paused_frame') and self.paused_frame is not None:
                     # If paused, display the paused frame with a "PAUSED" indicator
                     if hasattr(self, 'preview_ax') and not hasattr(self, 'paused_indicator'):
-                        # Add a text overlay indicating the camera is paused
-                        self.paused_indicator = self.preview_ax.text(
-                            0.5, 0.5, "PAUSED", 
-                            color='red', fontsize=24, fontweight='bold',
-                            horizontalalignment='center', verticalalignment='center',
-                            transform=self.preview_ax.transAxes
-                        )
-                        if hasattr(self, 'camera_canvas'):
-                            self.camera_canvas.draw_idle()
+                        try:
+                            # Add a text overlay indicating the camera is paused
+                            self.paused_indicator = self.preview_ax.text(
+                                0.5, 0.5, "PAUSED", 
+                                color='red', fontsize=24, fontweight='bold',
+                                horizontalalignment='center', verticalalignment='center',
+                                transform=self.preview_ax.transAxes
+                            )
+                            if hasattr(self, 'camera_canvas') and self.camera_canvas is not None:
+                                self.camera_canvas.draw_idle()
+                        except Exception as e:
+                            print(f"Error adding paused indicator: {str(e)}")
                 
                 # Add a small sleep to prevent high CPU usage
                 time.sleep(0.033)  # ~30 FPS
