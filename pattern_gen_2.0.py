@@ -40,6 +40,14 @@ import json
 import math
 import sys
 
+# Check if PiCamera2 is available
+try:
+    from picamera2 import Picamera2
+    PICAMERA2_AVAILABLE = True
+except ImportError:
+    PICAMERA2_AVAILABLE = False
+    print("PiCamera2 not available. Install with: pip install picamera2")
+
 class AdvancedPatternGenerator:
     def __init__(self):
         """Initialize the advanced pattern generator with extended features"""
@@ -646,6 +654,7 @@ class AdvancedPatternGenerator:
             
         except Exception as e:
             self.status_var.set(f"Error loading pattern: {str(e)}")
+            print(f"Detailed error: {str(e)}")
 
     def send_to_slm(self):
         """Send pattern to SLM via HDMI-A-2"""
@@ -795,301 +804,129 @@ class AdvancedPatternGenerator:
             print(f"Error during application shutdown: {str(e)}")
             
     # Camera control methods
-    def _on_start_camera(self):
+    def _start_camera(self):
         """Start the camera"""
         try:
-            # Check if camera is already running
-            if self.camera_running:
-                self.camera_status_var.set("Camera already running")
-                return
-                
-            # Get camera settings
-            camera_type = self.camera_type_var.get()
-            camera_index = int(self.camera_index_var.get())
-            
-            # Create camera controller
-            self.camera = CameraController(
-                camera_type=camera_type,
-                camera_index=camera_index,
-                resolution=(1456, 1088),  # Use high resolution for scientific analysis
-                bit_depth=8  # Use 8-bit for compatibility
-            )
-            
-            # Apply settings
-            self._on_apply_camera_settings()
-            
-            # Start camera thread
-            self.camera_running = True
-            self.camera_paused = False
-            self.camera_thread = threading.Thread(target=self._camera_thread_func)
-            self.camera_thread.daemon = True
-            self.camera_thread.start()
-            
-            self.camera_status_var.set("Camera started")
-            self.pause_text.set("Pause Camera")
-            
-        except Exception as e:
-            self.camera_status_var.set(f"Error starting camera: {str(e)}")
-            print(f"Error starting camera: {str(e)}")
-            traceback.print_exc()
-            
-    def _on_stop_camera(self):
-        """Stop the camera"""
-        try:
-            # Check if camera is running
-            if not self.camera_running:
-                return
-                
-            # Stop camera thread
-            self.camera_running = False
-            if self.camera_thread is not None:
-                self.camera_thread.join(timeout=1.0)
-                self.camera_thread = None
-                
-            # Close camera
-            if self.camera is not None:
-                self.camera.close()
-                self.camera = None
-                
-            self.camera_status_var.set("Camera stopped")
-            
-        except Exception as e:
-            self.camera_status_var.set(f"Error stopping camera: {str(e)}")
-            print(f"Error stopping camera: {str(e)}")
-            traceback.print_exc()
-            
-    def _on_toggle_camera_pause(self):
-        """Toggle camera pause state"""
-        try:
-            if not self.camera_running:
-                self.camera_status_var.set("Camera not running")
-                return
-                
-            self.camera_paused = not self.camera_paused
-            
-            if self.camera_paused:
-                self.pause_text.set("Resume Camera")
-                self.camera_status_var.set("Camera paused")
+            if self.camera.start():
+                self.camera_status_var.set("Camera started")
+                # Start update thread for preview
+                self._update_preview()
             else:
-                self.pause_text.set("Pause Camera")
-                self.camera_status_var.set("Camera resumed")
-                
+                self.camera_status_var.set("Failed to start camera")
         except Exception as e:
-            self.camera_status_var.set(f"Error toggling pause: {str(e)}")
-            print(f"Error toggling pause: {str(e)}")
+            self.camera_status_var.set(f"Camera error: {str(e)}")
+            print(f"Camera error: {str(e)}")
             traceback.print_exc()
+    
+    def _update_preview(self):
+        """Update the camera preview"""
+        if not self.camera.is_running:
+            return
             
-    def _on_apply_camera_settings(self):
-        """Apply camera settings"""
         try:
-            if self.camera is None:
-                self.camera_status_var.set("Camera not initialized")
-                return
+            # Get the latest frame
+            frame = self.camera.get_frame()
+            
+            if frame is not None:
+                # Get intensity stats
+                stats = self.camera.get_intensity_stats(frame)
                 
-            # Get settings from UI
-            settings = {
-                'exposure': float(self.exposure_var.get()),
-                'gain': float(self.gain_var.get()),
-                'brightness': float(self.brightness_var.get()),
-                'contrast': float(self.contrast_var.get())
-            }
-            
-            # Apply settings
-            self.camera.apply_settings(settings)
-            
-            self.camera_status_var.set("Camera settings applied")
-            
-        except Exception as e:
-            self.camera_status_var.set(f"Error applying settings: {str(e)}")
-            print(f"Error applying settings: {str(e)}")
-            traceback.print_exc()
-            
-    def _on_reset_camera(self):
-        """Reset camera settings to defaults"""
-        try:
-            # Reset UI values
-            self.exposure_var.set("100")
-            self.gain_var.set("1.0")
-            self.brightness_var.set("0")
-            self.contrast_var.set("1.0")
-            
-            # Apply settings if camera is initialized
-            if self.camera is not None:
-                self._on_apply_camera_settings()
+                # Update intensity info
+                self.intensity_info.config(
+                    text=f"Intensity (8-bit) - Min: {stats['min']:.1f}, Max: {stats['max']:.1f}, Mean: {stats['mean']:.1f}"
+                )
                 
-            self.camera_status_var.set("Camera settings reset to defaults")
-            
+                # Resize frame to fit canvas
+                preview_frame = cv2.resize(frame, (self.preview_width, self.preview_height))
+                
+                # Convert to RGB for display
+                preview_rgb = cv2.cvtColor(preview_frame, cv2.COLOR_GRAY2RGB)
+                
+                # Convert to PIL and then to PhotoImage
+                preview_pil = Image.fromarray(preview_rgb)
+                preview_tk = ImageTk.PhotoImage(image=preview_pil)
+                
+                # Update canvas
+                self.preview_canvas.create_image(0, 0, anchor=tk.NW, image=preview_tk)
+                self.preview_canvas.image = preview_tk  # Keep a reference to prevent garbage collection
+                
+                # Get the latest histogram
+                hist_img = self.camera.get_histogram_image()
+                
+                if hist_img is not None:
+                    # Convert RGBA to RGB
+                    hist_rgb = cv2.cvtColor(hist_img, cv2.COLOR_RGBA2RGB)
+                    
+                    # Resize to fit canvas
+                    hist_rgb = cv2.resize(hist_rgb, (450, 350))
+                    
+                    # Convert to PIL and then to PhotoImage
+                    hist_pil = Image.fromarray(hist_rgb)
+                    hist_tk = ImageTk.PhotoImage(image=hist_pil)
+                    
+                    # Update canvas
+                    self.histogram_canvas.create_image(0, 0, anchor=tk.NW, image=hist_tk)
+                    self.histogram_canvas.image = hist_tk  # Keep a reference to prevent garbage collection
         except Exception as e:
-            self.camera_status_var.set(f"Error resetting settings: {str(e)}")
-            print(f"Error resetting settings: {str(e)}")
+            print(f"Error updating preview: {str(e)}")
             traceback.print_exc()
-            
+        
+        # Schedule next update
+        if self.camera.is_running:
+            self.root.after(33, self._update_preview)  # ~30 FPS
+    
     def _on_camera_capture(self):
-        """Handle capture button click"""
+        """Handle camera capture button click"""
         try:
-            if self.camera is None:
-                self.camera_status_var.set("Camera not initialized")
-                return
-                
             # Get the current frame
-            frame = self.camera.get_latest_frame()
+            frame = self.camera.get_frame()
             
-            if frame is None:
-                self.camera_status_var.set("No frame available to capture")
-                return
-                
-            # Create default capture directory
-            default_dir = "/home/surena/slm-control/Captures"
-            
-            # Create a default filename with timestamp
-            default_filename = f"image_{time.strftime('%Y%m%d_%H%M%S')}.png"
-            default_path = os.path.join(default_dir, default_filename)
-            
-            # Make sure the default directory exists
-            os.makedirs(default_dir, exist_ok=True)
-            
-            # Check if zenity is available
-            zenity_available = False
-            try:
-                # Check if zenity is installed
-                result = subprocess.run(["which", "zenity"], capture_output=True, text=True)
-                zenity_available = result.returncode == 0
-            except Exception:
-                zenity_available = False
-                
-            # Use zenity if available
-            if zenity_available:
-                try:
-                    # Run zenity file selection dialog
-                    cmd = [
-                        "zenity", "--file-selection",
-                        "--save",
-                        "--filename", default_path,
-                        "--title", "Save Captured Image",
-                        "--file-filter", "Images | *.png *.jpg *.jpeg *.tif *.tiff"
-                    ]
-                    
-                    # Execute zenity command
-                    result = subprocess.run(cmd, capture_output=True, text=True)
-                    
-                    # Check if user canceled
-                    if result.returncode != 0:
-                        self.camera_status_var.set("Capture canceled")
-                        return
-                        
-                    # Get the selected filename
-                    filename = result.stdout.strip()
-                    
-                    # If empty, user canceled
-                    if not filename:
-                        self.camera_status_var.set("Capture canceled")
-                        return
-                        
-                    # Save the frame
-                    if self.camera.save_frame(filename, frame):
-                        self.camera_status_var.set(f"Image captured and saved to {filename}")
-                    else:
-                        self.camera_status_var.set("Failed to save captured image")
-                        
-                except Exception as zenity_error:
-                    print(f"Zenity error: {str(zenity_error)}")
-                    self.camera_status_var.set(f"Zenity error: {str(zenity_error)}")
-                    
-                    # Fallback to default path
-                    if self.camera.save_frame(default_path, frame):
-                        self.camera_status_var.set(f"Image captured and saved to {default_path}")
-                    else:
-                        self.camera_status_var.set("Failed to save captured image")
+            if frame is not None:
+                # Display capture success
+                self.camera_status_var.set("Frame captured")
             else:
-                # Zenity not available, use default path
-                print("Zenity not available, saving to default path")
-                if self.camera.save_frame(default_path, frame):
-                    self.camera_status_var.set(f"Image captured and saved to {default_path}")
-                else:
-                    self.camera_status_var.set("Failed to save captured image")
-                
+                self.camera_status_var.set("Failed to capture frame")
         except Exception as e:
             self.camera_status_var.set(f"Capture error: {str(e)}")
             print(f"Capture error: {str(e)}")
             traceback.print_exc()
-            
+    
     def _on_camera_save(self):
-        """Handle save button click"""
+        """Handle camera save button click"""
         try:
-            if self.camera is None:
-                self.camera_status_var.set("Camera not initialized")
-                return
-                
             # Get the current frame
-            frame = self.camera.get_latest_frame()
+            frame = self.camera.get_frame()
             
             if frame is None:
                 self.camera_status_var.set("No frame available to save")
                 return
-                
-            # Create default save directory
-            default_dir = "/home/surena/slm-control/Captures"
             
-            # Create a default filename with timestamp
-            default_filename = f"image_{time.strftime('%Y%m%d_%H%M%S')}.png"
-            default_path = os.path.join(default_dir, default_filename)
+            # Default path
+            default_path = os.path.join(os.path.expanduser("~"), "Documents", "camera_capture.png")
             
-            # Make sure the default directory exists
-            os.makedirs(default_dir, exist_ok=True)
-            
-            # Check if zenity is available
-            zenity_available = False
+            # Try to use zenity for file dialog
             try:
-                # Check if zenity is installed
-                result = subprocess.run(["which", "zenity"], capture_output=True, text=True)
-                zenity_available = result.returncode == 0
-            except Exception:
-                zenity_available = False
+                cmd = ['zenity', '--file-selection', '--save', 
+                       '--file-filter=Images | *.png *.jpg *.jpeg *.tif', 
+                       '--filename=' + default_path,
+                       '--title=Save Camera Image']
+                result = subprocess.run(cmd, capture_output=True, text=True)
                 
-            # Use zenity if available
-            if zenity_available:
-                try:
-                    # Run zenity file selection dialog
-                    cmd = [
-                        "zenity", "--file-selection",
-                        "--save",
-                        "--filename", default_path,
-                        "--title", "Save Image",
-                        "--file-filter", "Images | *.png *.jpg *.jpeg *.tif *.tiff"
-                    ]
+                if result.returncode == 0:
+                    save_path = result.stdout.strip()
                     
-                    # Execute zenity command
-                    result = subprocess.run(cmd, capture_output=True, text=True)
+                    # Add extension if not present
+                    if not save_path.lower().endswith(('.png', '.jpg', '.jpeg', '.tif')):
+                        save_path += '.png'
                     
-                    # Check if user canceled
-                    if result.returncode != 0:
-                        self.camera_status_var.set("Save canceled")
-                        return
-                        
-                    # Get the selected filename
-                    filename = result.stdout.strip()
-                    
-                    # If empty, user canceled
-                    if not filename:
-                        self.camera_status_var.set("Save canceled")
-                        return
-                        
-                    # Save the frame
-                    if self.camera.save_frame(filename, frame):
-                        self.camera_status_var.set(f"Image saved to {filename}")
+                    # Save the image
+                    if self.camera.save_frame(save_path, frame):
+                        self.camera_status_var.set(f"Image saved to {save_path}")
                     else:
                         self.camera_status_var.set("Failed to save image")
-                        
-                except Exception as zenity_error:
-                    print(f"Zenity error: {str(zenity_error)}")
-                    self.camera_status_var.set(f"Zenity error: {str(zenity_error)}")
-                    
-                    # Fallback to default path
-                    if self.camera.save_frame(default_path, frame):
-                        self.camera_status_var.set(f"Image saved to {default_path}")
-                    else:
-                        self.camera_status_var.set("Failed to save image")
-            else:
+                else:
+                    self.camera_status_var.set("Save cancelled")
+            except:
                 # Zenity not available, use default path
                 print("Zenity not available, saving to default path")
                 if self.camera.save_frame(default_path, frame):
@@ -1101,90 +938,80 @@ class AdvancedPatternGenerator:
             self.camera_status_var.set(f"Save error: {str(e)}")
             print(f"Save error: {str(e)}")
             traceback.print_exc()
-            
-    def _camera_thread_func(self):
-        """Camera thread function"""
+    
+    def _on_toggle_camera_pause(self):
+        """Handle pause/resume button click"""
         try:
-            while self.camera_running:
-                if not self.camera_paused:
-                    # Capture frame
-                    frame = self.camera.capture_frame()
-                    
-                    if frame is not None:
-                        # Get intensity stats
-                        stats = self.camera.get_intensity_stats(frame)
-                        
-                        # Update intensity info
-                        self.intensity_info.config(
-                            text=f"Intensity (8-bit) - Min: {stats['min']:.1f}, Max: {stats['max']:.1f}, Mean: {stats['mean']:.1f}"
-                        )
-                        
-                        # Update preview
-                        self._update_camera_preview()
-                
-                # Sleep to limit frame rate
-                time.sleep(0.033)  # ~30 FPS
-                
-        except Exception as e:
-            print(f"Camera thread error: {str(e)}")
-            traceback.print_exc()
-            self.camera_status_var.set(f"Camera error: {str(e)}")
+            is_paused = self.camera.toggle_pause()
             
-    def _update_camera_preview(self):
-        """Update the camera preview"""
+            if is_paused:
+                self.pause_text.set("Resume Camera")
+                self.camera_status_var.set("Camera paused")
+            else:
+                self.pause_text.set("Pause Camera")
+                self.camera_status_var.set("Camera resumed")
+        except Exception as e:
+            self.camera_status_var.set(f"Pause/resume error: {str(e)}")
+            print(f"Pause/resume error: {str(e)}")
+            traceback.print_exc()
+    
+    def _on_apply_camera_settings(self):
+        """Handle apply settings button click"""
         try:
-            if self.camera is None:
-                return
-                
-            # Get the latest frame
-            frame = self.camera.get_latest_frame()
+            # Get settings from UI
+            settings = {
+                'exposure': float(self.exposure_var.get()),
+                'gain': float(self.gain_var.get()),
+                'brightness': float(self.brightness_var.get()),
+                'contrast': float(self.contrast_var.get())
+            }
             
-            if frame is None:
-                return
-                
-            # Resize frame to fit canvas
-            preview_frame = cv2.resize(frame, (self.preview_width, self.preview_height))
-            
-            # Convert to RGB for display
-            preview_rgb = cv2.cvtColor(preview_frame, cv2.COLOR_GRAY2RGB)
-            
-            # Convert to PIL and then to PhotoImage
-            preview_pil = Image.fromarray(preview_rgb)
-            preview_tk = ImageTk.PhotoImage(image=preview_pil)
-            
-            # Update canvas
-            self.preview_canvas.create_image(0, 0, anchor=tk.NW, image=preview_tk)
-            self.preview_canvas.image = preview_tk  # Keep a reference to prevent garbage collection
-            
-            # Get the latest histogram
-            hist_img = self.camera.get_latest_histogram()
-            
-            if hist_img is not None:
-                # Convert RGBA to RGB
-                hist_rgb = cv2.cvtColor(hist_img, cv2.COLOR_RGBA2RGB)
-                
-                # Resize to fit canvas
-                hist_rgb = cv2.resize(hist_rgb, (450, 350))
-                
-                # Convert to PIL and then to PhotoImage
-                hist_pil = Image.fromarray(hist_rgb)
-                hist_tk = ImageTk.PhotoImage(image=hist_pil)
-                
-                # Update canvas
-                self.histogram_canvas.create_image(0, 0, anchor=tk.NW, image=hist_tk)
-                self.histogram_canvas.image = hist_tk  # Keep a reference to prevent garbage collection
-                
+            # Apply settings
+            self.camera.apply_settings(settings)
+            self.camera_status_var.set("Camera settings applied")
         except Exception as e:
-            print(f"Error updating preview: {str(e)}")
+            self.camera_status_var.set(f"Settings error: {str(e)}")
+            print(f"Settings error: {str(e)}")
             traceback.print_exc()
+    
+    def _on_reset_camera_settings(self):
+        """Handle reset settings button click"""
+        try:
+            # Reset camera settings
+            self.camera.reset_settings()
             
+            # Update UI values
+            self.exposure_var.set("10.0")
+            self.gain_var.set("1.0")
+            self.brightness_var.set("0")
+            self.contrast_var.set("1.0")
+            
+            self.camera_status_var.set("Camera settings reset to defaults")
+        except Exception as e:
+            self.camera_status_var.set(f"Reset error: {str(e)}")
+            print(f"Reset error: {str(e)}")
+            traceback.print_exc()
+    
+    def quit_application(self):
+        """Clean shutdown of the application"""
+        try:
+            # Stop camera if running
+            if hasattr(self, 'camera') and self.camera is not None:
+                self.camera.stop()
+                print("Camera stopped")
+            
+            # Destroy the root window
+            if hasattr(self, 'root') and self.root is not None:
+                self.root.destroy()
+                print("Application closed")
+        except Exception as e:
+            print(f"Error during shutdown: {str(e)}")
+            traceback.print_exc()
+    
     def create_camera_ui(self):
         """Create the camera controller UI"""
-        # Initialize camera controller attributes
-        self.camera = None
-        self.camera_thread = None
-        self.camera_running = False
-        self.camera_paused = False
+        # Initialize camera controller
+        self.camera = CameraController()
         
         # Create main camera frame
         camera_main_frame = ttk.Frame(self.camera_frame)
@@ -1238,27 +1065,11 @@ class AdvancedPatternGenerator:
         settings_frame = ttk.LabelFrame(right_pane, text="Camera Settings")
         settings_frame.pack(fill=tk.X, pady=10, padx=5)
         
-        # Camera type selection
-        camera_type_frame = ttk.Frame(settings_frame)
-        camera_type_frame.pack(fill=tk.X, pady=2)
-        ttk.Label(camera_type_frame, text="Camera Type:").pack(side=tk.LEFT, padx=5)
-        self.camera_type_var = tk.StringVar(value="opencv")
-        camera_type_menu = ttk.OptionMenu(camera_type_frame, self.camera_type_var, "opencv", "opencv", "picamera")
-        camera_type_menu.pack(side=tk.RIGHT, padx=5)
-        
-        # Camera index/device
-        camera_index_frame = ttk.Frame(settings_frame)
-        camera_index_frame.pack(fill=tk.X, pady=2)
-        ttk.Label(camera_index_frame, text="Camera Index:").pack(side=tk.LEFT, padx=5)
-        self.camera_index_var = tk.StringVar(value="0")
-        camera_index_entry = ttk.Entry(camera_index_frame, textvariable=self.camera_index_var, width=8)
-        camera_index_entry.pack(side=tk.RIGHT, padx=5)
-        
         # Exposure control
         exposure_frame = ttk.Frame(settings_frame)
         exposure_frame.pack(fill=tk.X, pady=2)
         ttk.Label(exposure_frame, text="Exposure (ms):").pack(side=tk.LEFT, padx=5)
-        self.exposure_var = tk.StringVar(value="100")
+        self.exposure_var = tk.StringVar(value="10.0")
         exposure_entry = ttk.Entry(exposure_frame, textvariable=self.exposure_var, width=8)
         exposure_entry.pack(side=tk.RIGHT, padx=5)
         
@@ -1290,27 +1101,22 @@ class AdvancedPatternGenerator:
         settings_buttons_frame = ttk.Frame(settings_frame)
         settings_buttons_frame.pack(fill=tk.X, pady=5)
         
-        # Start camera button
-        start_button = ttk.Button(settings_buttons_frame, text="Start Camera", command=self._on_start_camera)
-        start_button.pack(side=tk.LEFT, padx=5)
-        
-        # Stop camera button
-        stop_button = ttk.Button(settings_buttons_frame, text="Stop Camera", command=self._on_stop_camera)
-        stop_button.pack(side=tk.LEFT, padx=5)
-        
         # Apply settings button
-        apply_button = ttk.Button(settings_buttons_frame, text="Apply Settings", command=self._on_apply_camera_settings)
-        apply_button.pack(side=tk.LEFT, padx=5)
+        ttk.Button(settings_buttons_frame, text="Apply Settings", 
+                  command=self._on_apply_camera_settings).pack(side=tk.LEFT, padx=5)
         
-        # Reset button
-        reset_button = ttk.Button(settings_buttons_frame, text="Reset Settings", command=self._on_reset_camera)
-        reset_button.pack(side=tk.RIGHT, padx=5)
+        # Reset settings button
+        ttk.Button(settings_buttons_frame, text="Reset Settings", 
+                  command=self._on_reset_camera_settings).pack(side=tk.LEFT, padx=5)
         
         # Camera status
         self.camera_status_var = tk.StringVar(value="Camera not started")
         camera_status_label = ttk.Label(right_pane, textvariable=self.camera_status_var)
         camera_status_label.pack(fill=tk.X, pady=5)
-
+        
+        # Start the camera
+        self._start_camera()
+        
     def load_image(self):
         """Load and display target image"""
         try:
@@ -1913,295 +1719,262 @@ class AdvancedPatternGenerator:
             self.mraf_frame.grid_remove()
 
 class CameraController:
-    """Camera controller for various camera types"""
+    """
+    Camera controller for IMX296 monochrome camera that outputs in RGB3 format.
+    Preserves intensity values for scientific analysis.
+    """
     
-    def __init__(self, camera_type: str = "opencv", camera_index: int = 0, 
+    def __init__(self, 
                  resolution: Tuple[int, int] = (1456, 1088),
-                 bit_depth: int = 8):
-        """Initialize camera controller
+                 device: str = "/dev/video0"):
+        """
+        Initialize the camera controller.
         
         Args:
-            camera_type: Type of camera ("opencv" or "picamera")
-            camera_index: Camera index for OpenCV
             resolution: Camera resolution (width, height)
-            bit_depth: Camera bit depth (8 or 10)
+            device: Camera device path
         """
-        self.camera_type = camera_type
-        self.camera_index = camera_index
-        self.resolution = resolution
-        self.bit_depth = bit_depth
+        self.width, self.height = resolution
+        self.device = device
         
-        # Camera object
+        # Camera state
         self.camera = None
-        
-        # Frame storage
+        self.is_running = False
+        self.is_paused = False
+        self.thread = None
+        self.lock = threading.Lock()
         self.latest_frame = None
         self.latest_histogram = None
         
-        # Thread lock for thread safety
-        self.lock = threading.Lock()
-        
         # Camera settings
         self.settings = {
-            'exposure': 100,  # ms
-            'gain': 1.0,
-            'brightness': 0,
-            'contrast': 1.0
+            'exposure': 10.0,  # ms
+            'gain': 1.0,       # analog gain
+            'brightness': 0,   # -255 to 255
+            'contrast': 1.0,   # 0.0 to 2.0
         }
         
-        # Initialize camera based on type
-        self.initialize_camera()
+        # Initialize the camera
+        self.initialize()
     
-    def initialize_camera(self) -> bool:
-        """Initialize the camera based on type"""
-        if self.camera_type == "opencv":
-            return self._initialize_opencv()
-        elif self.camera_type == "picamera":
-            try:
-                import picamera2
-                self.picamera2 = picamera2
-                return self._initialize_picamera2()
-            except ImportError:
-                print("PiCamera2 not available, falling back to PiCamera")
-                try:
-                    import picamera
-                    self.picamera = picamera
-                    return self._initialize_picamera()
-                except ImportError:
-                    print("Error: Neither PiCamera2 nor PiCamera available")
-                    return False
-        else:
-            print(f"Unsupported camera type: {self.camera_type}")
-            return False
-    
-    def _initialize_opencv(self) -> bool:
-        """Initialize OpenCV camera"""
+    def initialize(self) -> bool:
+        """Initialize the camera with configured settings"""
         try:
-            # Create camera object
-            self.camera = cv2.VideoCapture(self.camera_index)
-            
-            # Set resolution
-            self.camera.set(cv2.CAP_PROP_FRAME_WIDTH, self.resolution[0])
-            self.camera.set(cv2.CAP_PROP_FRAME_HEIGHT, self.resolution[1])
-            
-            # Apply initial settings
-            self._apply_opencv_settings()
-            
-            # Check if camera opened successfully
-            if not self.camera.isOpened():
-                print("Error: Could not open OpenCV camera")
+            # Check if PiCamera2 is available
+            if not PICAMERA2_AVAILABLE:
+                print("PiCamera2 is not available. Please install it with: pip install picamera2")
                 return False
                 
-            return True
-        except Exception as e:
-            print(f"Error initializing OpenCV camera: {str(e)}")
-            return False
-    
-    def _initialize_picamera2(self) -> bool:
-        """Initialize PiCamera2"""
-        try:
-            # Create camera object
-            self.camera = self.picamera2.Picamera2()
+            # Create camera instance
+            self.camera = Picamera2()
             
-            # Configure camera for still capture
-            config = self.camera.create_still_configuration(
-                main={"size": self.resolution, "format": "GREY"},
-                controls={"FrameDurationLimits": (33333, 33333)}
-            )
-            self.camera.configure(config)
+            # Get camera info
+            print(f"Camera info: {self.camera.camera_properties}")
             
-            # Apply initial settings
-            self._apply_picamera2_settings()
+            # Configure for RGB3 format as detected by v4l2-ctl
+            print(f"Using resolution: {self.width}x{self.height}, format: RGB3")
             
-            # Start the camera
+            preview_width = int(self.width * 0.5)  # Half size for preview
+            preview_height = int(self.height * 0.5)
+            
+            # Create configuration for still and preview
+            try:
+                self.camera_config = self.camera.create_still_configuration(
+                    main={"size": (self.width, self.height),
+                          "format": "RGB888"},  # RGB3 format in PiCamera2
+                    lores={"size": (preview_width, preview_height),
+                           "format": "YUV420"},
+                    display="lores"
+                )
+            except Exception as config_error:
+                print(f"Error creating RGB888 configuration: {str(config_error)}")
+                print("Falling back to default configuration")
+                self.camera_config = self.camera.create_still_configuration()
+                # Update resolution to match what was configured
+                self.width = self.camera_config["main"]["size"][0]
+                self.height = self.camera_config["main"]["size"][1]
+            
+            # Apply configuration
+            self.camera.configure(self.camera_config)
+            
+            # Print the actual configuration that was applied
+            print(f"Camera configured with: {self.camera_config}")
+            
+            # Set initial camera controls
+            try:
+                self.camera.set_controls({
+                    "ExposureTime": int(self.settings['exposure'] * 1000),  # Convert ms to μs
+                    "AnalogueGain": float(self.settings['gain']),
+                })
+                print("Camera controls set successfully")
+            except Exception as control_error:
+                print(f"Warning: Could not set some camera controls: {str(control_error)}")
+                print("Continuing with default controls")
+            
+            # Get the actual camera resolution after configuration
+            actual_width = self.camera_config["main"]["size"][0]
+            actual_height = self.camera_config["main"]["size"][1]
+            actual_format = self.camera_config["main"]["format"]
+            
+            print(f"Camera initialized at {actual_width}x{actual_height} in {actual_format} format")
+            
+            # Start the camera to ensure it's working
             self.camera.start()
+            time.sleep(0.5)  # Give it a moment to start
+            
+            # Capture a test frame to verify camera is working
+            try:
+                test_frame = self.camera.capture_array()
+                print(f"Test frame captured successfully: {test_frame.shape}, dtype: {test_frame.dtype}")
+                print(f"Frame values - Min: {np.min(test_frame)}, Max: {np.max(test_frame)}, Mean: {np.mean(test_frame):.1f}")
+            except Exception as capture_error:
+                print(f"Warning: Test frame capture failed: {str(capture_error)}")
+                # Continue anyway as this is just a test
             
             return True
+            
         except Exception as e:
-            print(f"Error initializing PiCamera2: {str(e)}")
+            print(f"Camera initialization error: {str(e)}")
+            traceback.print_exc()
             return False
     
-    def _initialize_picamera(self) -> bool:
-        """Initialize PiCamera"""
-        try:
-            # Create camera object
-            self.camera = self.picamera.PiCamera()
-            
-            # Set resolution
-            self.camera.resolution = self.resolution
-            
-            # Set framerate
-            self.camera.framerate = 30
-            
-            # Apply initial settings
-            self._apply_picamera_settings()
-            
+    def start(self) -> bool:
+        """Start the camera capture thread"""
+        if self.is_running:
+            print("Camera is already running")
             return True
-        except Exception as e:
-            print(f"Error initializing PiCamera: {str(e)}")
-            return False
-    
-    def _apply_opencv_settings(self) -> None:
-        """Apply settings to OpenCV camera"""
+            
         if self.camera is None:
-            return
-            
-        try:
-            # Apply exposure (convert ms to appropriate OpenCV value)
-            self.camera.set(cv2.CAP_PROP_AUTO_EXPOSURE, 0)  # Disable auto exposure
-            self.camera.set(cv2.CAP_PROP_EXPOSURE, self.settings['exposure'] / 1000.0)
-            
-            # Apply gain
-            self.camera.set(cv2.CAP_PROP_GAIN, self.settings['gain'])
-            
-            # Apply brightness
-            self.camera.set(cv2.CAP_PROP_BRIGHTNESS, self.settings['brightness'])
-            
-            # Apply contrast
-            self.camera.set(cv2.CAP_PROP_CONTRAST, self.settings['contrast'])
-        except Exception as e:
-            print(f"Error applying OpenCV settings: {str(e)}")
-    
-    def _apply_picamera2_settings(self) -> None:
-        """Apply settings to PiCamera2"""
-        if self.camera is None:
-            return
-            
-        try:
-            # Apply exposure (convert ms to µs)
-            self.camera.set_controls({
-                "ExposureTime": int(self.settings['exposure'] * 1000),
-                "AnalogueGain": float(self.settings['gain']),
-                "Brightness": float(self.settings['brightness']),
-                "Contrast": float(self.settings['contrast'])
-            })
-        except Exception as e:
-            print(f"Error applying PiCamera2 settings: {str(e)}")
-    
-    def _apply_picamera_settings(self) -> None:
-        """Apply settings to PiCamera"""
-        if self.camera is None:
-            return
-            
-        try:
-            # Apply exposure (convert ms to appropriate PiCamera value)
-            if self.settings['exposure'] > 0:
-                self.camera.exposure_mode = 'off'
-                self.camera.shutter_speed = int(self.settings['exposure'] * 1000)
-            else:
-                self.camera.exposure_mode = 'auto'
-            
-            # Apply analog gain
-            self.camera.analog_gain = self.settings['gain']
-            
-            # Apply brightness
-            self.camera.brightness = int(self.settings['brightness'] * 100)
-            
-            # Apply contrast
-            self.camera.contrast = int(self.settings['contrast'] * 100)
-        except Exception as e:
-            print(f"Error applying PiCamera settings: {str(e)}")
-    
-    def apply_settings(self, settings: Dict[str, float] = None) -> None:
-        """Apply camera settings
+            if not self.initialize():
+                print("Failed to initialize camera")
+                return False
         
-        Args:
-            settings: Dictionary of settings to apply
-        """
-        if settings is not None:
-            # Update settings
-            for key, value in settings.items():
-                if key in self.settings:
-                    self.settings[key] = value
+        # Start the camera thread
+        self.is_running = True
+        self.is_paused = False
+        self.thread = threading.Thread(target=self._capture_thread)
+        self.thread.daemon = True
+        self.thread.start()
         
-        # Apply settings based on camera type
-        if self.camera_type == "opencv":
-            self._apply_opencv_settings()
-        elif self.camera_type == "picamera":
-            if hasattr(self, 'picamera2'):
-                self._apply_picamera2_settings()
-            else:
-                self._apply_picamera_settings()
+        print("Camera started")
+        return True
     
-    def _capture_frame(self) -> Optional[np.ndarray]:
-        """Capture a frame from the camera"""
-        if self.camera is None:
-            return None
+    def stop(self) -> None:
+        """Stop the camera capture thread"""
+        self.is_running = False
+        
+        if self.thread is not None:
+            self.thread.join(timeout=1.0)
+            self.thread = None
             
+        if self.camera is not None:
+            try:
+                self.camera.stop()
+                self.camera.close()
+            except Exception as e:
+                print(f"Error stopping camera: {str(e)}")
+            finally:
+                self.camera = None
+                
+        print("Camera stopped")
+    
+    def pause(self) -> None:
+        """Pause the camera preview"""
+        self.is_paused = True
+        print("Camera paused")
+    
+    def resume(self) -> None:
+        """Resume the camera preview"""
+        self.is_paused = False
+        print("Camera resumed")
+    
+    def toggle_pause(self) -> bool:
+        """Toggle the camera pause state"""
+        if self.is_paused:
+            self.resume()
+        else:
+            self.pause()
+        return self.is_paused
+    
+    def _capture_thread(self) -> None:
+        """Thread function for continuous frame capture"""
         try:
-            if self.camera_type == "opencv":
-                ret, frame = self.camera.read()
-                if not ret:
-                    print("Error: Failed to capture frame from OpenCV camera")
-                    return None
-                
-                # Convert to grayscale if not already
-                if len(frame.shape) > 2:
-                    frame = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-                
-                return frame
-                
-            elif self.camera_type == "picamera":
-                if hasattr(self, 'picamera2'):
-                    # PiCamera2 capture
-                    frame = self.camera.capture_array()
+            while self.is_running:
+                if not self.is_paused:
+                    # Capture frame
+                    frame = self.capture_frame()
                     
-                    # PiCamera2 already returns grayscale in GREY format
-                    return frame
-                else:
-                    # PiCamera capture
-                    output = np.empty((self.resolution[1], self.resolution[0], 3), dtype=np.uint8)
-                    self.camera.capture(output, 'rgb')
-                    
-                    # Convert to grayscale
-                    frame = cv2.cvtColor(output, cv2.COLOR_RGB2GRAY)
-                    return frame
+                    if frame is not None:
+                        # Store the latest frame with lock for thread safety
+                        with self.lock:
+                            self.latest_frame = frame
+                            # Generate histogram
+                            self.latest_histogram = self.generate_histogram(frame)
+                
+                # Sleep to limit frame rate
+                time.sleep(0.033)  # ~30 FPS
+                
+        except Exception as e:
+            print(f"Capture thread error: {str(e)}")
+            traceback.print_exc()
+            self.is_running = False
+    
+    def capture_frame(self) -> Optional[np.ndarray]:
+        """Capture a single frame from the camera"""
+        try:
+            # Capture RGB frame
+            rgb_frame = self.camera.capture_array()
+            
+            # For monochrome camera outputting in RGB3 format,
+            # just use the red channel as they're all identical
+            if len(rgb_frame.shape) == 3 and rgb_frame.shape[2] == 3:
+                # Just extract the red channel (all channels should be identical for monochrome)
+                gray = rgb_frame[:, :, 0]  # Use red channel
+            else:
+                # Already grayscale
+                gray = rgb_frame
+                
+            return gray
+            
         except Exception as e:
             print(f"Error capturing frame: {str(e)}")
             return None
     
-    def capture_frame(self) -> Optional[np.ndarray]:
-        """Capture a frame and update the latest frame"""
-        frame = self._capture_frame()
-        
-        if frame is not None:
-            with self.lock:
-                self.latest_frame = frame
-                self.latest_histogram = self.generate_histogram(frame)
-        
-        return frame
-    
-    def get_latest_frame(self) -> Optional[np.ndarray]:
+    def get_frame(self) -> Optional[np.ndarray]:
         """Get the latest captured frame"""
         with self.lock:
-            return self.latest_frame.copy() if self.latest_frame is not None else None
+            if self.latest_frame is None:
+                return None
+            return self.latest_frame.copy()
     
-    def get_latest_histogram(self) -> Optional[np.ndarray]:
+    def get_histogram_image(self) -> Optional[np.ndarray]:
         """Get the latest histogram image"""
         with self.lock:
-            return self.latest_histogram.copy() if self.latest_histogram is not None else None
+            if self.latest_histogram is None:
+                return None
+            return self.latest_histogram.copy()
     
     def generate_histogram(self, frame: np.ndarray) -> np.ndarray:
-        """Generate a histogram image from the frame"""
+        """Generate a histogram visualization from the frame"""
         try:
-            # Create a figure for the histogram with a smaller size
+            # Create a figure for the histogram
             fig = Figure(figsize=(4.5, 3.5), dpi=100)
             ax = fig.add_subplot(111)
             
             # Add more padding around the plot for axis labels
             fig.subplots_adjust(left=0.15, bottom=0.15, right=0.95, top=0.9)
             
-            # Calculate histogram - ensure we use the full 8-bit range (0-255)
+            # Calculate histogram - use the full range of values
             hist = cv2.calcHist([frame], [0], None, [256], [0, 256])
             
-            # Normalize the histogram
+            # Normalize the histogram by total pixel count
             total_pixels = frame.shape[0] * frame.shape[1]
             normalized_hist = hist / total_pixels
             
             # Plot the normalized histogram
             ax.plot(normalized_hist, color='blue')
             ax.set_xlim([0, 256])
-            ax.set_title('Normalized Intensity Histogram (8-bit)')
+            ax.set_title('Normalized Intensity Histogram')
             ax.set_xlabel('Intensity Value (0-255)')
             ax.set_ylabel('Normalized Pixel Count')
             
@@ -2237,7 +2010,7 @@ class CameraController:
     def get_intensity_stats(self, frame: Optional[np.ndarray] = None) -> Dict[str, float]:
         """Get intensity statistics from the frame"""
         if frame is None:
-            frame = self.get_latest_frame()
+            frame = self.get_frame()
             
         if frame is None:
             return {'min': 0, 'max': 0, 'mean': 0, 'std': 0}
@@ -2249,260 +2022,66 @@ class CameraController:
             'std': float(np.std(frame))
         }
     
-    def save_frame(self, filename: str, frame: Optional[np.ndarray] = None) -> bool:
-        """Save the frame to a file
+    def apply_settings(self, settings: Dict[str, float] = None) -> None:
+        """Apply camera settings"""
+        if settings is not None:
+            # Update settings
+            for key, value in settings.items():
+                if key in self.settings:
+                    self.settings[key] = value
         
-        Args:
-            filename: Output filename
-            frame: Frame to save, or None to use latest frame
+        if self.camera is None:
+            print("Camera not initialized")
+            return
             
-        Returns:
-            True if successful, False otherwise
-        """
+        try:
+            # Apply settings to camera
+            controls = {
+                "ExposureTime": int(self.settings['exposure'] * 1000),  # Convert ms to μs
+                "AnalogueGain": float(self.settings['gain']),
+            }
+            
+            # Apply the settings
+            self.camera.set_controls(controls)
+            print(f"Applied camera settings: {controls}")
+            
+        except Exception as e:
+            print(f"Error applying camera settings: {str(e)}")
+    
+    def save_frame(self, filename: str, frame: Optional[np.ndarray] = None) -> bool:
+        """Save the frame to a file"""
         if frame is None:
-            frame = self.get_latest_frame()
+            frame = self.get_frame()
             
         if frame is None:
-            print("Error: No frame available to save")
+            print("No frame available to save")
             return False
             
         try:
-            # Make sure directory exists
+            # Create directory if it doesn't exist
             os.makedirs(os.path.dirname(os.path.abspath(filename)), exist_ok=True)
             
-            # Save the frame
+            # Save the image
             cv2.imwrite(filename, frame)
+            
+            print(f"Frame saved to {filename}")
             return True
+            
         except Exception as e:
             print(f"Error saving frame: {str(e)}")
             return False
     
-    def close(self) -> None:
-        """Close the camera"""
-        if self.camera is None:
-            return
-            
-        try:
-            if self.camera_type == "opencv":
-                self.camera.release()
-            elif self.camera_type == "picamera":
-                if hasattr(self, 'picamera2'):
-                    self.camera.close()
-                else:
-                    self.camera.close()
-        except Exception as e:
-            print(f"Error closing camera: {str(e)}")
-        finally:
-            self.camera = None
-
-class PatternGenerator:
-    def __init__(self, target_intensity, signal_region_mask=None, mixing_parameter=0.4):
-        """
-        Initialize pattern generator with target intensity and optional MRAF parameters.
+    def reset_settings(self) -> None:
+        """Reset camera settings to defaults"""
+        self.settings = {
+            'exposure': 10.0,  # ms
+            'gain': 1.0,       # analog gain
+            'brightness': 0,   # -255 to 255
+            'contrast': 1.0,   # 0.0 to 2.0
+        }
         
-        Args:
-            target_intensity (np.ndarray): Target intensity pattern (2D array)
-            signal_region_mask (np.ndarray): Binary mask defining signal region for MRAF (2D array)
-            mixing_parameter (float): Mixing parameter for MRAF algorithm (0 < m < 1)
-        """
-        self.target_intensity = target_intensity
-        # Normalize target intensity by maximum value instead of sum
-        # This provides more meaningful error values and better convergence
-        self.target_intensity = self.target_intensity / np.max(self.target_intensity)
-        
-        # If no signal region mask is provided, use the entire region
-        if signal_region_mask is None:
-            self.signal_region_mask = np.ones_like(target_intensity)
-        else:
-            self.signal_region_mask = signal_region_mask
-            
-        self.mixing_parameter = mixing_parameter
-        
-        # Create a smooth window function to reduce artifacts
-        h, w = target_intensity.shape
-        y, x = np.ogrid[-h//2:h//2, -w//2:w//2]
-        
-        # Create a super-Gaussian window (smoother than regular Gaussian)
-        # Using a higher order (10) for even sharper edge roll-off but still smooth transition
-        self.window = np.exp(-0.5 * ((x/(w*0.45))**10 + (y/(h*0.45))**10))
-        
-        # Calculate radial distance from center for filtering
-        r = np.sqrt(x**2 + y**2)
-        
-        # Create a more aggressive DC filter with smoother transition
-        # This removes the central bright spot more effectively
-        dc_radius = min(w,h)*0.005  # Smaller radius for more targeted DC suppression
-        self.dc_filter = 1.0 - np.exp(-0.5 * (r/dc_radius)**2)
-        
-        # Create a high-frequency filter to suppress noise that causes star patterns
-        # Using a Butterworth-like filter for sharper cutoff with minimal ringing
-        hf_radius = min(w,h)*0.4
-        butterworth_order = 4  # Higher order for steeper roll-off
-        self.hf_filter = 1.0 / (1.0 + (r/hf_radius)**(2*butterworth_order))
-        
-        # Create cross-shaped notch filter to specifically target star-shaped artifacts
-        # These typically appear along the x and y axes in Fourier space
-        notch_width = min(w,h)*0.01
-        x_axis_mask = np.exp(-0.5 * (y/notch_width)**2)
-        y_axis_mask = np.exp(-0.5 * (x/notch_width)**2)
-        self.cross_filter = 1.0 - np.maximum(x_axis_mask, y_axis_mask) * 0.9  # 90% attenuation along axes
-    
-    def propagate(self, field):
-        """Propagate field from image plane to SLM plane"""
-        # Apply window function to reduce edge artifacts
-        windowed_field = field * self.window
-        
-        # Use proper FFT shifting for optical propagation
-        fft_field = np.fft.fftshift(np.fft.fft2(np.fft.ifftshift(windowed_field)))
-        
-        # Apply DC, high-frequency, and cross filters in Fourier space
-        filtered_fft = fft_field * self.dc_filter * self.hf_filter * self.cross_filter
-        
-        return filtered_fft
-    
-    def inverse_propagate(self, field):
-        """Propagate field from SLM plane to image plane"""
-        # Use proper FFT shifting for optical propagation
-        result = np.fft.fftshift(np.fft.ifft2(np.fft.ifftshift(field)))
-        
-        # Apply window on the way back to reduce ringing artifacts
-        # Using a gentler window for the reconstruction
-        return result * np.sqrt(self.window)
-    
-    def gs_iteration(self, field):
-        """Single iteration of Gerchberg-Saxton algorithm"""
-        # Propagate to SLM plane
-        slm_field = self.propagate(field)
-        # Apply phase-only constraint
-        slm_field = np.exp(1j * np.angle(slm_field))
-        # Propagate to image plane
-        image_field = self.inverse_propagate(slm_field)
-        # Apply amplitude constraint
-        return np.sqrt(self.target_intensity) * np.exp(1j * np.angle(image_field))
-    
-    def mraf_iteration(self, field):
-        """Single iteration of Mixed-Region Amplitude Freedom algorithm"""
-        # Propagate to SLM plane
-        slm_field = self.propagate(field)
-        # Apply phase-only constraint
-        slm_field = np.exp(1j * np.angle(slm_field))
-        # Propagate to image plane
-        image_field = self.inverse_propagate(slm_field)
-        
-        # Apply MRAF mixing in signal and noise regions
-        m = self.mixing_parameter
-        sr_mask = self.signal_region_mask
-        nr_mask = 1 - sr_mask
-        
-        mixed_field = np.zeros_like(image_field, dtype=complex)
-        # Signal region: maintain target amplitude
-        mixed_field[sr_mask == 1] = np.sqrt(self.target_intensity[sr_mask == 1]) * np.exp(1j * np.angle(image_field[sr_mask == 1]))
-        # Noise region: allow amplitude freedom
-        mixed_field[nr_mask == 1] = ((1-m) * image_field[nr_mask == 1] + m * np.sqrt(self.target_intensity[nr_mask == 1]) * np.exp(1j * np.angle(image_field[nr_mask == 1])))
-        
-        return mixed_field
-    
-    def optimize(self, initial_field, algorithm='gs', max_iterations=10, tolerance=1e-4):
-        """
-        Optimize the phase pattern using specified algorithm.
-        
-        Args:
-            initial_field (np.ndarray): Initial complex field
-            algorithm (str): 'gs' for Gerchberg-Saxton or 'mraf' for Mixed-Region Amplitude Freedom
-            max_iterations (int): Maximum number of iterations
-            tolerance (float): Convergence tolerance
-            
-        Returns:
-            tuple: (optimized_field, error_history, stop_reason)
-        """
-        field = initial_field.copy()
-        error_history = []
-        prev_error = float('inf')
-        stop_reason = "Maximum iterations reached"
-        
-        # Calculate initial error for reference
-        initial_error = self.calculate_error(field, algorithm)
-        print(f"Initial error: {initial_error:.3e}")
-        
-        # Run optimization loop
-        for i in tqdm(range(max_iterations), desc=f"Running {algorithm.upper()} optimization"):
-            # Store field before iteration for comparison
-            prev_field = field.copy()
-            
-            # Apply iteration based on selected algorithm
-            if algorithm.lower() == 'gs':
-                field = self.gs_iteration(field)
-            elif algorithm.lower() == 'mraf':
-                field = self.mraf_iteration(field)
-            else:
-                raise ValueError("Algorithm must be 'gs' or 'mraf'")
-                
-            # Calculate error for monitoring
-            current_error = self.calculate_error(field, algorithm)
-            error_history.append(current_error)
-            
-            # Calculate field change for convergence check
-            field_change = self.calculate_field_change(field, prev_field)
-                
-            # Print current metrics for debugging
-            print(f"Iteration {i}, Error: {current_error:.3e}, Field Change: {field_change:.3e}, Tolerance: {tolerance:.3e}")
-            
-            # Check convergence based on field change (more reliable than error delta)
-            if field_change < tolerance and i > 5:  # Require at least 5 iterations
-                stop_reason = f"Convergence reached at iteration {i+1}: Field change ({field_change:.3e}) < tolerance ({tolerance:.3e})"
-                print(stop_reason)
-                break
-                
-            # Check for NaN or Inf in error
-            if np.isnan(current_error) or np.isinf(current_error):
-                stop_reason = f"Algorithm stopped at iteration {i+1}: Error value is {current_error}"
-                print(stop_reason)
-                break
-                
-            prev_error = current_error
-        
-        # If we reached max iterations, note that
-        if i == max_iterations - 1:
-            print(stop_reason)
-        
-        # Calculate final error for comparison
-        final_error = self.calculate_error(field, algorithm)
-        improvement = initial_error / final_error if final_error > 0 else float('inf')
-        print(f"Final error: {final_error:.3e}, Improvement: {improvement:.2f}x")
-        
-        # Return the results
-        return field, error_history, stop_reason
-    
-    def calculate_error(self, field, algorithm):
-        """
-        Calculate Normalized Mean Square Error (NMSE) between reconstructed and target intensity.
-        This provides a more meaningful error metric than absolute difference.
-        """
-        recon_intensity = np.abs(field)**2
-        
-        if algorithm.lower() == 'gs':
-            # For GS, calculate error over entire field
-            mse = np.mean((recon_intensity - self.target_intensity)**2)
-            # Normalize by mean squared target intensity (NMSE)
-            norm_error = mse / np.mean(self.target_intensity**2)
-        else:
-            # For MRAF, calculate error only in signal region
-            sr_mask = self.signal_region_mask
-            if np.sum(sr_mask) > 0:  # Ensure signal region is not empty
-                mse = np.mean((recon_intensity[sr_mask == 1] - self.target_intensity[sr_mask == 1])**2)
-                # Normalize by mean squared target intensity in signal region (NMSE)
-                norm_error = mse / np.mean(self.target_intensity[sr_mask == 1]**2)
-            else:
-                norm_error = 0.0
-                
-        return norm_error
-    
-    def calculate_field_change(self, field, prev_field):
-        """
-        Calculate the mean change in field intensity between iterations.
-        This is a more reliable convergence metric than error delta.
-        """
-        return np.mean(np.abs(np.abs(field)**2 - np.abs(prev_field)**2))
+        self.apply_settings()
+        print("Camera settings reset to defaults")
 
 if __name__ == "__main__":
     app = AdvancedPatternGenerator()
