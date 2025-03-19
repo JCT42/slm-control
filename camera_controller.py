@@ -619,7 +619,7 @@ class CameraGUI:
         # Pause/Resume toggle button
         self.pause_text = tk.StringVar(value="Pause Camera")
         self.pause_button = ttk.Button(control_frame, textvariable=self.pause_text, command=self._on_toggle_pause)
-        self.pause_button.pack(side=tk.LEFT, padx=5)
+        self.pause_button.pack(side=tk.LEFT, padx=5)  # Added this line
     
     def _update_setting_from_entry(self, setting, var):
         """Update a camera setting from an entry field"""
