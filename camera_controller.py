@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
 """
-Camera Controller for IMX296 Camera
+Camera Controller for IMX296 Monochrome Camera
 
-This module provides a camera controller specifically optimized for the IMX296 camera
-with RGB3 format (24-bit RGB 8-8-8) at 1456x1088 resolution.
+This module provides a camera controller specifically optimized for the IMX296 monochrome camera
+that outputs in RGB3 format (24-bit RGB 8-8-8) at 1456x1088 resolution.
 
 Features:
-- Direct access to camera's native RGB3 format
-- Conversion to grayscale for intensity analysis
-- Histogram generation and analysis
+- Direct access to camera's intensity values from monochrome sensor
+- Uses single channel from RGB3 format for true grayscale values
+- Histogram generation and analysis of intensity distributions
 - Frame capture and saving with metadata
 - Thread-safe operation for GUI integration
 """
@@ -17,6 +17,7 @@ import os
 import time
 import threading
 import traceback
+import subprocess
 from typing import Dict, List, Optional, Tuple, Union
 import json
 
@@ -39,7 +40,7 @@ except ImportError:
 
 class CameraController:
     """
-    Camera controller for IMX296 camera with RGB3 format.
+    Camera controller for IMX296 monochrome camera that outputs in RGB3 format.
     Preserves intensity values for scientific analysis.
     """
     
@@ -59,6 +60,7 @@ class CameraController:
         # Camera state
         self.camera = None
         self.is_running = False
+        self.is_paused = False
         self.thread = None
         self.lock = threading.Lock()
         self.latest_frame = None
@@ -195,6 +197,11 @@ class CameraController:
         
         while self.is_running:
             try:
+                # Skip frame capture if paused
+                if self.is_paused:
+                    time.sleep(0.1)  # Sleep longer when paused
+                    continue
+                    
                 # Capture a frame
                 frame = self.capture_frame()
                 
@@ -222,10 +229,12 @@ class CameraController:
             # Capture RGB frame
             rgb_frame = self.camera.capture_array()
             
-            # Convert to grayscale for intensity analysis
+            # For monochrome camera outputting in RGB3 format,
+            # just use the red channel as they're all identical
             if len(rgb_frame.shape) == 3 and rgb_frame.shape[2] == 3:
-                # RGB to grayscale conversion
-                gray = cv2.cvtColor(rgb_frame, cv2.COLOR_RGB2GRAY)
+                # Just extract the red channel (all channels should be identical for monochrome)
+                gray = rgb_frame[:, :, 0]  # Use red channel
+                print("Using red channel from RGB3 format for monochrome camera") if np.random.random() < 0.001 else None
             else:
                 # Already grayscale
                 gray = rgb_frame
@@ -257,15 +266,29 @@ class CameraController:
             fig = Figure(figsize=(4, 3), dpi=100)
             ax = fig.add_subplot(111)
             
-            # Calculate histogram
+            # Calculate histogram - ensure we use the full 8-bit range (0-255)
             hist = cv2.calcHist([frame], [0], None, [256], [0, 256])
             
             # Plot the histogram
             ax.plot(hist, color='blue')
             ax.set_xlim([0, 256])
-            ax.set_title('Intensity Histogram')
-            ax.set_xlabel('Intensity Value')
+            ax.set_title('Intensity Histogram (8-bit)')
+            ax.set_xlabel('Intensity Value (0-255)')
             ax.set_ylabel('Pixel Count')
+            
+            # Add vertical lines at min and max values
+            min_val = np.min(frame)
+            max_val = np.max(frame)
+            mean_val = np.mean(frame)
+            
+            # Add min/max/mean lines
+            ax.axvline(x=min_val, color='r', linestyle='--', alpha=0.7, label=f'Min: {min_val:.1f}')
+            ax.axvline(x=max_val, color='g', linestyle='--', alpha=0.7, label=f'Max: {max_val:.1f}')
+            ax.axvline(x=mean_val, color='y', linestyle='--', alpha=0.7, label=f'Mean: {mean_val:.1f}')
+            
+            # Add legend
+            ax.legend(loc='upper right', fontsize='small')
+            
             ax.grid(True, alpha=0.3)
             
             # Render the figure to a numpy array
@@ -311,9 +334,11 @@ class CameraController:
             # Capture the frame
             result = self.camera.capture_array()
             
-            # Convert to grayscale for intensity analysis
+            # For monochrome camera outputting in RGB3 format,
+            # just use the red channel as they're all identical
             if len(result.shape) == 3 and result.shape[2] == 3:
-                result = cv2.cvtColor(result, cv2.COLOR_RGB2GRAY)
+                # Just extract the red channel (all channels should be identical for monochrome)
+                result = result[:, :, 0]  # Use red channel
                 
             return result
                 
@@ -337,6 +362,11 @@ class CameraController:
             if not filename.lower().endswith(('.png', '.jpg', '.jpeg', '.tiff', '.tif')):
                 filename += '.png'
             
+            # Create directory if it doesn't exist
+            directory = os.path.dirname(filename)
+            if directory and not os.path.exists(directory):
+                os.makedirs(directory)
+            
             # Save the image
             cv2.imwrite(filename, save_image)
             
@@ -357,7 +387,7 @@ class CameraController:
             metadata_filename = os.path.splitext(filename)[0] + '.txt'
             
             with open(metadata_filename, 'w') as f:
-                f.write(f"Camera: IMX296 RGB3 at {self.width}x{self.height}\n")
+                f.write(f"Camera: IMX296 Monochrome RGB3 at {self.width}x{self.height}\n")
                 f.write(f"Resolution: {image.shape[1]}x{image.shape[0]}\n")
                 f.write(f"Bit Depth: 8-bit\n")
                 f.write(f"Value Range: 0-255\n")
@@ -408,6 +438,25 @@ class CameraController:
         if setting in self.settings:
             return self.settings[setting]
         return None
+    
+    def pause(self) -> None:
+        """Pause the camera capture without stopping the thread"""
+        self.is_paused = True
+        print("Camera capture paused")
+    
+    def resume(self) -> None:
+        """Resume the camera capture"""
+        self.is_paused = False
+        print("Camera capture resumed")
+    
+    def toggle_pause(self) -> bool:
+        """Toggle the pause state of the camera capture"""
+        if self.is_paused:
+            self.resume()
+            return False  # No longer paused
+        else:
+            self.pause()
+            return True  # Now paused
 
 
 class CameraGUI:
@@ -427,6 +476,9 @@ class CameraGUI:
         # Preview dimensions
         self.preview_width = 640
         self.preview_height = 480
+        
+        # Pause state
+        self.is_paused = False
         
         # Create the GUI
         self._create_widgets()
@@ -452,15 +504,8 @@ class CameraGUI:
         preview_tab = ttk.Frame(notebook)
         notebook.add(preview_tab, text="Preview")
         
-        # Settings tab
-        settings_tab = ttk.Frame(notebook)
-        notebook.add(settings_tab, text="Settings")
-        
         # Create preview area
         self._create_preview_area(preview_tab)
-        
-        # Create settings controls
-        self._create_settings_controls(settings_tab)
         
         # Status bar
         self.status_var = tk.StringVar(value="Ready")
@@ -473,12 +518,12 @@ class CameraGUI:
         preview_frame = ttk.Frame(parent)
         preview_frame.pack(fill=tk.BOTH, expand=True, pady=5)
         
-        # Split into preview and histogram
+        # Split into preview and histogram/settings
         preview_pane = ttk.Frame(preview_frame)
         preview_pane.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         
-        histogram_pane = ttk.Frame(preview_frame)
-        histogram_pane.pack(side=tk.RIGHT, fill=tk.BOTH, expand=False)
+        right_pane = ttk.Frame(preview_frame)
+        right_pane.pack(side=tk.RIGHT, fill=tk.BOTH, expand=False)
         
         # Preview canvas
         self.preview_canvas = tk.Canvas(preview_pane, 
@@ -494,11 +539,63 @@ class CameraGUI:
         self.intensity_info.pack(pady=5)
         
         # Histogram canvas
-        self.histogram_canvas = tk.Canvas(histogram_pane,
+        histogram_frame = ttk.LabelFrame(right_pane, text="Histogram")
+        histogram_frame.pack(pady=5, fill=tk.X)
+        
+        self.histogram_canvas = tk.Canvas(histogram_frame,
                                         width=400,
                                         height=300,
                                         bg="white")
         self.histogram_canvas.pack(pady=5)
+        
+        # Settings frame - now under histogram in the right pane
+        settings_frame = ttk.LabelFrame(right_pane, text="Camera Settings")
+        settings_frame.pack(fill=tk.X, pady=10, padx=5)
+        
+        # Create numerical entry fields instead of sliders
+        # Exposure control
+        exposure_frame = ttk.Frame(settings_frame)
+        exposure_frame.pack(fill=tk.X, pady=2)
+        ttk.Label(exposure_frame, text="Exposure (ms):").pack(side=tk.LEFT, padx=5)
+        self.exposure_var = tk.StringVar(value=str(self.camera.settings['exposure']))
+        exposure_entry = ttk.Entry(exposure_frame, textvariable=self.exposure_var, width=8)
+        exposure_entry.pack(side=tk.RIGHT, padx=5)
+        exposure_entry.bind("<Return>", lambda e: self._update_setting_from_entry('exposure', self.exposure_var))
+        exposure_entry.bind("<FocusOut>", lambda e: self._update_setting_from_entry('exposure', self.exposure_var))
+        
+        # Gain control
+        gain_frame = ttk.Frame(settings_frame)
+        gain_frame.pack(fill=tk.X, pady=2)
+        ttk.Label(gain_frame, text="Gain:").pack(side=tk.LEFT, padx=5)
+        self.gain_var = tk.StringVar(value=str(self.camera.settings['gain']))
+        gain_entry = ttk.Entry(gain_frame, textvariable=self.gain_var, width=8)
+        gain_entry.pack(side=tk.RIGHT, padx=5)
+        gain_entry.bind("<Return>", lambda e: self._update_setting_from_entry('gain', self.gain_var))
+        gain_entry.bind("<FocusOut>", lambda e: self._update_setting_from_entry('gain', self.gain_var))
+        
+        # Brightness control
+        brightness_frame = ttk.Frame(settings_frame)
+        brightness_frame.pack(fill=tk.X, pady=2)
+        ttk.Label(brightness_frame, text="Brightness:").pack(side=tk.LEFT, padx=5)
+        self.brightness_var = tk.StringVar(value=str(self.camera.settings['brightness']))
+        brightness_entry = ttk.Entry(brightness_frame, textvariable=self.brightness_var, width=8)
+        brightness_entry.pack(side=tk.RIGHT, padx=5)
+        brightness_entry.bind("<Return>", lambda e: self._update_setting_from_entry('brightness', self.brightness_var))
+        brightness_entry.bind("<FocusOut>", lambda e: self._update_setting_from_entry('brightness', self.brightness_var))
+        
+        # Contrast control
+        contrast_frame = ttk.Frame(settings_frame)
+        contrast_frame.pack(fill=tk.X, pady=2)
+        ttk.Label(contrast_frame, text="Contrast:").pack(side=tk.LEFT, padx=5)
+        self.contrast_var = tk.StringVar(value=str(self.camera.settings['contrast']))
+        contrast_entry = ttk.Entry(contrast_frame, textvariable=self.contrast_var, width=8)
+        contrast_entry.pack(side=tk.RIGHT, padx=5)
+        contrast_entry.bind("<Return>", lambda e: self._update_setting_from_entry('contrast', self.contrast_var))
+        contrast_entry.bind("<FocusOut>", lambda e: self._update_setting_from_entry('contrast', self.contrast_var))
+        
+        # Reset button
+        reset_button = ttk.Button(settings_frame, text="Reset Settings", command=self._on_reset)
+        reset_button.pack(pady=5)
         
         # Control buttons
         control_frame = ttk.Frame(parent)
@@ -506,52 +603,27 @@ class CameraGUI:
         
         ttk.Button(control_frame, text="Capture", command=self._on_capture).pack(side=tk.LEFT, padx=5)
         ttk.Button(control_frame, text="Save", command=self._on_save).pack(side=tk.LEFT, padx=5)
-        ttk.Button(control_frame, text="Reset", command=self._on_reset).pack(side=tk.LEFT, padx=5)
+        
+        # Pause/Resume toggle button
+        self.pause_text = tk.StringVar(value="Pause Camera")
+        self.pause_button = ttk.Button(control_frame, textvariable=self.pause_text, command=self._on_toggle_pause)
+        self.pause_button.pack(side=tk.LEFT, padx=5)
     
-    def _create_settings_controls(self, parent):
-        """Create the settings controls"""
-        # Settings frame
-        settings_frame = ttk.LabelFrame(parent, text="Camera Settings")
-        settings_frame.pack(fill=tk.BOTH, expand=True, pady=10, padx=10)
-        
-        # Exposure control
-        ttk.Label(settings_frame, text="Exposure (ms):").grid(row=0, column=0, sticky=tk.W, pady=5, padx=5)
-        self.exposure_var = tk.DoubleVar(value=self.camera.settings['exposure'])
-        exposure_scale = ttk.Scale(settings_frame, from_=1, to=100, variable=self.exposure_var,
-                                 command=lambda v: self._update_setting('exposure', float(v)))
-        exposure_scale.grid(row=0, column=1, sticky=tk.EW, pady=5, padx=5)
-        ttk.Label(settings_frame, textvariable=self.exposure_var).grid(row=0, column=2, padx=5)
-        
-        # Gain control
-        ttk.Label(settings_frame, text="Gain:").grid(row=1, column=0, sticky=tk.W, pady=5, padx=5)
-        self.gain_var = tk.DoubleVar(value=self.camera.settings['gain'])
-        gain_scale = ttk.Scale(settings_frame, from_=1, to=16, variable=self.gain_var,
-                             command=lambda v: self._update_setting('gain', float(v)))
-        gain_scale.grid(row=1, column=1, sticky=tk.EW, pady=5, padx=5)
-        ttk.Label(settings_frame, textvariable=self.gain_var).grid(row=1, column=2, padx=5)
-        
-        # Brightness control
-        ttk.Label(settings_frame, text="Brightness:").grid(row=2, column=0, sticky=tk.W, pady=5, padx=5)
-        self.brightness_var = tk.IntVar(value=self.camera.settings['brightness'])
-        brightness_scale = ttk.Scale(settings_frame, from_=-255, to=255, variable=self.brightness_var,
-                                   command=lambda v: self._update_setting('brightness', int(float(v))))
-        brightness_scale.grid(row=2, column=1, sticky=tk.EW, pady=5, padx=5)
-        ttk.Label(settings_frame, textvariable=self.brightness_var).grid(row=2, column=2, padx=5)
-        
-        # Contrast control
-        ttk.Label(settings_frame, text="Contrast:").grid(row=3, column=0, sticky=tk.W, pady=5, padx=5)
-        self.contrast_var = tk.DoubleVar(value=self.camera.settings['contrast'])
-        contrast_scale = ttk.Scale(settings_frame, from_=0.5, to=2.0, variable=self.contrast_var,
-                                 command=lambda v: self._update_setting('contrast', float(v)))
-        contrast_scale.grid(row=3, column=1, sticky=tk.EW, pady=5, padx=5)
-        ttk.Label(settings_frame, textvariable=self.contrast_var).grid(row=3, column=2, padx=5)
-        
-        # Configure grid
-        settings_frame.columnconfigure(1, weight=1)
-    
-    def _update_setting(self, setting, value):
-        """Update a camera setting"""
-        self.camera.set_setting(setting, value)
+    def _update_setting_from_entry(self, setting, var):
+        """Update a camera setting from an entry field"""
+        try:
+            value = var.get()
+            if setting in ['exposure', 'gain', 'contrast']:
+                value = float(value)
+            elif setting == 'brightness':
+                value = int(value)
+            self.camera.set_setting(setting, value)
+            self.status_var.set(f"Setting {setting} updated to {value}")
+        except ValueError:
+            self.status_var.set(f"Invalid value for {setting}")
+            # Reset to current value
+            if setting in ['exposure', 'gain', 'contrast', 'brightness']:
+                var.set(str(self.camera.get_setting(setting)))
     
     def _on_capture(self):
         """Handle capture button click"""
@@ -572,22 +644,87 @@ class CameraGUI:
     def _on_save(self):
         """Handle save button click"""
         try:
-            # Create a default filename with timestamp
-            filename = f"image_{time.strftime('%Y%m%d_%H%M%S')}.png"
-            
             # Get the current frame
             frame = self.camera.get_latest_frame()
             
-            if frame is not None:
-                # Save the frame
-                if self.camera.save_frame(filename, frame):
-                    self.status_var.set(f"Image saved to {filename}")
+            if frame is None:
+                self.status_var.set("No frame available to save")
+                return
+                
+            # Create default capture directory
+            default_dir = "/home/surena/slm-control/Captures"
+            
+            # Create a default filename with timestamp
+            default_filename = f"image_{time.strftime('%Y%m%d_%H%M%S')}.png"
+            default_path = os.path.join(default_dir, default_filename)
+            
+            # Make sure the default directory exists
+            os.makedirs(default_dir, exist_ok=True)
+            
+            # Check if zenity is available
+            zenity_available = False
+            try:
+                # Check if zenity is installed
+                result = subprocess.run(["which", "zenity"], capture_output=True, text=True)
+                zenity_available = result.returncode == 0
+            except Exception:
+                zenity_available = False
+                
+            # Use zenity if available
+            if zenity_available:
+                try:
+                    # Run zenity file selection dialog
+                    cmd = [
+                        "zenity", "--file-selection",
+                        "--save",
+                        "--filename", default_path,
+                        "--title", "Save Camera Image",
+                        "--file-filter", "Images | *.png *.jpg *.jpeg *.tif *.tiff"
+                    ]
+                    
+                    # Execute zenity command
+                    result = subprocess.run(cmd, capture_output=True, text=True)
+                    
+                    # Check if user canceled
+                    if result.returncode != 0:
+                        self.status_var.set("Save canceled")
+                        return
+                        
+                    # Get the selected filename
+                    filename = result.stdout.strip()
+                    
+                    # If empty, user canceled
+                    if not filename:
+                        self.status_var.set("Save canceled")
+                        return
+                        
+                    # Save the frame
+                    if self.camera.save_frame(filename, frame):
+                        self.status_var.set(f"Image saved to {filename}")
+                    else:
+                        self.status_var.set("Failed to save image")
+                        
+                except Exception as zenity_error:
+                    print(f"Zenity error: {str(zenity_error)}")
+                    self.status_var.set(f"Zenity error: {str(zenity_error)}")
+                    
+                    # Fallback to default path
+                    if self.camera.save_frame(default_path, frame):
+                        self.status_var.set(f"Image saved to {default_path}")
+                    else:
+                        self.status_var.set("Failed to save image")
+            else:
+                # Zenity not available, use default path
+                print("Zenity not available, saving to default path")
+                if self.camera.save_frame(default_path, frame):
+                    self.status_var.set(f"Image saved to {default_path}")
                 else:
                     self.status_var.set("Failed to save image")
-            else:
-                self.status_var.set("No frame available to save")
+                
         except Exception as e:
             self.status_var.set(f"Save error: {str(e)}")
+            print(f"Save error: {str(e)}")
+            traceback.print_exc()
     
     def _on_reset(self):
         """Handle reset button click"""
@@ -604,14 +741,34 @@ class CameraGUI:
                 self.camera.set_setting(setting, value)
                 
             # Update GUI controls
-            self.exposure_var.set(default_settings['exposure'])
-            self.gain_var.set(default_settings['gain'])
-            self.brightness_var.set(default_settings['brightness'])
-            self.contrast_var.set(default_settings['contrast'])
+            self.exposure_var.set(str(default_settings['exposure']))
+            self.gain_var.set(str(default_settings['gain']))
+            self.brightness_var.set(str(default_settings['brightness']))
+            self.contrast_var.set(str(default_settings['contrast']))
             
             self.status_var.set("Settings reset to defaults")
         except Exception as e:
             self.status_var.set(f"Reset error: {str(e)}")
+    
+    def _on_toggle_pause(self):
+        """Handle pause/resume button click"""
+        try:
+            # Toggle camera pause state
+            is_now_paused = self.camera.toggle_pause()
+            
+            # Update button text
+            if is_now_paused:
+                self.pause_text.set("Resume Camera")
+                self.status_var.set("Camera paused")
+            else:
+                self.pause_text.set("Pause Camera")
+                self.status_var.set("Camera resumed")
+                
+            # Update internal state
+            self.is_paused = is_now_paused
+            
+        except Exception as e:
+            self.status_var.set(f"Error toggling pause: {str(e)}")
     
     def _update_preview(self):
         """Update the preview display"""
@@ -624,7 +781,7 @@ class CameraGUI:
                 stats = self.camera.get_intensity_stats(frame)
                 self.intensity_info.config(
                     text=f"Intensity (8-bit) - Min: {stats['min']:.1f}, Max: {stats['max']:.1f}, " +
-                         f"Mean: {stats['mean']:.1f}"
+                         f"Mean: {stats['mean']:.1f}, StdDev: {stats['std']:.1f}"
                 )
                 
                 # Resize if needed
@@ -640,7 +797,11 @@ class CameraGUI:
                 self.preview_canvas.create_image(0, 0, anchor=tk.NW, image=self.tk_img)
                 
                 # Update status
-                self.status_var.set(f"Camera running - {frame.shape[1]}x{frame.shape[0]} at 8-bit depth")
+                if self.is_paused:
+                    status = "Camera paused"
+                else:
+                    status = f"Camera running - {frame.shape[1]}x{frame.shape[0]} at 8-bit depth (0-255)"
+                self.status_var.set(status)
                 
                 # Update histogram
                 hist_img = self.camera.get_latest_histogram()
