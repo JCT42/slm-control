@@ -207,34 +207,79 @@ class CameraController:
                 print("PiCamera2 is not available. Please install it with: pip install picamera2")
                 return False
                 
-            # Create camera instance - don't use camera_id parameter as it's not supported in some versions
-            self.camera = Picamera2()  # Use default camera
+            # Create camera instance - use default camera
+            self.camera = Picamera2()
             
-            # Configure for 10-bit Y10 capture
+            # Get camera info
+            print(f"Camera info: {self.camera.camera_properties}")
+            
+            # Configure for 10-bit Y10 capture if possible
+            # First check if Y10 format is supported
+            supported_formats = self.camera.camera_properties['PixelFormats']
+            print(f"Supported pixel formats: {supported_formats}")
+            
+            # Use Y10 if available, otherwise fall back to standard formats
+            pixel_format = "Y10" if "Y10" in supported_formats else "YUV420"
+            print(f"Using pixel format: {pixel_format}")
+            
             preview_width = int(self.width * 0.5)  # Half size for preview
             preview_height = int(self.height * 0.5)
             
             # Create configuration for still and preview
-            # For Y10 format, we need to use the correct configuration
-            self.camera_config = self.camera.create_still_configuration(
-                main={"size": (self.width, self.height),
-                      "format": "Y10"},  # 10-bit Y-only format
-                lores={"size": (preview_width, preview_height),
-                       "format": "YUV420"},
-                display="lores"
-            )
+            try:
+                self.camera_config = self.camera.create_still_configuration(
+                    main={"size": (self.width, self.height),
+                          "format": pixel_format},
+                    lores={"size": (preview_width, preview_height),
+                           "format": "YUV420"},
+                    display="lores"
+                )
+            except Exception as config_error:
+                print(f"Error creating custom configuration: {str(config_error)}")
+                print("Falling back to default configuration")
+                # Fall back to default configuration
+                self.camera_config = self.camera.create_still_configuration()
+                # Update our width and height to match what was configured
+                self.width = self.camera_config["main"]["size"][0]
+                self.height = self.camera_config["main"]["size"][1]
             
             # Apply configuration
             self.camera.configure(self.camera_config)
             
-            # Set initial camera controls
-            self.camera.set_controls({
-                "ExposureTime": int(self.settings['exposure'] * 1000),  # Convert ms to μs
-                "AnalogueGain": float(self.settings['gain']),
-                "FrameDurationLimits": (33333, 33333),  # Target ~30fps
-            })
+            # Print the actual configuration that was applied
+            print(f"Camera configured with: {self.camera_config}")
             
-            print(f"PiCamera2 initialized at {self.width}x{self.height} in Y10 format")
+            # Set initial camera controls
+            try:
+                self.camera.set_controls({
+                    "ExposureTime": int(self.settings['exposure'] * 1000),  # Convert ms to μs
+                    "AnalogueGain": float(self.settings['gain']),
+                })
+                print("Camera controls set successfully")
+            except Exception as control_error:
+                print(f"Warning: Could not set some camera controls: {str(control_error)}")
+                print("Continuing with default controls")
+            
+            # Get the actual camera resolution after configuration
+            actual_width = self.camera_config["main"]["size"][0]
+            actual_height = self.camera_config["main"]["size"][1]
+            actual_format = self.camera_config["main"]["format"]
+            
+            print(f"PiCamera2 initialized at {actual_width}x{actual_height} in {actual_format} format")
+            
+            # Start the camera to ensure it's working
+            self.camera.start()
+            time.sleep(0.5)  # Give it a moment to start
+            
+            # Capture a test frame to verify camera is working
+            try:
+                test_frame = self.camera.capture_array()
+                print(f"Test frame captured successfully: {test_frame.shape}, dtype: {test_frame.dtype}")
+                print(f"Frame values - Min: {np.min(test_frame)}, Max: {np.max(test_frame)}, Mean: {np.mean(test_frame):.1f}")
+            except Exception as capture_error:
+                print(f"Warning: Test frame capture failed: {str(capture_error)}")
+                # Continue anyway as this is just a test
+            
             return True
             
         except Exception as e:

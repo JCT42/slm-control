@@ -17,6 +17,7 @@ import threading
 from picamera2 import Picamera2
 from libcamera import controls
 from PIL import Image, ImageTk
+import traceback
 
 class CameraController:
     """Advanced camera controller for scientific imaging with PiCamera2"""
@@ -75,32 +76,89 @@ class CameraController:
     def initialize(self):
         """Initialize the camera with configured settings"""
         try:
-            # Create camera instance without device parameter
+            # Create camera instance
             self.camera = Picamera2()
             
-            # Configure for 10-bit Y10 capture
+            # Get camera info
+            print(f"Camera info: {self.camera.camera_properties}")
+            
+            # Configure for 10-bit Y10 capture if possible
+            # First check if Y10 format is supported
+            supported_formats = self.camera.camera_properties['PixelFormats']
+            print(f"Supported pixel formats: {supported_formats}")
+            
+            # Use Y10 if available, otherwise fall back to standard formats
+            if self.config['pixel_format'] in supported_formats:
+                pixel_format = self.config['pixel_format']
+            else:
+                print(f"Warning: Requested format {self.config['pixel_format']} not supported")
+                pixel_format = "YUV420"  # Default fallback
+                self.config['pixel_format'] = pixel_format
+                
+            print(f"Using pixel format: {pixel_format}")
+            
+            # Calculate preview size
             preview_width = int(self.config['width'] * self.config['preview_scale'])
             preview_height = int(self.config['height'] * self.config['preview_scale'])
             
             # Create configuration for still and preview
-            # For Y10 format, we need to use the correct configuration
-            self.camera_config = self.camera.create_still_configuration(
-                main={"size": (self.config['width'], self.config['height']),
-                      "format": self.config['pixel_format']},
-                lores={"size": (preview_width, preview_height),
-                       "format": "YUV420"},
-                display="lores"
-            )
+            try:
+                self.camera_config = self.camera.create_still_configuration(
+                    main={"size": (self.config['width'], self.config['height']),
+                          "format": pixel_format},
+                    lores={"size": (preview_width, preview_height),
+                           "format": "YUV420"},
+                    display="lores"
+                )
+            except Exception as config_error:
+                print(f"Error creating custom configuration: {str(config_error)}")
+                print("Falling back to default configuration")
+                # Fall back to default configuration
+                self.camera_config = self.camera.create_still_configuration()
+                # Update our config to match what was configured
+                self.config['width'] = self.camera_config["main"]["size"][0]
+                self.config['height'] = self.camera_config["main"]["size"][1]
+                self.config['pixel_format'] = self.camera_config["main"]["format"]
             
             # Apply configuration
             self.camera.configure(self.camera_config)
             
+            # Print the actual configuration that was applied
+            print(f"Camera configured with: {self.camera_config}")
+            
             # Set initial camera controls
-            self.camera.set_controls({
-                "ExposureTime": self.config['exposure_time'],
-                "AnalogueGain": self.config['analog_gain'],
-                "FrameDurationLimits": (33333, 33333),  # Target ~30fps
-            })
+            try:
+                controls = {
+                    "ExposureTime": self.config['exposure_time'],
+                    "AnalogueGain": self.config['analog_gain'],
+                }
+                self.camera.set_controls(controls)
+                print(f"Camera controls set: {controls}")
+            except Exception as control_error:
+                print(f"Warning: Could not set some camera controls: {str(control_error)}")
+                print("Continuing with default controls")
+            
+            # Start the camera to ensure it's working
+            self.camera.start()
+            time.sleep(0.5)  # Give it a moment to start
+            
+            # Capture a test frame to verify camera is working
+            try:
+                test_frame = self.camera.capture_array()
+                print(f"Test frame captured successfully: {test_frame.shape}, dtype: {test_frame.dtype}")
+                print(f"Frame values - Min: {np.min(test_frame)}, Max: {np.max(test_frame)}, Mean: {np.mean(test_frame):.1f}")
+                
+                # Store bit depth based on actual data
+                if test_frame.dtype == np.uint16:
+                    self.config['bit_depth'] = 16
+                elif test_frame.dtype == np.uint8:
+                    self.config['bit_depth'] = 8
+                
+                # Preserve original intensity values (0-1023 for 10-bit)
+                print(f"Using {self.config['bit_depth']}-bit intensity values for scientific analysis")
+            except Exception as capture_error:
+                print(f"Warning: Test frame capture failed: {str(capture_error)}")
+                # Continue anyway as this is just a test
             
             # Mark as initialized
             self.is_initialized = True
@@ -109,6 +167,7 @@ class CameraController:
             
         except Exception as e:
             print(f"Camera initialization error: {str(e)}")
+            traceback.print_exc()
             self.is_initialized = False
             return False
     
