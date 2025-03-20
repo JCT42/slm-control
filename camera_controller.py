@@ -66,6 +66,7 @@ class CameraController:
         self.latest_frame = None
         self.latest_histogram = None
         self.histogram_enabled = True  # Flag to enable/disable histogram generation
+        self.auto_adjustments_enabled = False  # Flag to enable/disable auto adjustments
         
         # Camera settings
         self.settings = {
@@ -126,11 +127,11 @@ class CameraController:
                 self.camera.set_controls({
                     "ExposureTime": int(self.settings['exposure'] * 1000),  # Convert ms to μs
                     "AnalogueGain": float(self.settings['gain']),
-                    "AeEnable": False,  # Disable auto exposure
-                    "AwbEnable": False,  # Disable auto white balance
-                    "NoiseReductionMode": 0,  # Disable noise reduction (0 = off)
+                    "AeEnable": self.auto_adjustments_enabled,  # Auto exposure based on flag
+                    "AwbEnable": self.auto_adjustments_enabled,  # Auto white balance based on flag
+                    "NoiseReductionMode": 0 if not self.auto_adjustments_enabled else 1,  # Noise reduction based on flag
                 })
-                print("Camera controls set successfully with auto adjustments disabled")
+                print(f"Camera controls set successfully with auto adjustments {'enabled' if self.auto_adjustments_enabled else 'disabled'}")
             except Exception as control_error:
                 print(f"Warning: Could not set some camera controls: {str(control_error)}")
                 print("Continuing with default controls")
@@ -441,9 +442,9 @@ class CameraController:
             controls = {
                 "ExposureTime": int(self.settings['exposure'] * 1000),  # ms to μs
                 "AnalogueGain": float(self.settings['gain']),
-                "AeEnable": False,  # Disable auto exposure
-                "AwbEnable": False,  # Disable auto white balance
-                "NoiseReductionMode": 0,  # Disable noise reduction (0 = off)
+                "AeEnable": self.auto_adjustments_enabled,  # Enable auto exposure if auto adjustments enabled
+                "AwbEnable": self.auto_adjustments_enabled,  # Enable auto white balance if auto adjustments enabled
+                "NoiseReductionMode": 0 if not self.auto_adjustments_enabled else 1,  # Disable noise reduction if auto adjustments disabled
             }
             
             # Check if camera is initialized
@@ -525,6 +526,29 @@ class CameraController:
     def is_histogram_enabled(self) -> bool:
         """Check if histogram generation is enabled"""
         return self.histogram_enabled
+        
+    def enable_auto_adjustments(self) -> None:
+        """Enable automatic camera adjustments (auto exposure, white balance, etc.)"""
+        self.auto_adjustments_enabled = True
+        print("Automatic camera adjustments enabled")
+        self.apply_all_settings()  # Apply settings with auto adjustments enabled
+        
+    def disable_auto_adjustments(self) -> None:
+        """Disable automatic camera adjustments (auto exposure, white balance, etc.)"""
+        self.auto_adjustments_enabled = False
+        print("Automatic camera adjustments disabled")
+        self.apply_all_settings()  # Apply settings with auto adjustments disabled
+        
+    def toggle_auto_adjustments(self) -> bool:
+        """Toggle automatic camera adjustments on/off"""
+        self.auto_adjustments_enabled = not self.auto_adjustments_enabled
+        print(f"Automatic camera adjustments {'enabled' if self.auto_adjustments_enabled else 'disabled'}")
+        self.apply_all_settings()  # Apply the change immediately
+        return self.auto_adjustments_enabled
+        
+    def is_auto_adjustments_enabled(self) -> bool:
+        """Check if automatic camera adjustments are enabled"""
+        return self.auto_adjustments_enabled
 
 
 class CameraGUI:
@@ -617,22 +641,33 @@ class CameraGUI:
         self.pause_button = ttk.Button(control_frame, textvariable=self.pause_text, command=self._on_toggle_pause)
         self.pause_button.pack(side=tk.LEFT, padx=5)
         
-        # Histogram canvas - reduced size
-        histogram_frame = ttk.LabelFrame(right_pane, text="Histogram")
-        histogram_frame.pack(pady=5, fill=tk.X)
+        # Add checkboxes frame under the control buttons
+        checkbox_frame = ttk.Frame(preview_pane)
+        checkbox_frame.pack(fill=tk.X, pady=2)
         
-        # Add histogram toggle checkbox
-        histogram_controls = ttk.Frame(histogram_frame)
-        histogram_controls.pack(fill=tk.X, padx=5, pady=2)
+        # Auto adjustments toggle checkbox
+        self.auto_adjustments_var = tk.BooleanVar(value=self.camera.is_auto_adjustments_enabled())
+        self.auto_adjustments_checkbox = ttk.Checkbutton(
+            checkbox_frame, 
+            text="Enable Auto Adjustments", 
+            variable=self.auto_adjustments_var,
+            command=self._on_toggle_auto_adjustments
+        )
+        self.auto_adjustments_checkbox.pack(side=tk.LEFT, padx=5)
         
+        # Histogram toggle checkbox
         self.histogram_enabled_var = tk.BooleanVar(value=self.camera.is_histogram_enabled())
         self.histogram_checkbox = ttk.Checkbutton(
-            histogram_controls, 
+            checkbox_frame, 
             text="Enable Histogram", 
             variable=self.histogram_enabled_var,
             command=self._on_toggle_histogram
         )
         self.histogram_checkbox.pack(side=tk.LEFT, padx=5)
+        
+        # Histogram canvas - reduced size
+        histogram_frame = ttk.LabelFrame(right_pane, text="Histogram")
+        histogram_frame.pack(pady=5, fill=tk.X)
         
         self.histogram_canvas = tk.Canvas(histogram_frame,
                                         width=450,
@@ -1007,6 +1042,16 @@ class CameraGUI:
             self.status_var.set(f"Histogram generation {'enabled' if self.camera.histogram_enabled else 'disabled'}")
         except Exception as e:
             self.status_var.set(f"Histogram toggle error: {str(e)}")
+    
+    def _on_toggle_auto_adjustments(self):
+        """Handle auto adjustments toggle checkbox"""
+        try:
+            # Update auto adjustments state
+            self.camera.auto_adjustments_enabled = self.auto_adjustments_var.get()
+            self.status_var.set(f"Auto adjustments {'enabled' if self.camera.auto_adjustments_enabled else 'disabled'}")
+            self.camera.apply_all_settings()  # Apply the change immediately
+        except Exception as e:
+            self.status_var.set(f"Auto adjustments toggle error: {str(e)}")
 
 
 # Example usage
