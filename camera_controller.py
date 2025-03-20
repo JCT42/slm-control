@@ -433,11 +433,39 @@ class CameraController:
     def apply_all_settings(self) -> bool:
         """Apply all current settings to the camera"""
         try:
-            # Apply exposure and gain settings to the camera
-            self.camera.set_controls({
+            # Create controls dictionary with all settings
+            controls = {
                 "ExposureTime": int(self.settings['exposure'] * 1000),  # ms to μs
                 "AnalogueGain": float(self.settings['gain']),
-            })
+            }
+            
+            # Check if camera is initialized
+            if self.camera is None:
+                print("Camera not initialized")
+                return False
+                
+            # Get available camera controls
+            try:
+                available_controls = self.camera.camera_controls
+                print(f"Available camera controls: {list(available_controls.keys())}")
+                
+                # Add brightness if supported
+                if "Brightness" in available_controls:
+                    controls["Brightness"] = int(self.settings['brightness'])
+                else:
+                    print("Warning: Camera does not support Brightness control")
+                
+                # Add contrast if supported
+                if "Contrast" in available_controls:
+                    controls["Contrast"] = float(self.settings['contrast'])
+                else:
+                    print("Warning: Camera does not support Contrast control")
+            except Exception as control_error:
+                print(f"Warning: Could not check available controls: {str(control_error)}")
+            
+            # Apply the settings
+            print(f"Applying camera controls: {controls}")
+            self.camera.set_controls(controls)
             
             print("All camera settings applied")
             return True
