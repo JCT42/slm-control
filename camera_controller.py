@@ -65,6 +65,7 @@ class CameraController:
         self.lock = threading.Lock()
         self.latest_frame = None
         self.latest_histogram = None
+        self.histogram_enabled = True  # Flag to enable/disable histogram generation
         
         # Camera settings
         self.settings = {
@@ -212,7 +213,7 @@ class CameraController:
                     
                     # Update histogram occasionally
                     current_time = time.time()
-                    if current_time - last_histogram_time > histogram_interval:
+                    if current_time - last_histogram_time > histogram_interval and self.histogram_enabled:
                         self.latest_histogram = self.generate_histogram(frame)
                         last_histogram_time = current_time
                 
@@ -498,6 +499,26 @@ class CameraController:
         else:
             self.pause()
             return True  # Now paused
+            
+    def enable_histogram(self) -> None:
+        """Enable histogram generation"""
+        self.histogram_enabled = True
+        print("Histogram generation enabled")
+        
+    def disable_histogram(self) -> None:
+        """Disable histogram generation"""
+        self.histogram_enabled = False
+        print("Histogram generation disabled")
+        
+    def toggle_histogram(self) -> bool:
+        """Toggle histogram generation on/off"""
+        self.histogram_enabled = not self.histogram_enabled
+        print(f"Histogram generation {'enabled' if self.histogram_enabled else 'disabled'}")
+        return self.histogram_enabled
+        
+    def is_histogram_enabled(self) -> bool:
+        """Check if histogram generation is enabled"""
+        return self.histogram_enabled
 
 
 class CameraGUI:
@@ -593,6 +614,19 @@ class CameraGUI:
         # Histogram canvas - reduced size
         histogram_frame = ttk.LabelFrame(right_pane, text="Histogram")
         histogram_frame.pack(pady=5, fill=tk.X)
+        
+        # Add histogram toggle checkbox
+        histogram_controls = ttk.Frame(histogram_frame)
+        histogram_controls.pack(fill=tk.X, padx=5, pady=2)
+        
+        self.histogram_enabled_var = tk.BooleanVar(value=self.camera.is_histogram_enabled())
+        self.histogram_checkbox = ttk.Checkbutton(
+            histogram_controls, 
+            text="Enable Histogram", 
+            variable=self.histogram_enabled_var,
+            command=self._on_toggle_histogram
+        )
+        self.histogram_checkbox.pack(side=tk.LEFT, padx=5)
         
         self.histogram_canvas = tk.Canvas(histogram_frame,
                                         width=450,
@@ -958,6 +992,15 @@ class CameraGUI:
                 
         except Exception as e:
             self.status_var.set(f"Settings error: {str(e)}")
+    
+    def _on_toggle_histogram(self):
+        """Handle histogram toggle checkbox"""
+        try:
+            # Update histogram state
+            self.camera.histogram_enabled = self.histogram_enabled_var.get()
+            self.status_var.set(f"Histogram generation {'enabled' if self.camera.histogram_enabled else 'disabled'}")
+        except Exception as e:
+            self.status_var.set(f"Histogram toggle error: {str(e)}")
 
 
 # Example usage
