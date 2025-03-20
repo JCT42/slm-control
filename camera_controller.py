@@ -126,8 +126,11 @@ class CameraController:
                 self.camera.set_controls({
                     "ExposureTime": int(self.settings['exposure'] * 1000),  # Convert ms to μs
                     "AnalogueGain": float(self.settings['gain']),
+                    "AeEnable": False,  # Disable auto exposure
+                    "AwbEnable": False,  # Disable auto white balance
+                    "NoiseReductionMode": 0,  # Disable noise reduction (0 = off)
                 })
-                print("Camera controls set successfully")
+                print("Camera controls set successfully with auto adjustments disabled")
             except Exception as control_error:
                 print(f"Warning: Could not set some camera controls: {str(control_error)}")
                 print("Continuing with default controls")
@@ -438,6 +441,9 @@ class CameraController:
             controls = {
                 "ExposureTime": int(self.settings['exposure'] * 1000),  # ms to μs
                 "AnalogueGain": float(self.settings['gain']),
+                "AeEnable": False,  # Disable auto exposure
+                "AwbEnable": False,  # Disable auto white balance
+                "NoiseReductionMode": 0,  # Disable noise reduction (0 = off)
             }
             
             # Check if camera is initialized
