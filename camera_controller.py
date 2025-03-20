@@ -272,16 +272,17 @@ class CameraController:
             # Calculate histogram - ensure we use the full 8-bit range (0-255)
             hist = cv2.calcHist([frame], [0], None, [256], [0, 256])
             
-            # Normalize the histogram
-            total_pixels = frame.shape[0] * frame.shape[1]
-            normalized_hist = hist / total_pixels
+            # Use raw histogram counts instead of normalizing
+            # total_pixels = frame.shape[0] * frame.shape[1]
+            # normalized_hist = hist / total_pixels
             
-            # Plot the normalized histogram
-            ax.plot(normalized_hist, color='blue')
+            # Plot the raw histogram with logarithmic y-scale
+            ax.plot(hist, color='blue')
             ax.set_xlim([0, 256])
-            ax.set_title('Normalized Intensity Histogram (8-bit)')
+            ax.set_yscale('log')  # Set logarithmic scale for y-axis
+            ax.set_title('Intensity Histogram (8-bit, Log Scale)')
             ax.set_xlabel('Intensity Value (0-255)')
-            ax.set_ylabel('Normalized Pixel Count')
+            ax.set_ylabel('Pixel Count (log)')
             
             # Add vertical lines at min and max values
             min_val = np.min(frame)
