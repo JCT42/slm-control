@@ -444,7 +444,6 @@ class CameraController:
                 "AnalogueGain": float(self.settings['gain']),
                 "AeEnable": self.auto_adjustments_enabled,  # Enable auto exposure if auto adjustments enabled
                 "AwbEnable": self.auto_adjustments_enabled,  # Enable auto white balance if auto adjustments enabled
-                "AgcEnable": self.auto_adjustments_enabled,  # Enable auto gain control if auto adjustments enabled
                 "NoiseReductionMode": 0 if not self.auto_adjustments_enabled else 1,  # Disable noise reduction if auto adjustments disabled
             }
             
@@ -938,42 +937,32 @@ class CameraGUI:
             self.camera.disable_auto_adjustments()
             self.auto_adjustments_var.set(False)
             
-            # Apply settings to camera with a complete reset of all auto parameters
-            if self.camera.camera is not None:
-                try:
-                    # Apply a comprehensive reset of all auto parameters
-                    complete_reset_controls = {
-                        "ExposureTime": int(default_settings['exposure'] * 1000),  # ms to μs
-                        "AnalogueGain": float(default_settings['gain']),
-                        "AeEnable": False,  # Disable auto exposure
-                        "AwbEnable": False,  # Disable auto white balance
-                        "AgcEnable": False,  # Disable auto gain control
-                        "NoiseReductionMode": 0,  # Disable noise reduction
-                    }
-                    
-                    # Add brightness and contrast if available
-                    try:
-                        available_controls = self.camera.camera.camera_controls
-                        if "Brightness" in available_controls:
-                            complete_reset_controls["Brightness"] = int(default_settings['brightness'])
-                        if "Contrast" in available_controls:
-                            complete_reset_controls["Contrast"] = float(default_settings['contrast'])
-                    except:
-                        pass
-                        
-                    # Apply the reset controls directly
-                    print(f"Applying complete reset controls: {complete_reset_controls}")
-                    self.camera.camera.set_controls(complete_reset_controls)
-                except Exception as reset_error:
-                    print(f"Error during complete reset: {str(reset_error)}")
-            
-            # Regular apply_all_settings as a backup
+            # Apply settings to camera
             self.camera.apply_all_settings()
             
             self.status_var.set("Settings reset to defaults")
         except Exception as e:
             self.status_var.set(f"Reset error: {str(e)}")
-            print(f"Detailed reset error: {str(e)}")
+    
+    def _on_toggle_pause(self):
+        """Handle pause/resume button click"""
+        try:
+            # Toggle camera pause state
+            is_now_paused = self.camera.toggle_pause()
+            
+            # Update button text
+            if is_now_paused:
+                self.pause_text.set("Resume Camera")
+                self.status_var.set("Camera paused")
+            else:
+                self.pause_text.set("Pause Camera")
+                self.status_var.set("Camera resumed")
+                
+            # Update internal state
+            self.is_paused = is_now_paused
+            
+        except Exception as e:
+            self.status_var.set(f"Error toggling pause: {str(e)}")
     
     def _update_preview(self):
         """Update the preview display"""
@@ -1070,26 +1059,6 @@ class CameraGUI:
             self.camera.apply_all_settings()  # Apply the change immediately
         except Exception as e:
             self.status_var.set(f"Auto adjustments toggle error: {str(e)}")
-    
-    def _on_toggle_pause(self):
-        """Handle pause/resume button click"""
-        try:
-            # Toggle camera pause state
-            is_now_paused = self.camera.toggle_pause()
-            
-            # Update button text
-            if is_now_paused:
-                self.pause_text.set("Resume Camera")
-                self.status_var.set("Camera paused")
-            else:
-                self.pause_text.set("Pause Camera")
-                self.status_var.set("Camera resumed")
-                
-            # Update internal state
-            self.is_paused = is_now_paused
-            
-        except Exception as e:
-            self.status_var.set(f"Error toggling pause: {str(e)}")
 
 
 # Example usage
