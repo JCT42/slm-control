@@ -99,6 +99,12 @@ class AdvancedPatternGenerator:
         # Initialize signal region mask for MRAF
         self.signal_region_mask = None
         
+        # Initialize matplotlib axes to prevent errors
+        self.ax1 = None
+        self.ax2 = None
+        self.ax3 = None
+        self.ax4 = None
+        
         # Initialize GUI
         self.setup_gui()
         
@@ -442,11 +448,13 @@ class AdvancedPatternGenerator:
                 phase_ramp = 2 * np.pi * (self.phase_shift_x * x_norm + self.phase_shift_y * y_norm)
                 
                 # Store original phase before applying shift
-                original_phase = self.slm_phase.copy()
+                if not hasattr(self, 'original_phase') or self.original_phase is None:
+                    # If this is the first time applying a shift, store the original phase
+                    self.original_phase = self.slm_phase.copy()
                 
-                # Apply phase ramp to existing SLM phase
+                # Apply phase ramp to original phase (not to already shifted phase)
                 # Keep phase in the range [-π, π] as specified in the memories
-                self.slm_phase = np.mod(original_phase + phase_ramp + np.pi, 2 * np.pi) - np.pi
+                self.slm_phase = np.mod(self.original_phase + phase_ramp + np.pi, 2 * np.pi) - np.pi
                 
                 # Convert to pattern (8-bit grayscale)
                 gamma = float(self.gamma_var.get())
@@ -455,9 +463,6 @@ class AdvancedPatternGenerator:
                 # -π -> 0, 0 -> 128, π -> 255
                 normalized_phase = (self.slm_phase + np.pi) / (2 * np.pi)
                 self.pattern = (normalized_phase ** gamma * 255).astype(np.uint8)
-                
-                # Generate the input beam for calculations
-                self.input_beam = self.generate_input_beam()
                 
                 # Always calculate reconstruction regardless of pattern_generator attribute
                 # Create full-sized phase with the shift
@@ -469,15 +474,25 @@ class AdvancedPatternGenerator:
                 padded_phase[start_y:end_y, start_x:end_x] = self.slm_phase
                 
                 # Create complex field with phase only (amplitude = 1)
-                # Apply uniform amplitude across the SLM area
-                amplitude = np.zeros((self.padded_height, self.padded_width))
-                amplitude[start_y:end_y, start_x:end_x] = 1.0
+                # Apply input beam profile across the SLM area
+                if hasattr(self, 'input_beam') and self.input_beam is not None:
+                    # Use the input beam as the amplitude
+                    amplitude = self.input_beam.copy()  # Make a copy to avoid modifying the original
+                else:
+                    # Fallback to uniform amplitude if no input beam
+                    amplitude = np.zeros((self.padded_height, self.padded_width))
+                    amplitude[start_y:end_y, start_x:end_x] = 1.0
                 
-                # Create the complex field with uniform amplitude and the calculated phase
+                # Create the complex field with the input beam amplitude and the calculated phase
                 slm_field = amplitude * np.exp(1j * padded_phase)
                 
-                # Simulate propagation to far field (exactly like in pattern_generator_windows.py)
-                far_field = np.fft.fftshift(np.fft.fft2(np.fft.ifftshift(slm_field)))
+                # Simulate propagation to far field using FFT-based diffraction
+                # This follows the standard optical physics approach as noted in the memories
+                shifted_field = np.fft.ifftshift(slm_field)
+                fft_field = np.fft.fft2(shifted_field)
+                far_field = np.fft.fftshift(fft_field)
+                
+                # Calculate intensity
                 self.reconstruction = np.abs(far_field)**2
                 
                 # Normalize reconstruction for display
@@ -488,6 +503,11 @@ class AdvancedPatternGenerator:
                 # This helps see details that might be lost in the high intensity regions
                 self.reconstruction = np.log1p(self.reconstruction * 10) / np.log1p(10)
                 
+                # Update the preview to show the changes
+                self.update_preview()
+                
+                # Update status
+                self.status_var.set(f"Applied blazed grating with X-shift: {self.phase_shift_x}, Y-shift: {self.phase_shift_y}")
             else:
                 self.status_var.set("Generate a pattern first before applying blazed grating")
         except ValueError as e:
@@ -508,15 +528,20 @@ class AdvancedPatternGenerator:
         # Create figure and subplots with 2x2 grid
         # Use the existing preview_frame that's already in the scrollable area
         
+        # First, clear any existing widgets in the preview frame
+        for widget in self.preview_frame.winfo_children():
+            widget.destroy()
+        
+        # Create a new figure
         self.fig = plt.figure(figsize=(10, 8))
-        self.gs = self.fig.add_gridspec(2, 2)
         
-        self.ax1 = self.fig.add_subplot(self.gs[0, 0])  # Target
-        self.ax2 = self.fig.add_subplot(self.gs[0, 1])  # Generated Pattern
-        self.ax3 = self.fig.add_subplot(self.gs[1, 0])  # Simulated Reconstruction
-        self.ax4 = self.fig.add_subplot(self.gs[1, 1])  # Input Beam Profile
+        # Create subplots with 2x2 grid
+        self.ax1 = self.fig.add_subplot(221)  # Target
+        self.ax2 = self.fig.add_subplot(222)  # SLM Pattern
+        self.ax3 = self.fig.add_subplot(223)  # Simulated Reconstruction
+        self.ax4 = self.fig.add_subplot(224)  # Input Beam Profile
         
-        # Set up axes
+        # Set initial titles and remove ticks
         self.ax1.set_title('Target')
         self.ax1.set_xticks([])
         self.ax1.set_yticks([])
@@ -533,13 +558,15 @@ class AdvancedPatternGenerator:
         self.ax4.set_xticks([])
         self.ax4.set_yticks([])
         
-        # Pack canvas
+        # Create a new canvas
         self.preview_canvas = FigureCanvasTkAgg(self.fig, master=self.preview_frame)
         self.preview_canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
         
         # Add navigation toolbar
-        toolbar = NavigationToolbar2Tk(self.preview_canvas, self.preview_frame)
-        toolbar.update()
+        self.toolbar_frame = ttk.Frame(self.preview_frame)
+        self.toolbar_frame.pack(fill=tk.X)
+        self.toolbar = NavigationToolbar2Tk(self.preview_canvas, self.toolbar_frame)
+        self.toolbar.update()
         
         # Initial draw
         self.preview_canvas.draw()
@@ -547,6 +574,12 @@ class AdvancedPatternGenerator:
     def update_preview(self):
         """Update the preview plots with current patterns and reconstructions"""
         try:
+            # Check if axes are initialized
+            if self.ax1 is None or self.ax2 is None or self.ax3 is None or self.ax4 is None:
+                # Create preview if axes aren't initialized yet
+                self.create_preview()
+                return
+            
             # Clear axes
             self.ax1.clear()
             self.ax2.clear()
@@ -559,15 +592,36 @@ class AdvancedPatternGenerator:
                 self.ax1.set_title('Target')
                 self.ax1.set_xticks([])
                 self.ax1.set_yticks([])
+            else:
+                self.ax1.set_title('Target (None)')
+                self.ax1.set_xticks([])
+                self.ax1.set_yticks([])
             
             # Plot current pattern
             if hasattr(self, 'pattern'):
                 # Use gray colormap for phase patterns
                 if self.modulation_mode == "Phase":
-                    self.ax2.imshow(self.pattern, cmap='gray')
+                    # If we have a phase ramp pattern, show it in a more visible way
+                    if hasattr(self, 'phase_shift_x') and hasattr(self, 'phase_shift_y'):
+                        if self.phase_shift_x != 0 or self.phase_shift_y != 0:
+                            # Convert phase to normalized [0,1] for better visualization
+                            normalized_phase = (self.slm_phase + np.pi) / (2 * np.pi)
+                            # Use a different colormap to make the grating more visible
+                            self.ax2.imshow(normalized_phase, cmap='twilight')
+                            self.ax2.set_title(f'SLM Pattern with Blazed Grating\nX-shift: {self.phase_shift_x}, Y-shift: {self.phase_shift_y}')
+                        else:
+                            self.ax2.imshow(self.pattern, cmap='gray')
+                            self.ax2.set_title('SLM Pattern')
+                    else:
+                        self.ax2.imshow(self.pattern, cmap='gray')
+                        self.ax2.set_title('SLM Pattern')
                 else:
                     self.ax2.imshow(self.pattern, cmap='gray')
-                self.ax2.set_title('SLM Pattern')
+                    self.ax2.set_title('SLM Pattern')
+                self.ax2.set_xticks([])
+                self.ax2.set_yticks([])
+            else:
+                self.ax2.set_title('SLM Pattern (None)')
                 self.ax2.set_xticks([])
                 self.ax2.set_yticks([])
             
@@ -583,6 +637,10 @@ class AdvancedPatternGenerator:
                 # Display the central region of the reconstruction
                 self.ax3.imshow(central_recon, cmap='hot')  # Use hot colormap for intensity
                 self.ax3.set_title('Simulated Reconstruction')
+                self.ax3.set_xticks([])
+                self.ax3.set_yticks([])
+            else:
+                self.ax3.set_title('Simulated Reconstruction (None)')
                 self.ax3.set_xticks([])
                 self.ax3.set_yticks([])
             
@@ -609,46 +667,22 @@ class AdvancedPatternGenerator:
                 self.ax4.set_ylabel('y (mm)')
                 
                 # Add a colorbar
-                if not hasattr(self, 'beam_colorbar'):
-                    divider = make_axes_locatable(self.ax4)
-                    cax = divider.append_axes("right", size="5%", pad=0.05)
-                    self.beam_colorbar = self.fig.colorbar(self.ax4.images[0], cax=cax)
-                else:
-                    self.beam_colorbar.update_normal(self.ax4.images[0])
+                if hasattr(self, 'beam_colorbar'):
+                    try:
+                        self.beam_colorbar.remove()
+                    except:
+                        pass
+                divider = make_axes_locatable(self.ax4)
+                cax = divider.append_axes("right", size="5%", pad=0.05)
+                self.beam_colorbar = self.fig.colorbar(self.ax4.images[0], cax=cax)
             else:
-                # If no input beam exists yet, generate one
-                self.input_beam = self.generate_input_beam()
-                
-                # Extract central region
-                start_y = (self.padded_height - self.height) // 2
-                end_y = start_y + self.height
-                start_x = (self.padded_width - self.width) // 2
-                end_x = start_x + self.width
-                
-                # Extract the central portion of the input beam for display
-                central_beam = self.input_beam[start_y:end_y, start_x:end_x]
-                
-                # Display the input beam with physical dimensions
-                self.ax4.imshow(central_beam, cmap='hot',
-                               extent=[-self.width*self.pixel_pitch*1000/2, 
-                                       self.width*self.pixel_pitch*1000/2,
-                                       -self.height*self.pixel_pitch*1000/2, 
-                                       self.height*self.pixel_pitch*1000/2])
-                
-                self.ax4.set_title(f'Input Beam: {self.beam_type_var.get()}')
-                self.ax4.set_xlabel('x (mm)')
-                self.ax4.set_ylabel('y (mm)')
-                
-                # Add a colorbar
-                if not hasattr(self, 'beam_colorbar'):
-                    divider = make_axes_locatable(self.ax4)
-                    cax = divider.append_axes("right", size="5%", pad=0.05)
-                    self.beam_colorbar = self.fig.colorbar(self.ax4.images[0], cax=cax)
-                else:
-                    self.beam_colorbar.update_normal(self.ax4.images[0])
-                
+                self.ax4.set_title('Input Beam Profile (None)')
+                self.ax4.set_xticks([])
+                self.ax4.set_yticks([])
+            
             # Update canvas
-            self.preview_canvas.draw()
+            self.fig.tight_layout()
+            self.preview_canvas.draw_idle()
             
         except Exception as e:
             self.status_var.set(f"Error updating preview: {str(e)}")
