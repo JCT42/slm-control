@@ -634,9 +634,12 @@ class AdvancedPatternGenerator:
                 end_x = start_x + self.width
                 central_recon = self.reconstruction[start_y:end_y, start_x:end_x]
                 
-                # Display the central region of the reconstruction
-                self.ax3.imshow(central_recon, cmap='hot')  # Use hot colormap for intensity
-                self.ax3.set_title('Simulated Reconstruction')
+                # Rotate the reconstruction 180 degrees clockwise
+                rotated_recon = np.rot90(central_recon, k=2)
+                
+                # Display the rotated central region of the reconstruction
+                self.ax3.imshow(rotated_recon, cmap='hot')  # Use hot colormap for intensity
+                self.ax3.set_title('Simulated Reconstruction (Rotated 180°)')
                 self.ax3.set_xticks([])
                 self.ax3.set_yticks([])
             else:
