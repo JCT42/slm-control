@@ -492,18 +492,24 @@ class CameraController:
             # Prepare controls dictionary
             controls = {}
             
-            # Add exposure time if supported
-            if "ExposureTime" in available_controls:
+            # Add exposure time if supported - only if auto exposure is disabled
+            if "ExposureTime" in available_controls and not self.settings['auto_exposure_enabled']:
                 controls["ExposureTime"] = int(self.settings['exposure'] * 1000)  # Convert ms to μs
+                print(f"Setting manual exposure time: {self.settings['exposure']} ms")
+            elif "ExposureTime" in available_controls:
+                print("Auto exposure enabled, not setting manual exposure time")
             else:
                 print("Warning: Camera does not support ExposureTime control")
                 
-            # Add gain if supported
-            if "AnalogueGain" in available_controls:
+            # Add gain if supported - only if auto gain is disabled
+            if "AnalogueGain" in available_controls and not self.settings['auto_gain_enabled']:
                 controls["AnalogueGain"] = float(self.settings['gain'])
+                print(f"Setting manual gain: {self.settings['gain']}")
+            elif "AnalogueGain" in available_controls:
+                print("Auto gain enabled, not setting manual gain")
             else:
                 print("Warning: Camera does not support AnalogueGain control")
-                
+            
             # Add brightness if supported
             if "Brightness" in available_controls:
                 controls["Brightness"] = int(self.settings['brightness'])
@@ -579,6 +585,8 @@ class CameraController:
             
         except Exception as e:
             print(f"Error applying settings: {str(e)}")
+            print(f"Detailed error: {str(e)}")
+            traceback.print_exc()
             return False
     
     def get_setting(self, setting: str) -> Optional[Union[float, int]]:
@@ -1132,21 +1140,26 @@ class CameraGUI:
     def _on_reset(self):
         """Handle reset button click"""
         try:
-            # Reset camera settings to defaults
+            # Reset camera settings to defaults (same as initialization settings)
             default_settings = {
-                'exposure': 20.0,
-                'gain': 1.0,
-                'brightness': 0,
-                'contrast': 1.0,
-                'sharpness': 0,
-                'saturation': 0,
-                'iso': 100,
-                'exposure_mode': 'auto',
-                'white_balance': 'auto',
+                'exposure': 10.0,  # ms
+                'gain': 1.0,       # analog gain
+                'brightness': 0,   # -255 to 255
+                'contrast': 1.0,   # 0.0 to 2.0
+                'sharpness': 0,    # -100 to 100
+                'saturation': 0,   # -100 to 100
+                'iso': 100,        # 100 to 800
+                'exposure_mode': 'auto',  # auto, manual, night, backlight, spotlight
+                'white_balance': 'auto',  # auto, sunlight, cloudy, shade, tungsten, fluorescent, incandescent, flash, horizon
+                'auto_exposure_enabled': False,  # Enable/disable auto exposure
+                'auto_white_balance_enabled': False,  # Enable/disable auto white balance
+                'auto_gain_enabled': False,  # Enable/disable auto gain
+                'noise_reduction_mode': 0,  # 0=Off, 1=Fast, 2=High Quality, 3=Minimal
             }
             
+            # Update internal settings
             for setting, value in default_settings.items():
-                self.camera.set_setting(setting, value)
+                self.camera.settings[setting] = value
                 
             # Update GUI controls
             self.exposure_var.set(str(default_settings['exposure']))
@@ -1159,29 +1172,31 @@ class CameraGUI:
             self.exp_mode_var.set(str(default_settings['exposure_mode']))
             self.wb_mode_var.set(str(default_settings['white_balance']))
             
+            # Update auto adjustment checkboxes
+            self.auto_exposure_var.set(default_settings['auto_exposure_enabled'])
+            self.auto_wb_var.set(default_settings['auto_white_balance_enabled'])
+            self.auto_gain_var.set(default_settings['auto_gain_enabled'])
+            
+            # Update noise reduction mode
+            noise_mode_str = f"{default_settings['noise_reduction_mode']} - "
+            if default_settings['noise_reduction_mode'] == 0:
+                noise_mode_str += "Off"
+            elif default_settings['noise_reduction_mode'] == 1:
+                noise_mode_str += "Fast"
+            elif default_settings['noise_reduction_mode'] == 2:
+                noise_mode_str += "High Quality"
+            elif default_settings['noise_reduction_mode'] == 3:
+                noise_mode_str += "Minimal"
+            self.noise_mode_var.set(noise_mode_str)
+            
+            # Apply the settings immediately
+            self.apply_all_settings()
+            
             self.status_var.set("Settings reset to defaults")
         except Exception as e:
             self.status_var.set(f"Reset error: {str(e)}")
-    
-    def _on_toggle_pause(self):
-        """Handle pause/resume button click"""
-        try:
-            # Toggle camera pause state
-            is_now_paused = self.camera.toggle_pause()
-            
-            # Update button text
-            if is_now_paused:
-                self.pause_text.set("Resume")
-                self.status_var.set("Camera paused")
-            else:
-                self.pause_text.set("Pause")
-                self.status_var.set("Camera resumed")
-                
-            # Update internal state
-            self.is_paused = is_now_paused
-            
-        except Exception as e:
-            self.status_var.set(f"Error toggling pause: {str(e)}")
+            print(f"Detailed reset error: {str(e)}")
+            traceback.print_exc()
     
     def _update_preview(self):
         """Update the preview display"""
@@ -1232,6 +1247,8 @@ class CameraGUI:
             
         except Exception as e:
             self.status_var.set(f"Preview error: {str(e)}")
+            print(f"Detailed preview error: {str(e)}")
+            traceback.print_exc()
         
         # Schedule the next update
         self.root.after(50, self._update_preview)
@@ -1289,6 +1306,8 @@ class CameraGUI:
             self.status_var.set(f"Histogram generation {'enabled' if self.camera.histogram_enabled else 'disabled'}")
         except Exception as e:
             self.status_var.set(f"Histogram toggle error: {str(e)}")
+            print(f"Detailed histogram toggle error: {str(e)}")
+            traceback.print_exc()
     
     def _on_toggle_auto_adjustments(self):
         """Handle auto adjustments toggle checkbox"""
@@ -1299,6 +1318,8 @@ class CameraGUI:
             self.camera.apply_all_settings()  # Apply the change immediately
         except Exception as e:
             self.status_var.set(f"Auto adjustments toggle error: {str(e)}")
+            print(f"Detailed auto adjustments toggle error: {str(e)}")
+            traceback.print_exc()
     
     def _on_toggle_auto_setting(self, setting, var):
         """Handle toggle of an auto setting"""
@@ -1309,6 +1330,8 @@ class CameraGUI:
             self.camera.apply_all_settings()  # Apply the change immediately
         except Exception as e:
             self.status_var.set(f"Error toggling {setting}: {str(e)}")
+            print(f"Detailed error toggling {setting}: {str(e)}")
+            traceback.print_exc()
     
     def _on_noise_mode_changed(self):
         """Handle change in noise reduction mode"""
@@ -1335,6 +1358,8 @@ class CameraGUI:
             self.camera.apply_all_settings()  # Apply the change immediately
         except Exception as e:
             self.status_var.set(f"Error changing noise reduction mode: {str(e)}")
+            print(f"Detailed error changing noise reduction mode: {str(e)}")
+            traceback.print_exc()
 
 
 # Example usage
