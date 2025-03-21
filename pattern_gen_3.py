@@ -37,17 +37,74 @@ import datetime
 from PIL import Image, ImageTk
 import platform
 
+# Determine if we're running on Raspberry Pi
+is_raspberry_pi = platform.system() == 'Linux' and os.path.exists('/sys/firmware/devicetree/base/model') and 'Raspberry Pi' in open('/sys/firmware/devicetree/base/model').read()
+
 # Import cross-platform file dialog utilities
 try:
+    # First try to import our custom module
     from cross_platform_dialogs import open_file_dialog, save_file_dialog
+    print("Using cross-platform dialog module")
 except ImportError:
-    print("Warning: cross_platform_dialogs module not found. Falling back to default dialogs.")
-    # Define fallback functions
+    print("Warning: cross_platform_dialogs module not found. Implementing basic dialogs.")
+    
+    # Define our own implementation if the module is not available
+    def get_file_dialog(action='open', title='Select File', filetypes=None, default_name=None):
+        """Basic cross-platform file dialog implementation"""
+        # Check if we're on Raspberry Pi and zenity is available
+        if is_raspberry_pi:
+            try:
+                # Check if zenity is installed
+                result = subprocess.run(['which', 'zenity'], capture_output=True, text=True)
+                if result.returncode == 0:
+                    print("Using zenity for file dialogs")
+                    
+                    # Build zenity command
+                    cmd = ['zenity', '--file-selection']
+                    
+                    if action == 'save':
+                        cmd.append('--save')
+                        if default_name:
+                            cmd.append('--filename=' + default_name)
+                        cmd.append('--confirm-overwrite')
+                    
+                    cmd.append('--title=' + title)
+                    
+                    # Add file filters if provided
+                    if filetypes:
+                        filter_str = ""
+                        if isinstance(filetypes, list):
+                            for desc, patterns in filetypes:
+                                filter_str = f"{desc} | {patterns}"
+                                break
+                        cmd.append('--file-filter=' + filter_str)
+                    
+                    # Run zenity command
+                    result = subprocess.run(cmd, capture_output=True, text=True)
+                    
+                    if result.returncode != 0:
+                        return None
+                        
+                    filepath = result.stdout.strip()
+                    return filepath if filepath else None
+                    
+            except Exception as e:
+                print(f"Error with zenity dialog: {str(e)}")
+        
+        # Fall back to tkinter dialogs
+        print("Falling back to tkinter dialogs")
+        if action == 'open':
+            return filedialog.askopenfilename(title=title, filetypes=filetypes or [('All Files', '*.*')])
+        else:
+            return filedialog.asksaveasfilename(title=title, filetypes=filetypes or [('All Files', '*.*')], initialfile=default_name)
+    
     def open_file_dialog(title='Open File', filetypes=None):
-        return filedialog.askopenfilename(title=title, filetypes=filetypes or [('All Files', '*.*')])
+        """Convenience function for opening files"""
+        return get_file_dialog('open', title, filetypes)
     
     def save_file_dialog(title='Save File', filetypes=None, default_name=None):
-        return filedialog.asksaveasfilename(title=title, filetypes=filetypes or [('All Files', '*.*')], initialfile=default_name)
+        """Convenience function for saving files"""
+        return get_file_dialog('save', title, filetypes, default_name)
 
 class AdvancedPatternGenerator:
     def __init__(self):
@@ -1359,7 +1416,8 @@ class AdvancedPatternGenerator:
                 # Create the complex field with uniform amplitude and the calculated phase
                 slm_field = amplitude * np.exp(1j * padded_phase)
                 
-                # Simulate propagation to far field (exactly like in pattern_generator_windows.py)
+                # Simulate propagation to far field using FFT-based diffraction
+                # This follows the standard optical physics approach as noted in the memories
                 far_field = np.fft.fftshift(np.fft.fft2(np.fft.ifftshift(slm_field)))
                 self.reconstruction = np.abs(far_field)**2
                 
