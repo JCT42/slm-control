@@ -916,12 +916,12 @@ class CameraGUI:
     def _on_reset(self):
         """Handle reset button click"""
         try:
-            # Reset camera settings to defaults
+            # Reset camera settings to defaults (same as initialization settings)
             default_settings = {
-                'exposure': 20.0,
-                'gain': 1.0,
-                'brightness': 0,
-                'contrast': 1.0,
+                'exposure': 10.0,  # ms (matching initialization value)
+                'gain': 1.0,       # analog gain
+                'brightness': 0,   # -255 to 255
+                'contrast': 1.0,   # 0.0 to 2.0
             }
             
             for setting, value in default_settings.items():
@@ -932,6 +932,13 @@ class CameraGUI:
             self.gain_var.set(str(default_settings['gain']))
             self.brightness_var.set(str(default_settings['brightness']))
             self.contrast_var.set(str(default_settings['contrast']))
+            
+            # Disable auto adjustments (matching initialization state)
+            self.camera.disable_auto_adjustments()
+            self.auto_adjustments_var.set(False)
+            
+            # Apply settings to camera
+            self.camera.apply_all_settings()
             
             self.status_var.set("Settings reset to defaults")
         except Exception as e:
