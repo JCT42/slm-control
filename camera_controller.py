@@ -74,6 +74,15 @@ class CameraController:
             'gain': 1.0,       # analog gain
             'brightness': 0,   # -255 to 255
             'contrast': 1.0,   # 0.0 to 2.0
+            'sharpness': 0,    # -100 to 100
+            'saturation': 0,   # -100 to 100
+            'iso': 100,        # 100 to 800
+            'exposure_mode': 'auto',  # auto, manual, night, backlight, spotlight
+            'white_balance': 'auto',  # auto, sunlight, cloudy, shade, tungsten, fluorescent, incandescent, flash, horizon
+            'auto_exposure_enabled': False,  # Enable/disable auto exposure
+            'auto_white_balance_enabled': False,  # Enable/disable auto white balance
+            'auto_gain_enabled': False,  # Enable/disable auto gain
+            'noise_reduction_mode': 0,  # 0=Off, 1=Fast, 2=High Quality, 3=Minimal
         }
         
         # Initialize the camera
@@ -127,11 +136,16 @@ class CameraController:
                 self.camera.set_controls({
                     "ExposureTime": int(self.settings['exposure'] * 1000),  # Convert ms to μs
                     "AnalogueGain": float(self.settings['gain']),
-                    "AeEnable": self.auto_adjustments_enabled,  # Auto exposure based on flag
-                    "AwbEnable": self.auto_adjustments_enabled,  # Auto white balance based on flag
-                    "NoiseReductionMode": 0 if not self.auto_adjustments_enabled else 1,  # Noise reduction based on flag
+                    "AeEnable": self.settings['auto_exposure_enabled'],  # Auto exposure
+                    "AwbEnable": self.settings['auto_white_balance_enabled'],  # Auto white balance
+                    "AgcEnable": self.settings['auto_gain_enabled'],  # Auto gain control
+                    "NoiseReductionMode": self.settings['noise_reduction_mode'],  # Noise reduction mode
                 })
-                print(f"Camera controls set successfully with auto adjustments {'enabled' if self.auto_adjustments_enabled else 'disabled'}")
+                print(f"Camera controls set successfully")
+                print(f"Auto exposure: {'enabled' if self.settings['auto_exposure_enabled'] else 'disabled'}")
+                print(f"Auto white balance: {'enabled' if self.settings['auto_white_balance_enabled'] else 'disabled'}")
+                print(f"Auto gain: {'enabled' if self.settings['auto_gain_enabled'] else 'disabled'}")
+                print(f"Noise reduction mode: {self.settings['noise_reduction_mode']}")
             except Exception as control_error:
                 print(f"Warning: Could not set some camera controls: {str(control_error)}")
                 print("Continuing with default controls")
@@ -412,8 +426,33 @@ class CameraController:
                 f.write(f"  Std Dev: {np.std(image):.1f}\n")
                 
                 f.write(f"Camera Settings:\n")
-                for key, value in self.settings.items():
-                    f.write(f"  {key}: {value}\n")
+                # Format basic settings
+                f.write(f"  exposure: {self.settings['exposure']} ms\n")
+                f.write(f"  gain: {self.settings['gain']}\n")
+                f.write(f"  brightness: {self.settings['brightness']}\n")
+                f.write(f"  contrast: {self.settings['contrast']}\n")
+                f.write(f"  sharpness: {self.settings['sharpness']}\n")
+                f.write(f"  saturation: {self.settings['saturation']}\n")
+                f.write(f"  iso: {self.settings['iso']}\n")
+                f.write(f"  exposure_mode: {self.settings['exposure_mode']}\n")
+                f.write(f"  white_balance: {self.settings['white_balance']}\n")
+                
+                # Format auto adjustment settings with clear enabled/disabled text
+                f.write(f"Auto Adjustment Settings:\n")
+                f.write(f"  auto_exposure: {'Enabled' if self.settings['auto_exposure_enabled'] else 'Disabled'}\n")
+                f.write(f"  auto_white_balance: {'Enabled' if self.settings['auto_white_balance_enabled'] else 'Disabled'}\n")
+                f.write(f"  auto_gain: {'Enabled' if self.settings['auto_gain_enabled'] else 'Disabled'}\n")
+                
+                # Format noise reduction mode with descriptive text
+                noise_mode_desc = {
+                    0: "Off",
+                    1: "Fast",
+                    2: "High Quality",
+                    3: "Minimal"
+                }
+                mode = self.settings['noise_reduction_mode']
+                mode_text = noise_mode_desc.get(mode, f"Unknown ({mode})")
+                f.write(f"  noise_reduction_mode: {mode} ({mode_text})\n")
                 
                 f.write(f"Timestamp: {time.strftime('%Y-%m-%d %H:%M:%S')}\n")
                 
@@ -438,38 +477,98 @@ class CameraController:
     def apply_all_settings(self) -> bool:
         """Apply all current settings to the camera"""
         try:
-            # Create controls dictionary with all settings
-            controls = {
-                "ExposureTime": int(self.settings['exposure'] * 1000),  # ms to μs
-                "AnalogueGain": float(self.settings['gain']),
-                "AeEnable": self.auto_adjustments_enabled,  # Enable auto exposure if auto adjustments enabled
-                "AwbEnable": self.auto_adjustments_enabled,  # Enable auto white balance if auto adjustments enabled
-                "NoiseReductionMode": 0 if not self.auto_adjustments_enabled else 1,  # Disable noise reduction if auto adjustments disabled
-            }
-            
-            # Check if camera is initialized
             if self.camera is None:
                 print("Camera not initialized")
                 return False
                 
-            # Get available camera controls
+            # Get available controls
+            available_controls = {}
             try:
                 available_controls = self.camera.camera_controls
-                print(f"Available camera controls: {list(available_controls.keys())}")
-                
-                # Add brightness if supported
-                if "Brightness" in available_controls:
-                    controls["Brightness"] = int(self.settings['brightness'])
-                else:
-                    print("Warning: Camera does not support Brightness control")
-                
-                # Add contrast if supported
-                if "Contrast" in available_controls:
-                    controls["Contrast"] = float(self.settings['contrast'])
-                else:
-                    print("Warning: Camera does not support Contrast control")
+                print(f"Available controls: {list(available_controls.keys())}")
             except Exception as control_error:
                 print(f"Warning: Could not check available controls: {str(control_error)}")
+            
+            # Prepare controls dictionary
+            controls = {}
+            
+            # Add exposure time if supported
+            if "ExposureTime" in available_controls:
+                controls["ExposureTime"] = int(self.settings['exposure'] * 1000)  # Convert ms to μs
+            else:
+                print("Warning: Camera does not support ExposureTime control")
+                
+            # Add gain if supported
+            if "AnalogueGain" in available_controls:
+                controls["AnalogueGain"] = float(self.settings['gain'])
+            else:
+                print("Warning: Camera does not support AnalogueGain control")
+                
+            # Add brightness if supported
+            if "Brightness" in available_controls:
+                controls["Brightness"] = int(self.settings['brightness'])
+            else:
+                print("Warning: Camera does not support Brightness control")
+                
+            # Add contrast if supported
+            if "Contrast" in available_controls:
+                controls["Contrast"] = float(self.settings['contrast'])
+            else:
+                print("Warning: Camera does not support Contrast control")
+            
+            # Add sharpness if supported
+            if "Sharpness" in available_controls:
+                controls["Sharpness"] = int(self.settings['sharpness'])
+            else:
+                print("Warning: Camera does not support Sharpness control")
+            
+            # Add saturation if supported
+            if "Saturation" in available_controls:
+                controls["Saturation"] = int(self.settings['saturation'])
+            else:
+                print("Warning: Camera does not support Saturation control")
+            
+            # Add ISO if supported
+            if "ISO" in available_controls:
+                controls["ISO"] = int(self.settings['iso'])
+            else:
+                print("Warning: Camera does not support ISO control")
+            
+            # Add exposure mode if supported
+            if "ExposureMode" in available_controls:
+                controls["ExposureMode"] = self.settings['exposure_mode']
+            else:
+                print("Warning: Camera does not support Exposure Mode control")
+            
+            # Add white balance mode if supported
+            if "WhiteBalanceMode" in available_controls:
+                controls["WhiteBalanceMode"] = self.settings['white_balance']
+            else:
+                print("Warning: Camera does not support White Balance Mode control")
+                
+            # Add auto exposure if supported
+            if "AeEnable" in available_controls:
+                controls["AeEnable"] = self.settings['auto_exposure_enabled']
+            else:
+                print("Warning: Camera does not support Auto Exposure control")
+                
+            # Add auto white balance if supported
+            if "AwbEnable" in available_controls:
+                controls["AwbEnable"] = self.settings['auto_white_balance_enabled']
+            else:
+                print("Warning: Camera does not support Auto White Balance control")
+                
+            # Add auto gain if supported
+            if "AgcEnable" in available_controls:
+                controls["AgcEnable"] = self.settings['auto_gain_enabled']
+            else:
+                print("Warning: Camera does not support Auto Gain control")
+                
+            # Add noise reduction mode if supported
+            if "NoiseReductionMode" in available_controls:
+                controls["NoiseReductionMode"] = self.settings['noise_reduction_mode']
+            else:
+                print("Warning: Camera does not support Noise Reduction Mode control")
             
             # Apply the settings
             print(f"Applying camera controls: {controls}")
@@ -636,8 +735,12 @@ class CameraGUI:
         ttk.Button(control_frame, text="Capture", command=self._on_capture).pack(side=tk.LEFT, padx=5)
         ttk.Button(control_frame, text="Save", command=self._on_save).pack(side=tk.LEFT, padx=5)
         
-        # Pause/Resume toggle button
-        self.pause_text = tk.StringVar(value="Pause Camera")
+        # Add Apply and Reset buttons to control frame
+        ttk.Button(control_frame, text="Apply Settings", command=self._on_apply_settings).pack(side=tk.LEFT, padx=5)
+        ttk.Button(control_frame, text="Reset Settings", command=self._on_reset).pack(side=tk.LEFT, padx=5)
+        
+        # Pause button with variable text
+        self.pause_text = tk.StringVar(value="Pause")
         self.pause_button = ttk.Button(control_frame, textvariable=self.pause_text, command=self._on_toggle_pause)
         self.pause_button.pack(side=tk.LEFT, padx=5)
         
@@ -675,13 +778,29 @@ class CameraGUI:
                                         bg="white")
         self.histogram_canvas.pack(pady=5)
         
-        # Settings frame - now under histogram in the right pane
+        # Create a scrollable frame for camera settings
         settings_frame = ttk.LabelFrame(right_pane, text="Camera Settings")
         settings_frame.pack(fill=tk.X, pady=10, padx=5)
         
+        # Create a canvas with scrollbar for the settings
+        settings_canvas = tk.Canvas(settings_frame, highlightthickness=0)
+        settings_canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        
+        # Add a scrollbar to the canvas
+        settings_scrollbar = ttk.Scrollbar(settings_frame, orient=tk.VERTICAL, command=settings_canvas.yview)
+        settings_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        
+        # Configure the canvas
+        settings_canvas.configure(yscrollcommand=settings_scrollbar.set)
+        settings_canvas.bind('<Configure>', lambda e: settings_canvas.configure(scrollregion=settings_canvas.bbox("all")))
+        
+        # Create a frame inside the canvas which will be scrolled
+        scrollable_settings = ttk.Frame(settings_canvas)
+        settings_canvas.create_window((0, 0), window=scrollable_settings, anchor="nw", width=settings_canvas.winfo_reqwidth())
+        
         # Create numerical entry fields instead of sliders
         # Exposure control
-        exposure_frame = ttk.Frame(settings_frame)
+        exposure_frame = ttk.Frame(scrollable_settings)
         exposure_frame.pack(fill=tk.X, pady=2)
         ttk.Label(exposure_frame, text="Exposure (ms):").pack(side=tk.LEFT, padx=5)
         self.exposure_var = tk.StringVar(value=str(self.camera.settings['exposure']))
@@ -689,7 +808,7 @@ class CameraGUI:
         exposure_entry.pack(side=tk.RIGHT, padx=5)
         
         # Gain control
-        gain_frame = ttk.Frame(settings_frame)
+        gain_frame = ttk.Frame(scrollable_settings)
         gain_frame.pack(fill=tk.X, pady=2)
         ttk.Label(gain_frame, text="Gain:").pack(side=tk.LEFT, padx=5)
         self.gain_var = tk.StringVar(value=str(self.camera.settings['gain']))
@@ -697,7 +816,7 @@ class CameraGUI:
         gain_entry.pack(side=tk.RIGHT, padx=5)
         
         # Brightness control
-        brightness_frame = ttk.Frame(settings_frame)
+        brightness_frame = ttk.Frame(scrollable_settings)
         brightness_frame.pack(fill=tk.X, pady=2)
         ttk.Label(brightness_frame, text="Brightness:").pack(side=tk.LEFT, padx=5)
         self.brightness_var = tk.StringVar(value=str(self.camera.settings['brightness']))
@@ -705,24 +824,115 @@ class CameraGUI:
         brightness_entry.pack(side=tk.RIGHT, padx=5)
         
         # Contrast control
-        contrast_frame = ttk.Frame(settings_frame)
+        contrast_frame = ttk.Frame(scrollable_settings)
         contrast_frame.pack(fill=tk.X, pady=2)
         ttk.Label(contrast_frame, text="Contrast:").pack(side=tk.LEFT, padx=5)
         self.contrast_var = tk.StringVar(value=str(self.camera.settings['contrast']))
         contrast_entry = ttk.Entry(contrast_frame, textvariable=self.contrast_var, width=8)
         contrast_entry.pack(side=tk.RIGHT, padx=5)
         
-        # Settings buttons frame
-        settings_buttons_frame = ttk.Frame(settings_frame)
-        settings_buttons_frame.pack(fill=tk.X, pady=5)
+        # Add additional camera settings that might be available in the camera
+        # Sharpness control
+        sharpness_frame = ttk.Frame(scrollable_settings)
+        sharpness_frame.pack(fill=tk.X, pady=2)
+        ttk.Label(sharpness_frame, text="Sharpness:").pack(side=tk.LEFT, padx=5)
+        self.sharpness_var = tk.StringVar(value="0")
+        sharpness_entry = ttk.Entry(sharpness_frame, textvariable=self.sharpness_var, width=8)
+        sharpness_entry.pack(side=tk.RIGHT, padx=5)
         
-        # Apply settings button
-        apply_button = ttk.Button(settings_buttons_frame, text="Apply Settings", command=self._on_apply_settings)
-        apply_button.pack(side=tk.LEFT, padx=5)
+        # Saturation control
+        saturation_frame = ttk.Frame(scrollable_settings)
+        saturation_frame.pack(fill=tk.X, pady=2)
+        ttk.Label(saturation_frame, text="Saturation:").pack(side=tk.LEFT, padx=5)
+        self.saturation_var = tk.StringVar(value="0")
+        saturation_entry = ttk.Entry(saturation_frame, textvariable=self.saturation_var, width=8)
+        saturation_entry.pack(side=tk.RIGHT, padx=5)
         
-        # Reset button
-        reset_button = ttk.Button(settings_buttons_frame, text="Reset Settings", command=self._on_reset)
-        reset_button.pack(side=tk.RIGHT, padx=5)
+        # ISO control
+        iso_frame = ttk.Frame(scrollable_settings)
+        iso_frame.pack(fill=tk.X, pady=2)
+        ttk.Label(iso_frame, text="ISO:").pack(side=tk.LEFT, padx=5)
+        self.iso_var = tk.StringVar(value="100")
+        iso_entry = ttk.Entry(iso_frame, textvariable=self.iso_var, width=8)
+        iso_entry.pack(side=tk.RIGHT, padx=5)
+        
+        # Exposure mode dropdown
+        exp_mode_frame = ttk.Frame(scrollable_settings)
+        exp_mode_frame.pack(fill=tk.X, pady=2)
+        ttk.Label(exp_mode_frame, text="Exposure Mode:").pack(side=tk.LEFT, padx=5)
+        self.exp_mode_var = tk.StringVar(value="auto")
+        exp_mode_combo = ttk.Combobox(exp_mode_frame, textvariable=self.exp_mode_var, 
+                                     values=["auto", "manual", "night", "backlight", "spotlight"], 
+                                     width=10, state="readonly")
+        exp_mode_combo.pack(side=tk.RIGHT, padx=5)
+        
+        # White balance mode dropdown
+        wb_mode_frame = ttk.Frame(scrollable_settings)
+        wb_mode_frame.pack(fill=tk.X, pady=2)
+        ttk.Label(wb_mode_frame, text="White Balance:").pack(side=tk.LEFT, padx=5)
+        self.wb_mode_var = tk.StringVar(value="auto")
+        wb_mode_combo = ttk.Combobox(wb_mode_frame, textvariable=self.wb_mode_var, 
+                                    values=["auto", "sunlight", "cloudy", "shade", "tungsten", "fluorescent", "incandescent", "flash", "horizon"], 
+                                    width=10, state="readonly")
+        wb_mode_combo.pack(side=tk.RIGHT, padx=5)
+        
+        # Add auto adjustment controls
+        auto_frame = ttk.LabelFrame(scrollable_settings, text="Auto Adjustments")
+        auto_frame.pack(fill=tk.X, pady=5)
+        
+        # Auto exposure toggle
+        auto_exp_frame = ttk.Frame(auto_frame)
+        auto_exp_frame.pack(fill=tk.X, pady=2)
+        self.auto_exposure_var = tk.BooleanVar(value=self.camera.settings['auto_exposure_enabled'])
+        auto_exposure_cb = ttk.Checkbutton(
+            auto_exp_frame, 
+            text="Auto Exposure", 
+            variable=self.auto_exposure_var,
+            command=lambda: self._on_toggle_auto_setting('auto_exposure_enabled', self.auto_exposure_var)
+        )
+        auto_exposure_cb.pack(side=tk.LEFT, padx=5)
+        
+        # Auto white balance toggle
+        auto_wb_frame = ttk.Frame(auto_frame)
+        auto_wb_frame.pack(fill=tk.X, pady=2)
+        self.auto_wb_var = tk.BooleanVar(value=self.camera.settings['auto_white_balance_enabled'])
+        auto_wb_cb = ttk.Checkbutton(
+            auto_wb_frame, 
+            text="Auto White Balance", 
+            variable=self.auto_wb_var,
+            command=lambda: self._on_toggle_auto_setting('auto_white_balance_enabled', self.auto_wb_var)
+        )
+        auto_wb_cb.pack(side=tk.LEFT, padx=5)
+        
+        # Auto gain toggle
+        auto_gain_frame = ttk.Frame(auto_frame)
+        auto_gain_frame.pack(fill=tk.X, pady=2)
+        self.auto_gain_var = tk.BooleanVar(value=self.camera.settings['auto_gain_enabled'])
+        auto_gain_cb = ttk.Checkbutton(
+            auto_gain_frame, 
+            text="Auto Gain", 
+            variable=self.auto_gain_var,
+            command=lambda: self._on_toggle_auto_setting('auto_gain_enabled', self.auto_gain_var)
+        )
+        auto_gain_cb.pack(side=tk.LEFT, padx=5)
+        
+        # Noise reduction mode dropdown
+        noise_frame = ttk.Frame(auto_frame)
+        noise_frame.pack(fill=tk.X, pady=2)
+        ttk.Label(noise_frame, text="Noise Reduction:").pack(side=tk.LEFT, padx=5)
+        self.noise_mode_var = tk.StringVar(value=str(self.camera.settings['noise_reduction_mode']))
+        noise_mode_combo = ttk.Combobox(
+            noise_frame, 
+            textvariable=self.noise_mode_var,
+            values=["0 (Off)", "1 (Fast)", "2 (High Quality)", "3 (Minimal)"],
+            width=15,
+            state="readonly"
+        )
+        noise_mode_combo.pack(side=tk.RIGHT, padx=5)
+        noise_mode_combo.bind("<<ComboboxSelected>>", lambda e: self._on_noise_mode_changed())
+        
+        # Set a fixed height for the settings canvas
+        settings_canvas.config(height=300)
     
     def _update_setting_from_entry(self, setting, var):
         """Update a camera setting from an entry field"""
@@ -732,6 +942,12 @@ class CameraGUI:
                 value = float(value)
             elif setting == 'brightness':
                 value = int(value)
+            elif setting == 'sharpness':
+                value = int(value)
+            elif setting == 'saturation':
+                value = int(value)
+            elif setting == 'iso':
+                value = int(value)
                 
             # Only update the internal setting value, don't apply to camera yet
             self.camera.settings[setting] = value
@@ -740,7 +956,7 @@ class CameraGUI:
         except ValueError:
             self.status_var.set(f"Invalid value for {setting}")
             # Reset to current value
-            if setting in ['exposure', 'gain', 'contrast', 'brightness']:
+            if setting in ['exposure', 'gain', 'contrast', 'brightness', 'sharpness', 'saturation', 'iso']:
                 var.set(str(self.camera.get_setting(setting)))
     
     def _on_capture(self):
@@ -922,6 +1138,11 @@ class CameraGUI:
                 'gain': 1.0,
                 'brightness': 0,
                 'contrast': 1.0,
+                'sharpness': 0,
+                'saturation': 0,
+                'iso': 100,
+                'exposure_mode': 'auto',
+                'white_balance': 'auto',
             }
             
             for setting, value in default_settings.items():
@@ -932,6 +1153,11 @@ class CameraGUI:
             self.gain_var.set(str(default_settings['gain']))
             self.brightness_var.set(str(default_settings['brightness']))
             self.contrast_var.set(str(default_settings['contrast']))
+            self.sharpness_var.set(str(default_settings['sharpness']))
+            self.saturation_var.set(str(default_settings['saturation']))
+            self.iso_var.set(str(default_settings['iso']))
+            self.exp_mode_var.set(str(default_settings['exposure_mode']))
+            self.wb_mode_var.set(str(default_settings['white_balance']))
             
             self.status_var.set("Settings reset to defaults")
         except Exception as e:
@@ -945,10 +1171,10 @@ class CameraGUI:
             
             # Update button text
             if is_now_paused:
-                self.pause_text.set("Resume Camera")
+                self.pause_text.set("Resume")
                 self.status_var.set("Camera paused")
             else:
-                self.pause_text.set("Pause Camera")
+                self.pause_text.set("Pause")
                 self.status_var.set("Camera resumed")
                 
             # Update internal state
@@ -1014,25 +1240,46 @@ class CameraGUI:
         """Handle apply settings button click"""
         try:
             # Update all settings from entry fields
-            settings_to_update = {
-                'exposure': self.exposure_var,
-                'gain': self.gain_var,
-                'brightness': self.brightness_var,
-                'contrast': self.contrast_var
-            }
+            self._update_setting_from_entry('exposure', self.exposure_var)
+            self._update_setting_from_entry('gain', self.gain_var)
+            self._update_setting_from_entry('brightness', self.brightness_var)
+            self._update_setting_from_entry('contrast', self.contrast_var)
+            self._update_setting_from_entry('sharpness', self.sharpness_var)
+            self._update_setting_from_entry('saturation', self.saturation_var)
+            self._update_setting_from_entry('iso', self.iso_var)
             
-            # First update all internal settings
-            for setting, var in settings_to_update.items():
-                self._update_setting_from_entry(setting, var)
+            # Update dropdown selections
+            self.camera.settings['exposure_mode'] = self.exp_mode_var.get()
+            self.camera.settings['white_balance'] = self.wb_mode_var.get()
             
-            # Then apply all settings at once
-            if self.camera.apply_all_settings():
-                self.status_var.set("All camera settings applied")
+            # Update auto adjustment settings
+            self.camera.settings['auto_exposure_enabled'] = self.auto_exposure_var.get()
+            self.camera.settings['auto_white_balance_enabled'] = self.auto_wb_var.get()
+            self.camera.settings['auto_gain_enabled'] = self.auto_gain_var.get()
+            
+            # Update noise reduction mode
+            mode_str = self.noise_mode_var.get()
+            if mode_str.startswith("0"):
+                self.camera.settings['noise_reduction_mode'] = 0
+            elif mode_str.startswith("1"):
+                self.camera.settings['noise_reduction_mode'] = 1
+            elif mode_str.startswith("2"):
+                self.camera.settings['noise_reduction_mode'] = 2
+            elif mode_str.startswith("3"):
+                self.camera.settings['noise_reduction_mode'] = 3
+            
+            # Apply all settings to the camera
+            success = self.camera.apply_all_settings()
+            
+            if success:
+                self.status_var.set("Camera settings applied successfully")
             else:
-                self.status_var.set("Error applying some settings")
+                self.status_var.set("Failed to apply some camera settings")
                 
         except Exception as e:
-            self.status_var.set(f"Settings error: {str(e)}")
+            self.status_var.set(f"Error applying settings: {str(e)}")
+            print(f"Detailed error: {str(e)}")
+            traceback.print_exc()
     
     def _on_toggle_histogram(self):
         """Handle histogram toggle checkbox"""
@@ -1052,6 +1299,42 @@ class CameraGUI:
             self.camera.apply_all_settings()  # Apply the change immediately
         except Exception as e:
             self.status_var.set(f"Auto adjustments toggle error: {str(e)}")
+    
+    def _on_toggle_auto_setting(self, setting, var):
+        """Handle toggle of an auto setting"""
+        try:
+            # Update the setting
+            self.camera.settings[setting] = var.get()
+            self.status_var.set(f"Setting {setting} {'enabled' if var.get() else 'disabled'}")
+            self.camera.apply_all_settings()  # Apply the change immediately
+        except Exception as e:
+            self.status_var.set(f"Error toggling {setting}: {str(e)}")
+    
+    def _on_noise_mode_changed(self):
+        """Handle change in noise reduction mode"""
+        try:
+            # Get the selected mode
+            mode = self.noise_mode_var.get()
+            
+            # Convert mode to integer
+            if mode == "0 (Off)":
+                mode = 0
+            elif mode == "1 (Fast)":
+                mode = 1
+            elif mode == "2 (High Quality)":
+                mode = 2
+            elif mode == "3 (Minimal)":
+                mode = 3
+            else:
+                self.status_var.set("Invalid noise reduction mode")
+                return
+            
+            # Update the setting
+            self.camera.settings['noise_reduction_mode'] = mode
+            self.status_var.set(f"Noise reduction mode set to {mode}")
+            self.camera.apply_all_settings()  # Apply the change immediately
+        except Exception as e:
+            self.status_var.set(f"Error changing noise reduction mode: {str(e)}")
 
 
 # Example usage
