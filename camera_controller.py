@@ -1198,6 +1198,28 @@ class CameraGUI:
             print(f"Detailed reset error: {str(e)}")
             traceback.print_exc()
     
+    def _on_toggle_pause(self):
+        """Handle pause/resume button click"""
+        try:
+            # Toggle camera pause state
+            is_now_paused = self.camera.toggle_pause()
+            
+            # Update button text
+            if is_now_paused:
+                self.pause_text.set("Resume")
+                self.status_var.set("Camera paused")
+            else:
+                self.pause_text.set("Pause")
+                self.status_var.set("Camera resumed")
+                
+            # Update internal state
+            self.is_paused = is_now_paused
+            
+        except Exception as e:
+            self.status_var.set(f"Error toggling pause: {str(e)}")
+            print(f"Detailed pause toggle error: {str(e)}")
+            traceback.print_exc()
+    
     def _update_preview(self):
         """Update the preview display"""
         try:
