@@ -744,6 +744,7 @@ class ShackHartmannGUI:
         self.wavefront = None
         self.simulated_frame = None
         self.true_wavefront = None
+        self.captured_frame = None
         
         # Create root window if not provided
         if root is None:
@@ -807,8 +808,37 @@ class ShackHartmannGUI:
         left_frame = ttk.Frame(main_frame)
         left_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         
-        right_frame = ttk.Frame(main_frame)
-        right_frame.pack(side=tk.RIGHT, fill=tk.Y, padx=(10, 0))
+        # Create scrollable right frame for controls
+        right_frame_outer = ttk.Frame(main_frame)
+        right_frame_outer.pack(side=tk.RIGHT, fill=tk.Y, padx=(10, 0))
+        
+        # Create canvas with scrollbar for controls
+        control_canvas = tk.Canvas(right_frame_outer, width=250)
+        control_canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        
+        # Add scrollbar to canvas
+        scrollbar = ttk.Scrollbar(right_frame_outer, orient=tk.VERTICAL, command=control_canvas.yview)
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        control_canvas.configure(yscrollcommand=scrollbar.set)
+        
+        # Create frame for controls inside canvas
+        right_frame = ttk.Frame(control_canvas)
+        
+        # Add right_frame to canvas
+        canvas_frame = control_canvas.create_window((0, 0), window=right_frame, anchor=tk.NW)
+        
+        # Configure scrolling
+        def _on_frame_configure(event):
+            control_canvas.configure(scrollregion=control_canvas.bbox("all"))
+            control_canvas.itemconfig(canvas_frame, width=control_canvas.winfo_width())
+        
+        right_frame.bind("<Configure>", _on_frame_configure)
+        
+        # Make mouse wheel scroll the canvas
+        def _on_mousewheel(event):
+            control_canvas.yview_scroll(int(-1*(event.delta/120)), "units")
+        
+        control_canvas.bind_all("<MouseWheel>", _on_mousewheel)
         
         # Create main notebook for all visualizations
         self.main_notebook = ttk.Notebook(left_frame)
@@ -831,7 +861,7 @@ class ShackHartmannGUI:
         camera_frame = ttk.LabelFrame(camera_tab, text="Camera View")
         camera_frame.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
         
-        self.camera_canvas = tk.Canvas(camera_frame, width=self.slm_width//2, height=self.slm_height//2)
+        self.camera_canvas = tk.Canvas(camera_frame, width=self.slm_width, height=self.slm_height)
         self.camera_canvas.pack(fill=tk.BOTH, expand=True)
         
         # Spots display
@@ -952,6 +982,9 @@ class ShackHartmannGUI:
         # Capture reference button
         ttk.Button(camera_frame, text="Capture Reference", command=self._on_capture_reference).pack(fill=tk.X, pady=5)
         
+        # Capture and process image button
+        ttk.Button(camera_frame, text="Capture and Process Image", command=self._on_capture_and_process).pack(fill=tk.X, pady=5)
+        
         # Reconstruct wavefront button
         ttk.Button(camera_frame, text="Reconstruct Wavefront", command=self._on_reconstruct_wavefront).pack(fill=tk.X, pady=5)
         
@@ -984,7 +1017,7 @@ class ShackHartmannGUI:
                     self.camera_canvas.delete("all")
                     
                     # Resize the frame to fit the canvas
-                    resized_frame = cv2.resize(rgb_frame, (self.slm_width//2, self.slm_height//2))
+                    resized_frame = cv2.resize(rgb_frame, (self.slm_width, self.slm_height))
                     
                     # Convert OpenCV image to PIL Image
                     pil_image = Image.fromarray(resized_frame)
@@ -1043,7 +1076,7 @@ class ShackHartmannGUI:
             self.camera_canvas.delete("all")
             
             # Resize the frame to fit the canvas
-            resized_frame = cv2.resize(rgb_frame, (self.slm_width//2, self.slm_height//2))
+            resized_frame = cv2.resize(rgb_frame, (self.slm_width, self.slm_height))
             
             # Convert OpenCV image to PIL Image
             pil_image = Image.fromarray(resized_frame)
@@ -1258,8 +1291,10 @@ class ShackHartmannGUI:
             return
             
         try:
-            # Detect spots in latest frame (real or simulated)
-            if self.camera is not None and hasattr(self.camera, 'get_latest_frame') and self.camera.is_running:
+            # Use the captured frame if available, otherwise fall back to the latest frame
+            if hasattr(self, 'captured_frame') and self.captured_frame is not None:
+                frame = self.captured_frame
+            elif self.camera is not None and hasattr(self.camera, 'get_latest_frame') and self.camera.is_running:
                 frame = self.camera.get_latest_frame()
             elif self.simulated_frame is not None:
                 frame = self.simulated_frame
@@ -1331,6 +1366,88 @@ class ShackHartmannGUI:
                 
         except Exception as e:
             self.status_var.set(f"Error in wavefront reconstruction: {str(e)}")
+            traceback.print_exc()
+    
+    def _on_capture_and_process(self):
+        """Capture a single frame from the camera and process it for spot detection."""
+        if self.camera is None or not hasattr(self.camera, 'capture_high_quality_frame'):
+            self.status_var.set("Camera not available. Cannot capture image.")
+            return
+            
+        try:
+            # Capture a high-quality frame
+            frame = self.camera.capture_high_quality_frame()
+            
+            if frame is None:
+                self.status_var.set("Failed to capture frame")
+                return
+                
+            # Store the captured frame
+            self.captured_frame = frame
+            
+            # Convert to RGB for display
+            if len(frame.shape) == 2:  # If grayscale
+                rgb_frame = cv2.cvtColor(frame, cv2.COLOR_GRAY2RGB)
+            else:  # If already RGB
+                rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            
+            # Update the camera view with the captured frame
+            self.camera_canvas.delete("all")
+            
+            # Resize the frame to fit the canvas
+            resized_frame = cv2.resize(rgb_frame, (self.slm_width, self.slm_height))
+            
+            # Convert OpenCV image to PIL Image
+            pil_image = Image.fromarray(resized_frame)
+            
+            # Convert PIL Image to Tkinter PhotoImage
+            tk_image = ImageTk.PhotoImage(image=pil_image)
+            
+            # Keep a reference to prevent garbage collection
+            self.camera_canvas.image = tk_image
+            
+            # Display the image on the canvas
+            self.camera_canvas.create_image(0, 0, image=tk_image, anchor="nw")
+            
+            # Process the frame for spot detection if reference spots are available
+            if self.reference_spots is not None and self.spot_detector is not None:
+                # Detect spots in current frame
+                spots = self.spot_detector.detect_spots(frame)
+                
+                # Calculate spot shifts
+                shifts = self.spot_detector.calculate_spot_shifts(spots)
+                
+                # Update spots display
+                self.spots_ax.clear()
+                self.spots_ax.set_title("Detected Spots")
+                self.spots_ax.imshow(rgb_frame, cmap='gray')
+                
+                # Plot reference spots
+                if self.reference_spots is not None:
+                    self.spots_ax.scatter(self.reference_spots[:, 0], self.reference_spots[:, 1], 
+                                         color='r', marker='o', s=50, facecolors='none', label='Reference')
+                
+                # Plot current spots
+                if spots is not None:
+                    self.spots_ax.scatter(spots[:, 0], spots[:, 1], 
+                                         color='g', marker='+', s=50, label='Current')
+                
+                # Plot shifts as arrows
+                if shifts is not None:
+                    for i, ref_spot in enumerate(self.reference_spots):
+                        self.spots_ax.arrow(ref_spot[0], ref_spot[1], 
+                                           shifts[i, 0], shifts[i, 1], 
+                                           color='b', width=0.5, head_width=5)
+                
+                self.spots_ax.legend()
+                self.spots_canvas.draw()
+                
+                self.status_var.set(f"Image captured and processed. Detected {len(spots)} spots.")
+            else:
+                self.status_var.set("Image captured. Capture reference spots first to enable spot detection.")
+                
+        except Exception as e:
+            self.status_var.set(f"Error capturing and processing image: {str(e)}")
             traceback.print_exc()
     
     def _on_capture_reference(self):
@@ -1601,8 +1718,10 @@ class ShackHartmannGUI:
             return
             
         try:
-            # Detect spots in latest frame (real or simulated)
-            if self.camera is not None and hasattr(self.camera, 'get_latest_frame') and self.camera.is_running:
+            # Use the captured frame if available, otherwise fall back to the latest frame
+            if hasattr(self, 'captured_frame') and self.captured_frame is not None:
+                frame = self.captured_frame
+            elif self.camera is not None and hasattr(self.camera, 'get_latest_frame') and self.camera.is_running:
                 frame = self.camera.get_latest_frame()
             elif self.simulated_frame is not None:
                 frame = self.simulated_frame
