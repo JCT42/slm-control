@@ -31,6 +31,7 @@ import json
 import pygame
 import traceback
 from scipy.special import eval_jacobi
+from PIL import Image, ImageTk
 
 # Import camera controller
 try:
@@ -981,10 +982,21 @@ class ShackHartmannGUI:
                     
                     # Update the camera view
                     self.camera_canvas.delete("all")
-                    self.camera_canvas.create_image(0, 0, image=tk.PhotoImage(width=self.slm_width//2, height=self.slm_height//2), anchor="nw")
-                    self.camera_canvas.image = tk.PhotoImage(width=self.slm_width//2, height=self.slm_height//2)
-                    self.camera_canvas.create_image(0, 0, image=tk.PhotoImage(width=self.slm_width//2, height=self.slm_height//2), anchor="nw")
-                    self.camera_canvas.image = tk.PhotoImage(width=self.slm_width//2, height=self.slm_height//2)
+                    
+                    # Resize the frame to fit the canvas
+                    resized_frame = cv2.resize(rgb_frame, (self.slm_width//2, self.slm_height//2))
+                    
+                    # Convert OpenCV image to PIL Image
+                    pil_image = Image.fromarray(resized_frame)
+                    
+                    # Convert PIL Image to Tkinter PhotoImage
+                    tk_image = ImageTk.PhotoImage(image=pil_image)
+                    
+                    # Keep a reference to prevent garbage collection
+                    self.camera_canvas.image = tk_image
+                    
+                    # Display the image on the canvas
+                    self.camera_canvas.create_image(0, 0, image=tk_image, anchor="nw")
                     
                     # Detect spots if reference spots are available
                     if self.reference_spots is not None and self.spot_detector is not None:
@@ -1029,10 +1041,21 @@ class ShackHartmannGUI:
                 
             # Update the camera view
             self.camera_canvas.delete("all")
-            self.camera_canvas.create_image(0, 0, image=tk.PhotoImage(width=self.slm_width//2, height=self.slm_height//2), anchor="nw")
-            self.camera_canvas.image = tk.PhotoImage(width=self.slm_width//2, height=self.slm_height//2)
-            self.camera_canvas.create_image(0, 0, image=tk.PhotoImage(width=self.slm_width//2, height=self.slm_height//2), anchor="nw")
-            self.camera_canvas.image = tk.PhotoImage(width=self.slm_width//2, height=self.slm_height//2)
+            
+            # Resize the frame to fit the canvas
+            resized_frame = cv2.resize(rgb_frame, (self.slm_width//2, self.slm_height//2))
+            
+            # Convert OpenCV image to PIL Image
+            pil_image = Image.fromarray(resized_frame)
+            
+            # Convert PIL Image to Tkinter PhotoImage
+            tk_image = ImageTk.PhotoImage(image=pil_image)
+            
+            # Keep a reference to prevent garbage collection
+            self.camera_canvas.image = tk_image
+            
+            # Display the image on the canvas
+            self.camera_canvas.create_image(0, 0, image=tk_image, anchor="nw")
             
             # If we have reference spots, update the spots display
             if self.reference_spots is not None and self.spot_detector is not None:
