@@ -77,8 +77,8 @@ class ThorlabsPowerMeter:
         self.start_time = None
         self.max_history_length = 1000  # Maximum number of data points to store
         self.interface_number = 0
-        self.endpoint_in = None
-        self.endpoint_out = None
+        self.endpoint_in = 0x81
+        self.endpoint_out = 0x01
         
         # Determine the connection mode
         if IS_WINDOWS and TLPM_AVAILABLE:
