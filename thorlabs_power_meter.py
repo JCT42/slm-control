@@ -22,6 +22,7 @@ from scipy import stats
 import json
 import platform
 import pyvisa
+import subprocess
 
 # Determine if we're on Windows or Linux
 IS_WINDOWS = platform.system() == 'Windows'
@@ -888,20 +889,16 @@ class PowerMeterGUI:
         if not self.power_meter.power_history:
             self.status_var.set("No data to export")
             return
-            
+        
         # Update metadata
         self.update_metadata()
         
-        # Ask for file path
-        file_path = save_file_dialog(
-            title="Export Data to CSV",
-            filetypes=[("CSV files", "*.csv"), ("All Files", "*.*")],
-            default_name="power_meter_data.csv"
-        )
+        # Use Zenity to prompt for file path
+        file_path = subprocess.check_output(['zenity', '--file-selection', '--save', '--confirm-overwrite', '--title="Export to CSV"', '--filename="power_data.csv"']).decode().strip()
         
         if not file_path:
             return
-            
+        
         # Export the data
         self.power_meter.export_data(file_path)
         self.status_var.set(f"Data exported to {file_path}")
@@ -916,12 +913,8 @@ class PowerMeterGUI:
             # Update metadata
             self.update_metadata()
             
-            # Ask for file path
-            file_path = save_file_dialog(
-                title="Export Data to Excel",
-                filetypes=[("Excel files", "*.xlsx"), ("All Files", "*.*")],
-                default_name="power_meter_data.xlsx"
-            )
+            # Use Zenity to prompt for file path
+            file_path = subprocess.check_output(['zenity', '--file-selection', '--save', '--confirm-overwrite', '--title="Export to Excel"', '--filename="power_data.xlsx"']).decode().strip()
             
             if not file_path:
                 return
@@ -941,16 +934,12 @@ class PowerMeterGUI:
         # Calculate statistics
         self.power_meter.calculate_statistics()
         
-        # Ask for file path
-        file_path = save_file_dialog(
-            title="Export Statistics",
-            filetypes=[("JSON files", "*.json"), ("All Files", "*.*")],
-            default_name="power_meter_stats.json"
-        )
+        # Use Zenity to prompt for file path
+        file_path = subprocess.check_output(['zenity', '--file-selection', '--save', '--confirm-overwrite', '--title="Export Statistics"', '--filename="statistics.json"']).decode().strip()
         
         if not file_path:
             return
-            
+        
         # Export the statistics
         self.power_meter.export_statistics(file_path)
         self.status_var.set(f"Statistics exported to {file_path}")
