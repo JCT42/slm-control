@@ -1,5 +1,5 @@
 """
-Thorlabs Power Meter Interface for Raspberry Pi
+Thorlabs Power Meter Interface for Raspberry Pi and Windows
 Connects to Thorlabs power meters via USB and provides a simple interface to read measurements.
 """
 
@@ -12,16 +12,39 @@ from matplotlib.animation import FuncAnimation
 from matplotlib.figure import Figure
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 import tkinter as tk
-from tkinter import ttk, filedialog
+from tkinter import ttk
 import threading
-import usb.core
-import usb.util
 import struct
 import csv
 import pandas as pd
 from datetime import datetime
 from scipy import stats
 import json
+import platform
+from cross_platform_dialogs import open_file_dialog, save_file_dialog
+
+# Determine if we're on Windows or Linux
+IS_WINDOWS = platform.system() == 'Windows'
+
+# Try to import USB libraries
+try:
+    import usb.core
+    import usb.util
+    USB_AVAILABLE = True
+except ImportError:
+    USB_AVAILABLE = False
+    print("Warning: PyUSB not available. Using simulation mode on Windows or install PyUSB on Linux.")
+
+# Try to import TLPM for Windows
+if IS_WINDOWS:
+    try:
+        import TLPM
+        TLPM_AVAILABLE = True
+    except ImportError:
+        TLPM_AVAILABLE = False
+        print("Warning: TLPM library not found. Using simulation mode.")
+else:
+    TLPM_AVAILABLE = False
 
 # Thorlabs USB identifiers
 THORLABS_VENDOR_ID = 0x1313  # Thorlabs Vendor ID
@@ -39,11 +62,12 @@ POWER_METER_PRODUCT_IDS = {
 }
 
 class ThorlabsPowerMeter:
-    """Interface for Thorlabs Power Meters using PyUSB"""
+    """Interface for Thorlabs Power Meters using PyUSB or TLPM on Windows"""
     
     def __init__(self):
         """Initialize the power meter connection"""
         self.device = None
+        self.tlpm = None
         self.connected = False
         self.wavelength = 633.0  # Default wavelength in nm
         self.measurement_thread = None
@@ -55,6 +79,20 @@ class ThorlabsPowerMeter:
         self.interface_number = 0
         self.endpoint_in = None
         self.endpoint_out = None
+        
+        # Determine the connection mode
+        if IS_WINDOWS and TLPM_AVAILABLE:
+            self.connection_mode = "TLPM"
+        elif USB_AVAILABLE:
+            self.connection_mode = "PyUSB"
+        else:
+            self.connection_mode = "Simulation"
+            print("Using simulation mode for power meter")
+        
+        # Simulation parameters
+        self.simulation_base_power = 1.0e-3  # 1 mW
+        self.simulation_noise = 0.02  # 2% noise
+        self.simulation_drift = 0.0001  # 0.01% drift per second
         
         # Statistical analysis variables
         self.stats = {
@@ -98,20 +136,45 @@ class ThorlabsPowerMeter:
         """Find all connected Thorlabs power meter devices"""
         try:
             devices = []
-            # Find all Thorlabs devices
-            for product_id in POWER_METER_PRODUCT_IDS:
-                found_devices = list(usb.core.find(find_all=True, 
-                                                  idVendor=THORLABS_VENDOR_ID, 
-                                                  idProduct=product_id))
-                for dev in found_devices:
-                    model = POWER_METER_PRODUCT_IDS.get(product_id, "Unknown")
-                    devices.append({
-                        'device': dev,
-                        'product_id': product_id,
-                        'model': model,
-                        'serial': self._get_serial_number(dev)
-                    })
             
+            if self.connection_mode == "TLPM":
+                # Use TLPM library for Windows
+                self.tlpm = TLPM.TLPM()
+                device_count = self.tlpm.findRsrc()
+                
+                for i in range(device_count):
+                    resource_name = self.tlpm.getRsrcName(i)
+                    devices.append({
+                        'device': i,
+                        'product_id': 0,  # Not available through TLPM
+                        'model': "Thorlabs Power Meter",  # Will be updated after connection
+                        'serial': resource_name,
+                        'resource_name': resource_name
+                    })
+                    
+            elif self.connection_mode == "PyUSB":
+                # Use PyUSB for Linux
+                for product_id in POWER_METER_PRODUCT_IDS:
+                    found_devices = list(usb.core.find(find_all=True, 
+                                                      idVendor=THORLABS_VENDOR_ID, 
+                                                      idProduct=product_id))
+                    for dev in found_devices:
+                        model = POWER_METER_PRODUCT_IDS.get(product_id, "Unknown")
+                        devices.append({
+                            'device': dev,
+                            'product_id': product_id,
+                            'model': model,
+                            'serial': self._get_serial_number(dev)
+                        })
+            else:
+                # Simulation mode - create a simulated device
+                devices.append({
+                    'device': None,
+                    'product_id': 0,
+                    'model': "Simulated Power Meter",
+                    'serial': "SIM001"
+                })
+                
             return devices
         except Exception as e:
             print(f"Error finding devices: {e}")
@@ -127,45 +190,68 @@ class ThorlabsPowerMeter:
     def connect(self, device_info):
         """Connect to a specific power meter"""
         try:
-            self.device = device_info['device']
-            
-            # Detach kernel driver if active
-            if self.device.is_kernel_driver_active(self.interface_number):
+            if self.connection_mode == "TLPM":
+                # Windows TLPM connection
+                if self.tlpm is None:
+                    self.tlpm = TLPM.TLPM()
+                
+                resource_name = device_info['resource_name']
+                self.tlpm.open(resource_name, False, False)  # Open device without ID Query and reset
+                
+                # Get device info
                 try:
-                    self.device.detach_kernel_driver(self.interface_number)
-                except usb.core.USBError as e:
-                    print(f"Could not detach kernel driver: {e}")
+                    manufacturer = self.tlpm.getDeviceInfo(0)
+                    model = self.tlpm.getDeviceInfo(1)
+                    serial = self.tlpm.getDeviceInfo(2)
+                    device_info['model'] = f"{manufacturer} {model}"
+                    device_info['serial'] = serial
+                except:
+                    pass
+                
+                # Set wavelength
+                self.tlpm.setWavelength(self.wavelength)
+                
+            elif self.connection_mode == "PyUSB":
+                # Linux PyUSB connection
+                self.device = device_info['device']
+                
+                # Detach kernel driver if active
+                if self.device.is_kernel_driver_active(self.interface_number):
+                    try:
+                        self.device.detach_kernel_driver(self.interface_number)
+                    except usb.core.USBError as e:
+                        print(f"Could not detach kernel driver: {e}")
+                
+                # Set configuration
+                self.device.set_configuration()
+                
+                # Get an endpoint instance
+                cfg = self.device.get_active_configuration()
+                intf = cfg[(0, 0)]
+                
+                # Find endpoints
+                self.endpoint_out = usb.util.find_descriptor(
+                    intf,
+                    custom_match=lambda e: 
+                        usb.util.endpoint_direction(e.bEndpointAddress) == 
+                        usb.util.ENDPOINT_OUT
+                )
+                
+                self.endpoint_in = usb.util.find_descriptor(
+                    intf,
+                    custom_match=lambda e: 
+                        usb.util.endpoint_direction(e.bEndpointAddress) == 
+                        usb.util.ENDPOINT_IN
+                )
+                
+                if not self.endpoint_out or not self.endpoint_in:
+                    raise ValueError("Could not find endpoints")
+                
+                # Set wavelength
+                self.set_wavelength(self.wavelength)
             
-            # Set configuration
-            self.device.set_configuration()
-            
-            # Get an endpoint instance
-            cfg = self.device.get_active_configuration()
-            intf = cfg[(0, 0)]
-            
-            # Find endpoints
-            self.endpoint_out = usb.util.find_descriptor(
-                intf,
-                custom_match=lambda e: 
-                    usb.util.endpoint_direction(e.bEndpointAddress) == 
-                    usb.util.ENDPOINT_OUT
-            )
-            
-            self.endpoint_in = usb.util.find_descriptor(
-                intf,
-                custom_match=lambda e: 
-                    usb.util.endpoint_direction(e.bEndpointAddress) == 
-                    usb.util.ENDPOINT_IN
-            )
-            
-            if not self.endpoint_out or not self.endpoint_in:
-                raise ValueError("Could not find endpoints")
-            
+            # For all modes including simulation
             self.connected = True
-            
-            # Set default wavelength
-            self.set_wavelength(self.wavelength)
-            
             print(f"Connected to {device_info['model']} (SN: {device_info['serial']})")
             return True
         except Exception as e:
@@ -174,18 +260,24 @@ class ThorlabsPowerMeter:
     
     def disconnect(self):
         """Disconnect from the power meter"""
-        if self.device and self.connected:
-            try:
+        if not self.connected:
+            return True
+            
+        try:
+            if self.connection_mode == "TLPM" and self.tlpm:
+                self.tlpm.close()
+                self.tlpm = None
+            elif self.connection_mode == "PyUSB" and self.device:
                 # Release the interface
                 usb.util.dispose_resources(self.device)
                 self.device = None
-                self.connected = False
-                print("Disconnected from power meter")
-                return True
-            except Exception as e:
-                print(f"Error disconnecting: {e}")
-                return False
-        return True
+            
+            self.connected = False
+            print("Disconnected from power meter")
+            return True
+        except Exception as e:
+            print(f"Error disconnecting: {e}")
+            return False
     
     def _send_command(self, command, data=None):
         """Send a command to the device and get response"""
@@ -211,12 +303,15 @@ class ThorlabsPowerMeter:
             return False
             
         try:
-            # Implement the specific command to set wavelength for your model
-            # This is a placeholder and needs to be adjusted for your specific device
-            command = struct.pack('<BBHH', 0xA2, 0x02, int(wavelength), 0)
-            self._send_command(command)
-            
             self.wavelength = wavelength
+            
+            if self.connection_mode == "TLPM":
+                self.tlpm.setWavelength(wavelength)
+            elif self.connection_mode == "PyUSB":
+                # Implement the specific command to set wavelength for your model
+                command = struct.pack('<BBHH', 0xA2, 0x02, int(wavelength), 0)
+                self._send_command(command)
+            
             print(f"Wavelength set to {wavelength} nm")
             return True
         except Exception as e:
@@ -230,17 +325,32 @@ class ThorlabsPowerMeter:
             return None
             
         try:
-            # Implement the specific command to get power for your model
-            # This is a placeholder and needs to be adjusted for your specific device
-            command = struct.pack('<BB', 0xD1, 0x01)
-            response = self._send_command(command)
-            
-            if response and len(response) >= 4:
-                # Extract power value from response
-                # Format depends on your specific device protocol
-                power_value = struct.unpack('<f', response[0:4])[0]
-                return power_value
-            return None
+            if self.connection_mode == "TLPM":
+                power = self.tlpm.measPower()
+                return power
+            elif self.connection_mode == "PyUSB":
+                # Implement the specific command to get power for your model
+                command = struct.pack('<BB', 0xD1, 0x01)
+                response = self._send_command(command)
+                
+                if response and len(response) >= 4:
+                    # Extract power value from response
+                    power_value = struct.unpack('<f', response[0:4])[0]
+                    return power_value
+                return None
+            else:
+                # Simulation mode
+                if not hasattr(self, 'simulation_start_time'):
+                    self.simulation_start_time = time.time()
+                
+                elapsed_time = time.time() - self.simulation_start_time
+                
+                # Generate a simulated power reading with noise and drift
+                power = self.simulation_base_power * (1 + self.simulation_drift * elapsed_time)
+                noise_factor = 1.0 + (np.random.random() - 0.5) * 2 * self.simulation_noise
+                power *= noise_factor
+                
+                return power
         except Exception as e:
             print(f"Error measuring power: {e}")
             return None
@@ -493,13 +603,32 @@ class PowerMeterGUI:
         self.frame = ttk.Frame(self.root)
         self.frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
         
+        # Variables
+        self.device_var = tk.StringVar()
+        self.wavelength_var = tk.DoubleVar(value=633.0)
+        self.current_power_var = tk.StringVar(value="-- W")
+        self.status_var = tk.StringVar(value="Ready")
+        self.ref_power_var = tk.StringVar(value="-- W")
+        self.relative_power_var = tk.StringVar(value="-- %")
+        self.notes_var = tk.StringVar(value="")
+        
+        # Variables for uncertainty factors
+        self.uncertainty_vars = {
+            'calibration': tk.DoubleVar(value=1.0),
+            'linearity': tk.DoubleVar(value=0.5),
+            'temperature': tk.DoubleVar(value=0.2),
+            'wavelength': tk.DoubleVar(value=1.0)
+        }
+        
+        # Variable for stability analysis
+        self.stability_window_size = tk.IntVar(value=100)
+        
+        # Dictionary to hold statistics labels
+        self.stat_labels = {}
+        
         self.create_widgets()
         self.animation = None
         self.devices = []
-        
-        # Analysis variables
-        self.stability_window_size = tk.IntVar(value=100)
-        self.notes_var = tk.StringVar(value="")
         
     def create_widgets(self):
         """Create GUI widgets"""
@@ -529,7 +658,6 @@ class PowerMeterGUI:
         self.setup_scientific_tab(scientific_tab)
         
         # Status bar
-        self.status_var = tk.StringVar(value="Not connected")
         status_bar = ttk.Label(self.frame, textvariable=self.status_var, relief=tk.SUNKEN, anchor=tk.W)
         status_bar.pack(fill=tk.X, padx=5, pady=5)
         
@@ -562,7 +690,6 @@ class PowerMeterGUI:
         settings_frame.pack(fill=tk.X, padx=5, pady=5)
         
         ttk.Label(settings_frame, text="Wavelength (nm):").grid(row=0, column=0, padx=5, pady=5, sticky=tk.W)
-        self.wavelength_var = tk.DoubleVar(value=633.0)
         self.wavelength_entry = ttk.Entry(settings_frame, textvariable=self.wavelength_var, width=10)
         self.wavelength_entry.grid(row=0, column=1, padx=5, pady=5, sticky=tk.W)
         
@@ -573,7 +700,6 @@ class PowerMeterGUI:
         measurement_frame = ttk.Frame(control_frame)
         measurement_frame.pack(fill=tk.X, padx=5, pady=5)
         
-        self.current_power_var = tk.StringVar(value="-- W")
         ttk.Label(measurement_frame, text="Current Power:").grid(row=0, column=0, padx=5, pady=5, sticky=tk.W)
         ttk.Label(measurement_frame, textvariable=self.current_power_var, font=("Arial", 12, "bold")).grid(
             row=0, column=1, padx=5, pady=5, sticky=tk.W)
@@ -662,11 +788,9 @@ class PowerMeterGUI:
         ref_controls = ttk.Frame(ref_frame)
         ref_controls.pack(fill=tk.X, padx=5, pady=5)
         
-        self.ref_power_var = tk.StringVar(value="-- W")
         ttk.Label(ref_controls, text="Reference Power:").grid(row=0, column=0, padx=5, pady=5, sticky=tk.W)
         ttk.Label(ref_controls, textvariable=self.ref_power_var).grid(row=0, column=1, padx=5, pady=5, sticky=tk.W)
         
-        self.relative_power_var = tk.StringVar(value="-- %")
         ttk.Label(ref_controls, text="Relative Power:").grid(row=0, column=2, padx=5, pady=5, sticky=tk.W)
         ttk.Label(ref_controls, textvariable=self.relative_power_var).grid(row=0, column=3, padx=5, pady=5, sticky=tk.W)
         
@@ -717,11 +841,8 @@ class PowerMeterGUI:
             ('Wavelength', 'wavelength')
         ]
         
-        self.uncertainty_vars = {}
-        
         for i, (name, key) in enumerate(factors):
             ttk.Label(uncertainty_factors, text=f"{name} (%):").grid(row=i//2, column=(i%2)*2, padx=5, pady=5, sticky=tk.W)
-            self.uncertainty_vars[key] = tk.DoubleVar(value=self.power_meter.uncertainty_factors[key] * 100)
             entry = ttk.Entry(uncertainty_factors, textvariable=self.uncertainty_vars[key], width=10)
             entry.grid(row=i//2, column=(i%2)*2+1, padx=5, pady=5, sticky=tk.W)
         
@@ -951,10 +1072,10 @@ class PowerMeterGUI:
         self.update_metadata()
         
         # Ask for file path
-        file_path = filedialog.asksaveasfilename(
-            defaultextension=".csv",
-            filetypes=[("CSV files", "*.csv"), ("All files", "*.*")],
-            title="Export Data to CSV"
+        file_path = save_file_dialog(
+            title="Export Data to CSV",
+            filetypes=[("CSV files", "*.csv"), ("All Files", "*.*")],
+            default_name="power_meter_data.csv"
         )
         
         if not file_path:
@@ -974,10 +1095,10 @@ class PowerMeterGUI:
         self.update_metadata()
         
         # Ask for file path
-        file_path = filedialog.asksaveasfilename(
-            defaultextension=".xlsx",
-            filetypes=[("Excel files", "*.xlsx"), ("All files", "*.*")],
-            title="Export Data to Excel"
+        file_path = save_file_dialog(
+            title="Export Data to Excel",
+            filetypes=[("Excel files", "*.xlsx"), ("All Files", "*.*")],
+            default_name="power_meter_data.xlsx"
         )
         
         if not file_path:
@@ -997,10 +1118,10 @@ class PowerMeterGUI:
         self.power_meter.calculate_statistics()
         
         # Ask for file path
-        file_path = filedialog.asksaveasfilename(
-            defaultextension=".json",
-            filetypes=[("JSON files", "*.json"), ("All files", "*.*")],
-            title="Export Statistics"
+        file_path = save_file_dialog(
+            title="Export Statistics",
+            filetypes=[("JSON files", "*.json"), ("All Files", "*.*")],
+            default_name="power_meter_stats.json"
         )
         
         if not file_path:
