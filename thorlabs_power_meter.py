@@ -21,35 +21,14 @@ from datetime import datetime
 from scipy import stats
 import json
 import platform
-from cross_platform_dialogs import open_file_dialog, save_file_dialog
+import pyvisa
 
 # Determine if we're on Windows or Linux
 IS_WINDOWS = platform.system() == 'Windows'
 
-# Try to import USB libraries
-try:
-    import usb.core
-    import usb.util
-    USB_AVAILABLE = True
-except ImportError:
-    USB_AVAILABLE = False
-    print("Warning: PyUSB not available. Using simulation mode on Windows or install PyUSB on Linux.")
-
-# Try to import TLPM for Windows
-if IS_WINDOWS:
-    try:
-        import TLPM
-        TLPM_AVAILABLE = True
-    except ImportError:
-        TLPM_AVAILABLE = False
-        print("Warning: TLPM library not found. Using simulation mode.")
-else:
-    TLPM_AVAILABLE = False
-
 # Thorlabs USB identifiers
 THORLABS_VENDOR_ID = 0x1313  # Thorlabs Vendor ID
 
-# Known Thorlabs Power Meter Product IDs
 POWER_METER_PRODUCT_IDS = {
     0x8070: "PM100USB",
     0x8071: "PM100D",
@@ -58,16 +37,15 @@ POWER_METER_PRODUCT_IDS = {
     0x8079: "PM101",
     0x807A: "PM102",
     0x807B: "PM103"
-    # Add more product IDs as needed
 }
 
 class ThorlabsPowerMeter:
-    """Interface for Thorlabs Power Meters using PyUSB or TLPM on Windows"""
+    """Interface for Thorlabs Power Meters using PyVISA"""
     
     def __init__(self):
         """Initialize the power meter connection"""
+        self.rm = pyvisa.ResourceManager()
         self.device = None
-        self.tlpm = None
         self.connected = False
         self.wavelength = 650.0  # Default wavelength in nm
         self.measurement_thread = None
@@ -80,14 +58,13 @@ class ThorlabsPowerMeter:
         self.endpoint_in = 0x81
         self.endpoint_out = 0x01
         
-        # Determine the connection mode
-        if IS_WINDOWS and TLPM_AVAILABLE:
-            self.connection_mode = "TLPM"
-        elif USB_AVAILABLE:
-            self.connection_mode = "PyUSB"
-        else:
-            self.connection_mode = "Simulation"
-            print("Using simulation mode for power meter")
+        # Try to connect to the PM100D
+        try:
+            self.device = self.rm.open_resource('USB0::1313::8078::INSTR')  # Update the address as necessary
+            self.connected = True
+            print("Connected to PM100D")
+        except Exception as e:
+            print(f"Error connecting to device: {e}")
         
         # Simulation parameters
         self.simulation_base_power = 1.0e-3  # 1 mW
@@ -137,42 +114,14 @@ class ThorlabsPowerMeter:
         try:
             devices = []
             
-            if self.connection_mode == "TLPM":
-                # Use TLPM library for Windows
-                self.tlpm = TLPM.TLPM()
-                device_count = self.tlpm.findRsrc()
-                
-                for i in range(device_count):
-                    resource_name = self.tlpm.getRsrcName(i)
-                    devices.append({
-                        'device': i,
-                        'product_id': 0,  # Not available through TLPM
-                        'model': "Thorlabs Power Meter",  # Will be updated after connection
-                        'serial': resource_name,
-                        'resource_name': resource_name
-                    })
-                    
-            elif self.connection_mode == "PyUSB":
-                # Use PyUSB for Linux
-                for product_id in POWER_METER_PRODUCT_IDS:
-                    found_devices = list(usb.core.find(find_all=True, 
-                                                      idVendor=THORLABS_VENDOR_ID, 
-                                                      idProduct=product_id))
-                    for dev in found_devices:
-                        model = POWER_METER_PRODUCT_IDS.get(product_id, "Unknown")
-                        devices.append({
-                            'device': dev,
-                            'product_id': product_id,
-                            'model': model,
-                            'serial': self._get_serial_number(dev)
-                        })
-            else:
-                # Simulation mode - create a simulated device
+            # Use PyVISA to find devices
+            for resource in self.rm.list_resources():
                 devices.append({
-                    'device': None,
-                    'product_id': 0,
-                    'model': "Simulated Power Meter",
-                    'serial': "SIM001"
+                    'device': resource,
+                    'product_id': 0,  # Not available through PyVISA
+                    'model': "Thorlabs Power Meter",  # Will be updated after connection
+                    'serial': resource,
+                    'resource_name': resource
                 })
                 
             return devices
@@ -180,77 +129,11 @@ class ThorlabsPowerMeter:
             print(f"Error finding devices: {e}")
             return []
     
-    def _get_serial_number(self, device):
-        """Try to get the serial number of the device"""
-        try:
-            return usb.util.get_string(device, device.iSerialNumber)
-        except:
-            return "Unknown"
-    
     def connect(self, device_info):
         """Connect to a specific power meter"""
         try:
-            if self.connection_mode == "TLPM":
-                # Windows TLPM connection
-                if self.tlpm is None:
-                    self.tlpm = TLPM.TLPM()
-                
-                resource_name = device_info['resource_name']
-                self.tlpm.open(resource_name, False, False)  # Open device without ID Query and reset
-                
-                # Get device info
-                try:
-                    manufacturer = self.tlpm.getDeviceInfo(0)
-                    model = self.tlpm.getDeviceInfo(1)
-                    serial = self.tlpm.getDeviceInfo(2)
-                    device_info['model'] = f"{manufacturer} {model}"
-                    device_info['serial'] = serial
-                except:
-                    pass
-                
-                # Set wavelength
-                self.tlpm.setWavelength(self.wavelength)
-                
-            elif self.connection_mode == "PyUSB":
-                # Linux PyUSB connection
-                self.device = device_info['device']
-                
-                # Detach kernel driver if active
-                if self.device.is_kernel_driver_active(self.interface_number):
-                    try:
-                        self.device.detach_kernel_driver(self.interface_number)
-                    except usb.core.USBError as e:
-                        print(f"Could not detach kernel driver: {e}")
-                
-                # Set configuration
-                self.device.set_configuration()
-                
-                # Get an endpoint instance
-                cfg = self.device.get_active_configuration()
-                intf = cfg[(0, 0)]
-                
-                # Find endpoints
-                self.endpoint_out = usb.util.find_descriptor(
-                    intf,
-                    custom_match=lambda e: 
-                        usb.util.endpoint_direction(e.bEndpointAddress) == 
-                        usb.util.ENDPOINT_OUT
-                )
-                
-                self.endpoint_in = usb.util.find_descriptor(
-                    intf,
-                    custom_match=lambda e: 
-                        usb.util.endpoint_direction(e.bEndpointAddress) == 
-                        usb.util.ENDPOINT_IN
-                )
-                
-                if not self.endpoint_out or not self.endpoint_in:
-                    raise ValueError("Could not find endpoints")
-                
-                # Set wavelength
-                self.set_wavelength(self.wavelength)
-            
-            # For all modes including simulation
+            # Try to connect to the device
+            self.device = self.rm.open_resource(device_info['resource_name'])
             self.connected = True
             print(f"Connected to {device_info['model']} (SN: {device_info['serial']})")
             return True
@@ -260,100 +143,38 @@ class ThorlabsPowerMeter:
     
     def disconnect(self):
         """Disconnect from the power meter"""
-        if not self.connected:
-            return True
-            
-        try:
-            if self.connection_mode == "TLPM" and self.tlpm:
-                self.tlpm.close()
-                self.tlpm = None
-            elif self.connection_mode == "PyUSB" and self.device:
-                # Release the interface
-                usb.util.dispose_resources(self.device)
-                self.device = None
-            
+        if self.device:
+            self.device.close()
             self.connected = False
             print("Disconnected from power meter")
-            return True
-        except Exception as e:
-            print(f"Error disconnecting: {e}")
-            return False
     
-    def _send_command(self, command, data=None):
-        """Send a command to the device and get response"""
+    def get_power(self):
+        """Get the current power measurement"""
+        if not self.connected:
+            print("Device not connected")
+            return None
+        
         try:
-            # Implement the specific command protocol for your power meter model
-            # This is a simplified example and may need to be adjusted
-            if data:
-                self.endpoint_out.write(command + data)
-            else:
-                self.endpoint_out.write(command)
-                
-            # Read response
-            response = self.endpoint_in.read(64)
-            return response
+            power = self.device.query("MEAS:POW?")  # Send query to get power measurement
+            return float(power)
         except Exception as e:
-            print(f"Error sending command: {e}")
+            print(f"Error reading power: {e}")
             return None
     
     def set_wavelength(self, wavelength):
         """Set the wavelength in nm"""
         if not self.connected:
-            print("Not connected to a power meter")
+            print("Device not connected")
             return False
-            
+        
         try:
+            self.device.write(f"WAV {wavelength}")  # Command to set wavelength
             self.wavelength = wavelength
-            
-            if self.connection_mode == "TLPM":
-                self.tlpm.setWavelength(wavelength)
-            elif self.connection_mode == "PyUSB":
-                # Implement the specific command to set wavelength for your model
-                command = struct.pack('<BBHH', 0xA2, 0x02, int(wavelength), 0)
-                self._send_command(command)
-            
             print(f"Wavelength set to {wavelength} nm")
             return True
         except Exception as e:
             print(f"Error setting wavelength: {e}")
             return False
-    
-    def get_power(self):
-        """Get a single power measurement in watts"""
-        if not self.connected:
-            print("Not connected to a power meter")
-            return None
-            
-        try:
-            if self.connection_mode == "TLPM":
-                power = self.tlpm.measPower()
-                return power
-            elif self.connection_mode == "PyUSB":
-                # Implement the specific command to get power for your model
-                command = struct.pack('<BB', 0xD1, 0x01)
-                response = self._send_command(command)
-                
-                if response and len(response) >= 4:
-                    # Extract power value from response
-                    power_value = struct.unpack('<f', response[0:4])[0]
-                    return power_value
-                return None
-            else:
-                # Simulation mode
-                if not hasattr(self, 'simulation_start_time'):
-                    self.simulation_start_time = time.time()
-                
-                elapsed_time = time.time() - self.simulation_start_time
-                
-                # Generate a simulated power reading with noise and drift
-                power = self.simulation_base_power * (1 + self.simulation_drift * elapsed_time)
-                noise_factor = 1.0 + (np.random.random() - 0.5) * 2 * self.simulation_noise
-                power *= noise_factor
-                
-                return power
-        except Exception as e:
-            print(f"Error measuring power: {e}")
-            return None
     
     def start_continuous_measurement(self, interval=0.1):
         """Start continuous power measurements in a separate thread"""
@@ -1089,24 +910,27 @@ class PowerMeterGUI:
         """Export measurement data to Excel file"""
         if not self.power_meter.power_history:
             self.status_var.set("No data to export")
-            return
+            return False
             
-        # Update metadata
-        self.update_metadata()
-        
-        # Ask for file path
-        file_path = save_file_dialog(
-            title="Export Data to Excel",
-            filetypes=[("Excel files", "*.xlsx"), ("All Files", "*.*")],
-            default_name="power_meter_data.xlsx"
-        )
-        
-        if not file_path:
-            return
+        try:
+            # Update metadata
+            self.update_metadata()
             
-        # Export the data
-        if self.power_meter.export_to_excel(file_path):
-            self.status_var.set(f"Data exported to {file_path}")
+            # Ask for file path
+            file_path = save_file_dialog(
+                title="Export Data to Excel",
+                filetypes=[("Excel files", "*.xlsx"), ("All Files", "*.*")],
+                default_name="power_meter_data.xlsx"
+            )
+            
+            if not file_path:
+                return
+                
+            # Export the data
+            if self.power_meter.export_to_excel(file_path):
+                self.status_var.set(f"Data exported to {file_path}")
+        except Exception as e:
+            self.status_var.set(f"Error exporting to Excel: {e}")
     
     def export_statistics(self):
         """Export statistics to JSON file"""
