@@ -26,9 +26,9 @@ from matplotlib.figure import Figure
 import os
 from scipy import ndimage
 from matplotlib.widgets import Slider
-
 import time
 import traceback
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 class IntensityVisualizer:
     def __init__(self):
@@ -38,6 +38,15 @@ class IntensityVisualizer:
         self.phase = None
         self.bit_depth = 8  # Default bit depth
         self.max_value = 255  # Default max value for 8-bit
+        
+        # Measurement points
+        self.measure_points = []
+        self.measure_line = None
+        self.measure_text = None
+        
+        # Default scale calibration (pixels per mm)
+        # This matches the default from camera_controller.py
+        self.scale_calibration = 290.0  # pixels per mm
         
         # Create the main window
         self.root = tk.Tk()
@@ -112,6 +121,43 @@ class IntensityVisualizer:
                            variable=self.viz_type, command=self.update_visualization).pack(
                            anchor=tk.W, padx=5, pady=2)
         
+        # Measurement options frame
+        measure_frame = ttk.LabelFrame(control_frame, text="Measurement")
+        measure_frame.pack(fill=tk.X, padx=5, pady=5)
+        
+        # Measurement enabled checkbox
+        self.measure_enabled = tk.BooleanVar(value=False)
+        ttk.Checkbutton(measure_frame, text="Enable Measurement Tool", 
+                       variable=self.measure_enabled, command=self.toggle_measurement).pack(
+                       anchor=tk.W, padx=5, pady=2)
+        
+        # Measurement unit selection
+        unit_frame = ttk.Frame(measure_frame)
+        unit_frame.pack(fill=tk.X, padx=5, pady=2)
+        ttk.Label(unit_frame, text="Unit:").pack(side=tk.LEFT)
+        
+        self.measure_unit = tk.StringVar(value="pixels")
+        unit_combo = ttk.Combobox(unit_frame, textvariable=self.measure_unit, 
+                                 values=["pixels", "mm", "μm"], width=10)
+        unit_combo.pack(side=tk.RIGHT, padx=5)
+        unit_combo.bind("<<ComboboxSelected>>", lambda e: self.update_visualization())
+        
+        # Measurement scale (pixels per unit)
+        scale_frame = ttk.Frame(measure_frame)
+        scale_frame.pack(fill=tk.X, padx=5, pady=2)
+        ttk.Label(scale_frame, text="Scale (px/unit):").pack(side=tk.LEFT)
+        
+        self.measure_scale = tk.DoubleVar(value=self.scale_calibration)  # Default from camera controller
+        scale_entry = ttk.Entry(scale_frame, textvariable=self.measure_scale, width=10)
+        scale_entry.pack(side=tk.RIGHT, padx=5)
+        scale_entry.bind("<Return>", lambda e: self.update_visualization())
+        scale_entry.bind("<FocusOut>", lambda e: self.update_visualization())
+        
+        # Import calibration from camera controller
+        import_btn = ttk.Button(measure_frame, text="Import Calibration from Camera", 
+                               command=self.import_camera_calibration)
+        import_btn.pack(fill=tk.X, padx=5, pady=5)
+        
         # Color map selection
         cmap_frame = ttk.LabelFrame(control_frame, text="Color Map")
         cmap_frame.pack(fill=tk.X, padx=5, pady=5)
@@ -185,6 +231,18 @@ class IntensityVisualizer:
         # Add 3D plane controls
         planes_frame = ttk.LabelFrame(control_frame, text="3D Cross-Section Planes")
         planes_frame.pack(fill=tk.X, padx=5, pady=5)
+        
+        # Add 3D surface transparency control
+        surface_alpha_frame = ttk.Frame(planes_frame)
+        surface_alpha_frame.pack(fill=tk.X, padx=5, pady=2)
+        ttk.Label(surface_alpha_frame, text="Surface Transparency:").pack(side=tk.LEFT)
+        
+        self.surface_alpha = tk.DoubleVar(value=0.9)
+        surface_alpha_slider = ttk.Scale(surface_alpha_frame, from_=0.1, to=1.0, 
+                                       variable=self.surface_alpha, 
+                                       orient=tk.HORIZONTAL,
+                                       command=lambda e: self.update_visualization())
+        surface_alpha_slider.pack(side=tk.RIGHT, fill=tk.X, expand=True, padx=5)
         
         # Enable/disable planes
         planes_enable_frame = ttk.Frame(planes_frame)
@@ -553,19 +611,50 @@ class IntensityVisualizer:
         
         # Fit Gaussian model if enabled
         if self.gauss_fit_enabled.get():
-            # Fit 2D Gaussian to the intensity data
-            self.gaussian_params = self.fit_2d_gaussian(smoothed_intensity)
-            # Generate the Gaussian model
-            self.gaussian_model = self.generate_gaussian_model(self.gaussian_params, smoothed_intensity.shape)
-            # Scale the model to match raw intensity range if needed
-            if not self.normalize.get():
-                self.raw_gaussian_model = self.gaussian_model * self.max_value
-            else:
-                self.raw_gaussian_model = self.gaussian_model * self.max_value
-        else:
-            self.gaussian_params = None
-            self.gaussian_model = None
-            self.raw_gaussian_model = None
+            try:
+                # Update status to inform user
+                self.status_var.set("Fitting Gaussian model...")
+                self.root.update()  # Force GUI update
+                
+                # Downsample data for faster fitting if image is large
+                height, width = smoothed_intensity.shape
+                if height > 200 or width > 200:
+                    # Downsample factor (adjust as needed)
+                    ds_factor = max(1, min(height, width) // 200)
+                    ds_intensity = smoothed_intensity[::ds_factor, ::ds_factor]
+                    
+                    # Fit 2D Gaussian to the downsampled intensity data
+                    self.gaussian_params = self.fit_2d_gaussian(ds_intensity)
+                    
+                    # Scale the center coordinates back to original size
+                    if self.gaussian_params is not None:
+                        amplitude, x0, y0, sigma_x, sigma_y, theta, offset = self.gaussian_params
+                        self.gaussian_params = (amplitude, x0 * ds_factor, y0 * ds_factor, 
+                                               sigma_x * ds_factor, sigma_y * ds_factor, theta, offset)
+                else:
+                    # Fit 2D Gaussian to the intensity data at original resolution
+                    self.gaussian_params = self.fit_2d_gaussian(smoothed_intensity)
+                
+                # Generate the Gaussian model
+                if self.gaussian_params is not None:
+                    self.gaussian_model = self.generate_gaussian_model(self.gaussian_params, smoothed_intensity.shape)
+                    # Scale the model to match raw intensity range if needed
+                    if not self.normalize.get():
+                        self.raw_gaussian_model = self.gaussian_model * self.max_value
+                    else:
+                        self.raw_gaussian_model = self.gaussian_model * self.max_value
+                    
+                    self.status_var.set("Gaussian fit complete")
+                else:
+                    self.gaussian_model = None
+                    self.raw_gaussian_model = None
+                    self.status_var.set("Gaussian fit failed")
+            except Exception as e:
+                self.status_var.set(f"Gaussian fit error: {str(e)}")
+                print(f"Error in Gaussian fitting: {str(e)}")
+                self.gaussian_params = None
+                self.gaussian_model = None
+                self.raw_gaussian_model = None
         
         # Get the selected visualization type
         viz_type = self.viz_type.get()
@@ -628,11 +717,11 @@ class IntensityVisualizer:
             
             # Plot smoothed histogram as a line
             ax2.plot(bin_centers, hist_smooth, color='blue', linewidth=2, 
-                    label=f'Smoothed (σ={sigma:.1f})')
+                   label=f'Smoothed (σ={sigma:.1f})')
             
             # Add original histogram as semi-transparent bars for reference
             ax2.bar(bin_centers, hist, width=bin_centers[1]-bin_centers[0], 
-                   color='blue', alpha=0.3, label='Original')
+                  color='blue', alpha=0.3, label='Original')
             
             # Update title to indicate smoothing
             title_prefix = f"{title_prefix} Smoothed"
@@ -716,7 +805,7 @@ class IntensityVisualizer:
                 intensity_3d = intensity
         
         # Create the surface plot
-        surf = ax4.plot_surface(x, y, intensity_3d, cmap=cmap, linewidth=0, antialiased=True, alpha=0.9)
+        surf = ax4.plot_surface(x, y, intensity_3d, cmap=cmap, linewidth=0, antialiased=True, alpha=self.surface_alpha.get())
         
         if not self.normalize.get() and not self.log_scale.get():
             ax4.set_title(f"3D Intensity Surface (Raw Values)")
@@ -821,9 +910,11 @@ class IntensityVisualizer:
         if not self.normalize.get() and not self.log_scale.get():
             im = ax.imshow(raw_intensity, cmap=cmap, vmin=0, vmax=self.max_value)
             ax.set_title(f"2D Intensity Map (Raw Values)")
+            self.current_intensity_data = raw_intensity  # Store for measurement
         else:
             im = ax.imshow(intensity, cmap=cmap)
             ax.set_title(f"2D Intensity Map ({self.bit_depth}-bit)")
+            self.current_intensity_data = intensity  # Store for measurement
             
         cbar = self.fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
         
@@ -834,7 +925,12 @@ class IntensityVisualizer:
             # Show normalized values
             cbar.set_label("Normalized Intensity")
             
-        ax.axis('off')
+        # Turn on axis for measurement
+        if self.measure_enabled.get():
+            ax.axis('on')
+            ax.grid(True, alpha=0.3, linestyle='--')
+        else:
+            ax.axis('off')
         
         # Add Gaussian fit contours if enabled
         if self.gauss_fit_enabled.get() and self.gaussian_model is not None:
@@ -879,6 +975,71 @@ class IntensityVisualizer:
                        fontsize=9, verticalalignment='top',
                        bbox=dict(boxstyle='round', facecolor='white', alpha=0.7))
         
+        # Add measurement functionality if enabled
+        if self.measure_enabled.get():
+            # Store the axis for click events
+            self.measure_ax = ax
+            
+            # Connect click event
+            self.measure_cid = self.fig.canvas.mpl_connect('button_press_event', self.on_click)
+            
+            # Draw existing measurement points and line if any
+            if len(self.measure_points) > 0:
+                # Plot points
+                for i, point in enumerate(self.measure_points):
+                    ax.plot(point[0], point[1], 'ro', markersize=8, alpha=0.7)
+                
+                # Draw line between points if we have two
+                if len(self.measure_points) == 2:
+                    x = [self.measure_points[0][0], self.measure_points[1][0]]
+                    y = [self.measure_points[0][1], self.measure_points[1][1]]
+                    self.measure_line = ax.plot(x, y, 'r-', linewidth=2, alpha=0.7)[0]
+                    
+                    # Calculate distance
+                    dx = x[1] - x[0]
+                    dy = y[1] - y[0]
+                    pixel_distance = np.sqrt(dx**2 + dy**2)
+                    
+                    # Get intensity values at points
+                    intensity1 = self.current_intensity_data[int(y[0]), int(x[0])]
+                    intensity2 = self.current_intensity_data[int(y[1]), int(x[1])]
+                    
+                    # Calculate physical distance based on scale
+                    scale = self.measure_scale.get()
+                    unit = self.measure_unit.get()
+                    physical_distance = pixel_distance / scale
+                    
+                    # Create measurement text
+                    if not self.normalize.get() and not self.log_scale.get():
+                        text = (
+                            f"Distance: {pixel_distance:.1f} px ({physical_distance:.2f} {unit})\n"
+                            f"Point 1: ({x[0]:.1f}, {y[0]:.1f}), I={intensity1:.1f}\n"
+                            f"Point 2: ({x[1]:.1f}, {y[1]:.1f}), I={intensity2:.1f}\n"
+                            f"ΔI: {abs(intensity2 - intensity1):.1f}"
+                        )
+                    else:
+                        # For normalized values
+                        text = (
+                            f"Distance: {pixel_distance:.1f} px ({physical_distance:.2f} {unit})\n"
+                            f"Point 1: ({x[0]:.1f}, {y[0]:.1f}), I={intensity1:.3f}\n"
+                            f"Point 2: ({x[1]:.1f}, {y[1]:.1f}), I={intensity2:.3f}\n"
+                            f"ΔI: {abs(intensity2 - intensity1):.3f}"
+                        )
+                    
+                    # Position text near the midpoint of the line
+                    mid_x = (x[0] + x[1]) / 2
+                    mid_y = (y[0] + y[1]) / 2
+                    
+                    # Add text with background box
+                    self.measure_text = ax.text(mid_x, mid_y, text, fontsize=9,
+                                              bbox=dict(boxstyle='round', facecolor='white', alpha=0.8),
+                                              ha='center', va='bottom')
+        else:
+            # Disconnect click event if it exists
+            if hasattr(self, 'measure_cid') and self.measure_cid is not None:
+                self.fig.canvas.mpl_disconnect(self.measure_cid)
+                self.measure_cid = None
+        
         # Add axis labels
         ax.set_xlabel("X Pixel")
         ax.set_ylabel("Y Pixel")
@@ -887,10 +1048,8 @@ class IntensityVisualizer:
         """Create 3D surface plot of intensity distribution"""
         ax = self.fig.add_subplot(111, projection='3d')
         
-        # Get dimensions
+        # Create coordinate grids
         height, width = intensity.shape
-        
-        # Create coordinate grid
         x = np.arange(0, width, 1)
         y = np.arange(0, height, 1)
         x, y = np.meshgrid(x, y)
@@ -904,7 +1063,7 @@ class IntensityVisualizer:
             z_max = 1.0
         
         # Create the surface plot
-        surf = ax.plot_surface(x, y, intensity_3d, cmap=cmap, linewidth=0, antialiased=True, alpha=0.9)
+        surf = ax.plot_surface(x, y, intensity_3d, cmap=cmap, linewidth=0, antialiased=True, alpha=self.surface_alpha.get())
         
         # Add cross-section planes if enabled
         # XY plane (constant Z)
@@ -923,7 +1082,7 @@ class IntensityVisualizer:
             xy_plane_data = intensity_3d.copy()
             levels = np.linspace(np.min(xy_plane_data), np.max(xy_plane_data), 10)
             cset = ax.contourf(xx, yy, xy_plane_data, zdir='z', offset=z_pos, 
-                              levels=levels, cmap=cmap, alpha=0.6)
+                               levels=levels, cmap=cmap, alpha=0.6)
         
         # YZ plane (constant X)
         if self.yz_plane_enabled.get():
@@ -971,8 +1130,8 @@ class IntensityVisualizer:
             else:
                 gaussian_surface = self.gaussian_model
             
-            # Plot the Gaussian fit as a wireframe
-            wireframe = ax.plot_wireframe(x, y, gaussian_surface, color='r', linewidth=1, alpha=0.7)
+            # Plot the Gaussian fit as a wireframe with increased transparency
+            wireframe = ax.plot_wireframe(x, y, gaussian_surface, color='r', linewidth=1, alpha=0.4)
             
             # Add text with Gaussian parameters
             if self.gaussian_params is not None:
@@ -1280,13 +1439,14 @@ class IntensityVisualizer:
         
         try:
             # Fit the 2D Gaussian
-            popt, _ = curve_fit(lambda coords, *params: gaussian_2d((x_flat, y_flat), *params),
-                               (x_flat, y_flat), z_flat, p0=initial_guess,
-                               bounds=([0, 0, 0, 0, 0, -np.pi/4, 0],
-                                      [np.inf, width, height, width/2, height/2, np.pi/4, np.inf]))
-            
+            with ThreadPoolExecutor(max_workers=1) as executor:
+                future = executor.submit(curve_fit, gaussian_2d, (x_flat, y_flat), z_flat, p0=initial_guess, 
+                                        bounds=([0, 0, 0, 0, 0, -np.pi/4, 0],
+                                               [np.inf, width, height, width/2, height/2, np.pi/4, np.inf]))
+                result = future.result(timeout=5)
+            popt, _ = result
             return popt
-        except (RuntimeError, ValueError) as e:
+        except (RuntimeError, ValueError, TimeoutError) as e:
             print(f"Gaussian fitting error: {e}")
             # Return a default fit based on initial guess if fitting fails
             return initial_guess
@@ -1317,6 +1477,79 @@ class IntensityVisualizer:
         gaussian = offset + amplitude * np.exp(-exponent)
         
         return gaussian
+    
+    def toggle_measurement(self):
+        """Toggle measurement mode on/off"""
+        if self.measure_enabled.get():
+            self.status_var.set("Measurement mode enabled. Click to place measurement points.")
+        else:
+            self.status_var.set("Measurement mode disabled.")
+            self.measure_points = []  # Clear measurement points
+            self.measure_line = None
+            self.measure_text = None
+        
+        # Update visualization to reflect changes
+        self.update_visualization()
+    
+    def on_click(self, event):
+        """Handle click events for measurement"""
+        # Check if click is in the measurement axis
+        if event.inaxes != self.measure_ax:
+            return
+            
+        # Get click coordinates
+        x, y = event.xdata, event.ydata
+        
+        # Add point to measurement points
+        if len(self.measure_points) < 2:
+            self.measure_points.append((x, y))
+            self.status_var.set(f"Point {len(self.measure_points)} set at ({x:.1f}, {y:.1f})")
+        else:
+            # Reset points and start over
+            self.measure_points = [(x, y)]
+            self.status_var.set(f"Measurement reset. Point 1 set at ({x:.1f}, {y:.1f})")
+        
+        # Update visualization to show the points
+        self.update_visualization()
+    
+    def import_camera_calibration(self):
+        """Import scale calibration from the camera controller"""
+        try:
+            # Import the camera controller module
+            import sys
+            import os
+            
+            # Get the current directory
+            current_dir = os.path.dirname(os.path.abspath(__file__))
+            
+            # Add the current directory to the path if not already there
+            if current_dir not in sys.path:
+                sys.path.append(current_dir)
+            
+            # Import the camera controller
+            from camera_controller import CameraController
+            
+            # Create a temporary instance to get the calibration
+            # This doesn't actually initialize the camera hardware
+            temp_controller = CameraController(resolution=(1, 1), device="dummy")
+            
+            # Get the scale calibration
+            self.scale_calibration = temp_controller.get_scale_calibration()
+            
+            # Update the measure scale variable
+            self.measure_scale.set(self.scale_calibration)
+            
+            # Update the status
+            self.status_var.set(f"Imported scale calibration: {self.scale_calibration:.2f} pixels per mm")
+            
+            # Update visualization if measurement is enabled
+            if self.measure_enabled.get():
+                self.update_visualization()
+                
+        except Exception as e:
+            self.status_var.set(f"Error importing calibration: {str(e)}")
+            print(f"Error importing calibration: {str(e)}")
+            traceback.print_exc()
     
     def run(self):
         """Run the application"""

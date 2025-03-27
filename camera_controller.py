@@ -11,6 +11,7 @@ Features:
 - Histogram generation and analysis of intensity distributions
 - Frame capture and saving with metadata
 - Thread-safe operation for GUI integration
+- Diagonal Sensor size Width=4.95 mm Height=3.75 mm
 """
 
 import os
@@ -67,6 +68,13 @@ class CameraController:
         self.latest_histogram = None
         self.histogram_enabled = True  # Flag to enable/disable histogram generation
         self.auto_adjustments_enabled = False  # Flag to enable/disable auto adjustments
+        self.scale_enabled = True  # Flag to enable/disable scale display
+        
+        # Scale calibration (pixels per mm)
+        # Default value for IMX296 with 3.45μm pixel size: ~290 pixels per mm
+        # This is an approximation and should be calibrated for accurate measurements
+        self.scale_calibration = 290.0  # pixels per mm
+        self.scale_length_mm = 1.0  # Scale bar length in mm
         
         # Camera settings
         self.settings = {
@@ -444,7 +452,7 @@ class CameraController:
                 "AnalogueGain": float(self.settings['gain']),
                 "AeEnable": self.auto_adjustments_enabled,  # Enable auto exposure if auto adjustments enabled
                 "AwbEnable": self.auto_adjustments_enabled,  # Enable auto white balance if auto adjustments enabled
-                "NoiseReductionMode": 0 if not self.auto_adjustments_enabled else 1,  # Disable noise reduction if auto adjustments disabled
+                "NoiseReductionMode": 0 if not self.auto_adjustments_enabled else 1,  # Noise reduction based on flag
             }
             
             # Check if camera is initialized
@@ -549,6 +557,77 @@ class CameraController:
     def is_auto_adjustments_enabled(self) -> bool:
         """Check if automatic camera adjustments are enabled"""
         return self.auto_adjustments_enabled
+        
+    def enable_scale(self) -> None:
+        """Enable scale display on camera preview"""
+        self.scale_enabled = True
+        print("Scale display enabled")
+        
+    def disable_scale(self) -> None:
+        """Disable scale display on camera preview"""
+        self.scale_enabled = False
+        print("Scale display disabled")
+        
+    def toggle_scale(self) -> bool:
+        """Toggle scale display on/off"""
+        self.scale_enabled = not self.scale_enabled
+        print(f"Scale display {'enabled' if self.scale_enabled else 'disabled'}")
+        return self.scale_enabled
+        
+    def is_scale_enabled(self) -> bool:
+        """Check if scale display is enabled"""
+        return self.scale_enabled
+        
+    def set_scale_calibration(self, pixels_per_mm: float) -> None:
+        """
+        Set the scale calibration value (pixels per mm)
+        
+        Args:
+            pixels_per_mm: Number of pixels that represent 1mm in the image
+        """
+        if pixels_per_mm <= 0:
+            print("Error: Scale calibration must be positive")
+            return
+            
+        self.scale_calibration = pixels_per_mm
+        print(f"Scale calibration set to {pixels_per_mm:.2f} pixels per mm")
+        
+    def get_scale_calibration(self) -> float:
+        """Get the current scale calibration value (pixels per mm)"""
+        return self.scale_calibration
+        
+    def set_scale_length(self, length_mm: float) -> None:
+        """
+        Set the scale bar length in millimeters
+        
+        Args:
+            length_mm: Length of the scale bar in mm
+        """
+        if length_mm <= 0:
+            print("Error: Scale length must be positive")
+            return
+            
+        self.scale_length_mm = length_mm
+        print(f"Scale length set to {length_mm:.2f} mm")
+        
+    def get_scale_length(self) -> float:
+        """Get the current scale bar length in millimeters"""
+        return self.scale_length_mm
+        
+    def calibrate_scale(self, known_object_pixels: float, known_object_mm: float) -> None:
+        """
+        Calibrate the scale using an object of known dimensions
+        
+        Args:
+            known_object_pixels: Size of the object in pixels
+            known_object_mm: Actual size of the object in mm
+        """
+        if known_object_pixels <= 0 or known_object_mm <= 0:
+            print("Error: Object dimensions must be positive")
+            return
+            
+        self.scale_calibration = known_object_pixels / known_object_mm
+        print(f"Scale calibrated: {self.scale_calibration:.2f} pixels per mm")
 
 
 class CameraGUI:
@@ -665,6 +744,16 @@ class CameraGUI:
         )
         self.histogram_checkbox.pack(side=tk.LEFT, padx=5)
         
+        # Scale toggle checkbox
+        self.scale_enabled_var = tk.BooleanVar(value=self.camera.is_scale_enabled())
+        self.scale_checkbox = ttk.Checkbutton(
+            checkbox_frame, 
+            text="Show Scale", 
+            variable=self.scale_enabled_var,
+            command=self._on_toggle_scale
+        )
+        self.scale_checkbox.pack(side=tk.LEFT, padx=5)
+        
         # Histogram canvas - reduced size
         histogram_frame = ttk.LabelFrame(right_pane, text="Histogram")
         histogram_frame.pack(pady=5, fill=tk.X)
@@ -679,9 +768,22 @@ class CameraGUI:
         settings_frame = ttk.LabelFrame(right_pane, text="Camera Settings")
         settings_frame.pack(fill=tk.X, pady=10, padx=5)
         
+        # Create a scrollable frame for settings
+        settings_canvas = tk.Canvas(settings_frame, height=300)
+        settings_canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        
+        scrollbar = ttk.Scrollbar(settings_frame, orient=tk.VERTICAL, command=settings_canvas.yview)
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        
+        settings_canvas.configure(yscrollcommand=scrollbar.set)
+        settings_canvas.bind('<Configure>', lambda e: settings_canvas.configure(scrollregion=settings_canvas.bbox("all")))
+        
+        scrollable_frame = ttk.Frame(settings_canvas)
+        settings_canvas.create_window((0, 0), window=scrollable_frame, anchor=tk.NW)
+        
         # Create numerical entry fields instead of sliders
         # Exposure control
-        exposure_frame = ttk.Frame(settings_frame)
+        exposure_frame = ttk.Frame(scrollable_frame)
         exposure_frame.pack(fill=tk.X, pady=2)
         ttk.Label(exposure_frame, text="Exposure (ms):").pack(side=tk.LEFT, padx=5)
         self.exposure_var = tk.StringVar(value=str(self.camera.settings['exposure']))
@@ -689,7 +791,7 @@ class CameraGUI:
         exposure_entry.pack(side=tk.RIGHT, padx=5)
         
         # Gain control
-        gain_frame = ttk.Frame(settings_frame)
+        gain_frame = ttk.Frame(scrollable_frame)
         gain_frame.pack(fill=tk.X, pady=2)
         ttk.Label(gain_frame, text="Gain:").pack(side=tk.LEFT, padx=5)
         self.gain_var = tk.StringVar(value=str(self.camera.settings['gain']))
@@ -697,7 +799,7 @@ class CameraGUI:
         gain_entry.pack(side=tk.RIGHT, padx=5)
         
         # Brightness control
-        brightness_frame = ttk.Frame(settings_frame)
+        brightness_frame = ttk.Frame(scrollable_frame)
         brightness_frame.pack(fill=tk.X, pady=2)
         ttk.Label(brightness_frame, text="Brightness:").pack(side=tk.LEFT, padx=5)
         self.brightness_var = tk.StringVar(value=str(self.camera.settings['brightness']))
@@ -705,15 +807,35 @@ class CameraGUI:
         brightness_entry.pack(side=tk.RIGHT, padx=5)
         
         # Contrast control
-        contrast_frame = ttk.Frame(settings_frame)
+        contrast_frame = ttk.Frame(scrollable_frame)
         contrast_frame.pack(fill=tk.X, pady=2)
         ttk.Label(contrast_frame, text="Contrast:").pack(side=tk.LEFT, padx=5)
         self.contrast_var = tk.StringVar(value=str(self.camera.settings['contrast']))
         contrast_entry = ttk.Entry(contrast_frame, textvariable=self.contrast_var, width=8)
         contrast_entry.pack(side=tk.RIGHT, padx=5)
         
+        # Add scale settings
+        scale_settings_frame = ttk.LabelFrame(scrollable_frame, text="Scale Settings")
+        scale_settings_frame.pack(fill=tk.X, pady=5, padx=5)
+        
+        # Scale calibration control
+        scale_cal_frame = ttk.Frame(scale_settings_frame)
+        scale_cal_frame.pack(fill=tk.X, pady=2)
+        ttk.Label(scale_cal_frame, text="Pixels per mm:").pack(side=tk.LEFT, padx=5)
+        self.scale_cal_var = tk.StringVar(value=str(self.camera.get_scale_calibration()))
+        scale_cal_entry = ttk.Entry(scale_cal_frame, textvariable=self.scale_cal_var, width=8)
+        scale_cal_entry.pack(side=tk.RIGHT, padx=5)
+        
+        # Scale length control
+        scale_length_frame = ttk.Frame(scale_settings_frame)
+        scale_length_frame.pack(fill=tk.X, pady=2)
+        ttk.Label(scale_length_frame, text="Scale Length (mm):").pack(side=tk.LEFT, padx=5)
+        self.scale_length_var = tk.StringVar(value=str(self.camera.get_scale_length()))
+        scale_length_entry = ttk.Entry(scale_length_frame, textvariable=self.scale_length_var, width=8)
+        scale_length_entry.pack(side=tk.RIGHT, padx=5)
+        
         # Settings buttons frame
-        settings_buttons_frame = ttk.Frame(settings_frame)
+        settings_buttons_frame = ttk.Frame(scrollable_frame)
         settings_buttons_frame.pack(fill=tk.X, pady=5)
         
         # Apply settings button
@@ -985,6 +1107,28 @@ class CameraGUI:
                 # Convert to RGB format for PIL
                 display_rgb = cv2.cvtColor(frame, cv2.COLOR_GRAY2RGB)
                 
+                # Add scale if enabled
+                if self.camera.is_scale_enabled():
+                    # Calculate scale bar length in pixels based on calibration
+                    scale_length_pixels = int(self.camera.get_scale_calibration() * self.camera.get_scale_length())
+                    scale_height = 5    # pixels
+                    scale_color = (0, 255, 0)  # Green color
+                    
+                    # Position in bottom right with some padding
+                    x_start = display_rgb.shape[1] - scale_length_pixels - 20
+                    y_pos = display_rgb.shape[0] - 30
+                    
+                    # Draw the scale bar
+                    display_rgb[y_pos:y_pos+scale_height, x_start:x_start+scale_length_pixels] = scale_color
+                    
+                    # Add text label above the scale bar
+                    font = cv2.FONT_HERSHEY_SIMPLEX
+                    text = f"{self.camera.get_scale_length():.1f}mm"
+                    text_size = cv2.getTextSize(text, font, 0.5, 1)[0]
+                    text_x = x_start + (scale_length_pixels - text_size[0]) // 2
+                    text_y = y_pos - 5
+                    cv2.putText(display_rgb, text, (text_x, text_y), font, 0.5, scale_color, 1, cv2.LINE_AA)
+                
                 # Convert to PIL Image and then to PhotoImage
                 pil_img = Image.fromarray(display_rgb)
                 self.tk_img = ImageTk.PhotoImage(image=pil_img)
@@ -1032,6 +1176,18 @@ class CameraGUI:
             for setting, var in settings_to_update.items():
                 self._update_setting_from_entry(setting, var)
             
+            # Update scale settings
+            try:
+                scale_cal = float(self.scale_cal_var.get())
+                if scale_cal > 0:
+                    self.camera.set_scale_calibration(scale_cal)
+                    
+                scale_length = float(self.scale_length_var.get())
+                if scale_length > 0:
+                    self.camera.set_scale_length(scale_length)
+            except ValueError:
+                self.status_var.set("Invalid scale settings")
+            
             # Then apply all settings at once
             if self.camera.apply_all_settings():
                 self.status_var.set("All camera settings applied")
@@ -1059,6 +1215,15 @@ class CameraGUI:
             self.camera.apply_all_settings()  # Apply the change immediately
         except Exception as e:
             self.status_var.set(f"Auto adjustments toggle error: {str(e)}")
+            
+    def _on_toggle_scale(self):
+        """Handle scale toggle checkbox"""
+        try:
+            # Update scale display state
+            self.camera.scale_enabled = self.scale_enabled_var.get()
+            self.status_var.set(f"Scale display {'enabled' if self.camera.scale_enabled else 'disabled'}")
+        except Exception as e:
+            self.status_var.set(f"Scale toggle error: {str(e)}")
 
 
 # Example usage

@@ -1,0 +1,286 @@
+=== PATTERN GENERATION ALGORITHM TEST SUMMARY ===
+
+Test name: improved_metrics_test
+Pattern size: 128x128
+Date: 2025-03-11 15:17:47
+
+Pattern         Algorithm  Version    Iterations Time (s)   Correlation  NMSE         Efficiency
+------------------------------------------------------------------------------------------
+single_spot     GS         Fixed      7          0.017      0.9812       1.6052e-01   0.9223    
+single_spot     GS         Original   2          0.004      0.9582       3.0605e-01   0.8890    
+single_spot     MRAF       Fixed      7          0.016      0.9817       1.6477e-01   0.9201    
+single_spot     MRAF       Original   2          0.009      0.9634       2.1727e-01   0.8453    
+multiple_spots  GS         Fixed      7          0.014      0.9730       2.0029e-01   0.9227    
+multiple_spots  GS         Original   2          0.004      0.9568       3.0740e-01   0.8971    
+multiple_spots  MRAF       Fixed      7          0.015      0.9734       1.9538e-01   0.9214    
+multiple_spots  MRAF       Original   2          0.005      0.9643       3.1595e-01   0.8628    
+line            GS         Fixed      7          0.013      0.9663       2.7723e-01   0.9673    
+line            GS         Original   2          0.004      0.9481       3.4795e-01   0.9467    
+line            MRAF       Fixed      7          0.019      0.9665       2.7778e-01   0.9669    
+line            MRAF       Original   2          0.005      0.9544       3.4682e-01   0.9232    
+cross           GS         Fixed      7          0.014      0.9765       2.2607e-01   0.8792    
+cross           GS         Original   2          0.004      0.9717       2.3617e-01   0.8480    
+cross           MRAF       Fixed      7          0.016      0.9771       2.1826e-01   0.8779    
+cross           MRAF       Original   2          0.005      0.9803       1.5962e-01   0.8212    
+checkerboard    GS         Fixed      7          0.014      0.9384       2.7842e-01   0.9678    
+checkerboard    GS         Original   2          0.005      0.8882       4.2768e-01   0.9438    
+checkerboard    MRAF       Fixed      7          0.016      0.9385       2.7919e-01   0.9677    
+checkerboard    MRAF       Original   2          0.006      0.8897       3.8427e-01   0.9194    
+gaussian        GS         Fixed      7          0.016      0.9851       8.8525e-02   0.8526    
+gaussian        GS         Original   2          0.004      0.9648       1.8706e-01   0.8291    
+gaussian        MRAF       Fixed      7          0.018      0.9822       9.6024e-02   0.8999    
+gaussian        MRAF       Original   2          0.005      0.9677       1.3739e-01   0.8004    
+
+
+=== ALGORITHM COMPARISON (FIXED vs ORIGINAL) ===
+
+
+Pattern: cross, Algorithm: GS
+--------------------------------------------------
+Correlation: +0.50%
+NMSE: +4.28%
+Efficiency: +3.68%
+Iterations: +5
+Time: +0.010s
+
+Original stop reason: Convergence reached at iteration 2: Error delta (5.294e-23) < tolerance (1.000e-04)
+Fixed stop reason: Convergence reached at iteration 7: Field change (1.195e-17) < tolerance (1.000e-04)
+
+Pattern: cross, Algorithm: MRAF
+--------------------------------------------------
+Correlation: -0.33%
+NMSE: -36.74%
+Efficiency: +6.90%
+Iterations: +5
+Time: +0.012s
+
+Original stop reason: Convergence reached at iteration 2: Error delta (8.146e-22) < tolerance (1.000e-04)
+Fixed stop reason: Convergence reached at iteration 7: Field change (4.422e-07) < tolerance (1.000e-04)
+
+Pattern: checkerboard, Algorithm: GS
+--------------------------------------------------
+Correlation: +5.65%
+NMSE: +34.90%
+Efficiency: +2.55%
+Iterations: +5
+Time: +0.010s
+
+Original stop reason: Convergence reached at iteration 2: Error delta (1.985e-23) < tolerance (1.000e-04)
+Fixed stop reason: Convergence reached at iteration 7: Field change (6.668e-17) < tolerance (1.000e-04)
+
+Pattern: checkerboard, Algorithm: MRAF
+--------------------------------------------------
+Correlation: +5.48%
+NMSE: +27.35%
+Efficiency: +5.26%
+Iterations: +5
+Time: +0.011s
+
+Original stop reason: Convergence reached at iteration 2: Error delta (1.923e-23) < tolerance (1.000e-04)
+Fixed stop reason: Convergence reached at iteration 7: Field change (5.669e-08) < tolerance (1.000e-04)
+
+Pattern: gaussian, Algorithm: GS
+--------------------------------------------------
+Correlation: +2.11%
+NMSE: +52.68%
+Efficiency: +2.84%
+Iterations: +5
+Time: +0.012s
+
+Original stop reason: Convergence reached at iteration 2: Error delta (1.665e-22) < tolerance (1.000e-04)
+Fixed stop reason: Convergence reached at iteration 7: Field change (1.558e-17) < tolerance (1.000e-04)
+
+Pattern: gaussian, Algorithm: MRAF
+--------------------------------------------------
+Correlation: +1.49%
+NMSE: +30.11%
+Efficiency: +12.44%
+Iterations: +5
+Time: +0.013s
+
+Original stop reason: Convergence reached at iteration 2: Error delta (1.398e-21) < tolerance (1.000e-04)
+Fixed stop reason: Convergence reached at iteration 7: Field change (3.759e-06) < tolerance (1.000e-04)
+
+Pattern: multiple_spots, Algorithm: GS
+--------------------------------------------------
+Correlation: +1.69%
+NMSE: +34.84%
+Efficiency: +2.85%
+Iterations: +5
+Time: +0.010s
+
+Original stop reason: Convergence reached at iteration 2: Error delta (1.059e-21) < tolerance (1.000e-04)
+Fixed stop reason: Convergence reached at iteration 7: Field change (3.646e-18) < tolerance (1.000e-04)
+
+Pattern: multiple_spots, Algorithm: MRAF
+--------------------------------------------------
+Correlation: +0.95%
+NMSE: +38.16%
+Efficiency: +6.79%
+Iterations: +5
+Time: +0.011s
+
+Original stop reason: Convergence reached at iteration 2: Error delta (4.188e-21) < tolerance (1.000e-04)
+Fixed stop reason: Convergence reached at iteration 7: Field change (2.696e-07) < tolerance (1.000e-04)
+
+Pattern: line, Algorithm: GS
+--------------------------------------------------
+Correlation: +1.91%
+NMSE: +20.32%
+Efficiency: +2.18%
+Iterations: +5
+Time: +0.009s
+
+Original stop reason: Convergence reached at iteration 2: Error delta (4.235e-22) < tolerance (1.000e-04)
+Fixed stop reason: Convergence reached at iteration 7: Field change (5.990e-18) < tolerance (1.000e-04)
+
+Pattern: line, Algorithm: MRAF
+--------------------------------------------------
+Correlation: +1.27%
+NMSE: +19.91%
+Efficiency: +4.73%
+Iterations: +5
+Time: +0.015s
+
+Original stop reason: Convergence reached at iteration 2: Error delta (4.376e-21) < tolerance (1.000e-04)
+Fixed stop reason: Convergence reached at iteration 7: Field change (7.319e-08) < tolerance (1.000e-04)
+
+Pattern: single_spot, Algorithm: GS
+--------------------------------------------------
+Correlation: +2.41%
+NMSE: +47.55%
+Efficiency: +3.74%
+Iterations: +5
+Time: +0.013s
+
+Original stop reason: Convergence reached at iteration 2: Error delta (4.235e-22) < tolerance (1.000e-04)
+Fixed stop reason: Convergence reached at iteration 7: Field change (1.125e-18) < tolerance (1.000e-04)
+
+Pattern: single_spot, Algorithm: MRAF
+--------------------------------------------------
+Correlation: +1.90%
+NMSE: +24.16%
+Efficiency: +8.85%
+Iterations: +5
+Time: +0.007s
+
+Original stop reason: Convergence reached at iteration 2: Error delta (1.042e-19) < tolerance (1.000e-04)
+Fixed stop reason: Convergence reached at iteration 7: Field change (2.929e-07) < tolerance (1.000e-04)
+
+
+=== ALGORITHM PERFORMANCE BY PATTERN ===
+
+
+Pattern: cross
+----------------------------------------
+Correlation:
+  GS (Fixed): 0.976515
+  GS (Original): 0.971698
+  MRAF (Fixed): 0.977107
+  MRAF (Original): 0.980324
+Nmse:
+  GS (Fixed): 0.226067
+  GS (Original): 0.236174
+  MRAF (Fixed): 0.218261
+  MRAF (Original): 0.159616
+Efficiency:
+  GS (Fixed): 0.879218
+  GS (Original): 0.847992
+  MRAF (Fixed): 0.877920
+  MRAF (Original): 0.821238
+
+
+Pattern: checkerboard
+----------------------------------------
+Correlation:
+  GS (Fixed): 0.938423
+  GS (Original): 0.888239
+  MRAF (Fixed): 0.938500
+  MRAF (Original): 0.889701
+Nmse:
+  GS (Fixed): 0.278421
+  GS (Original): 0.427682
+  MRAF (Fixed): 0.279186
+  MRAF (Original): 0.384269
+Efficiency:
+  GS (Fixed): 0.967831
+  GS (Original): 0.943770
+  MRAF (Fixed): 0.967724
+  MRAF (Original): 0.919392
+
+
+Pattern: gaussian
+----------------------------------------
+Correlation:
+  GS (Fixed): 0.985147
+  GS (Original): 0.964753
+  MRAF (Fixed): 0.982198
+  MRAF (Original): 0.967747
+Nmse:
+  GS (Fixed): 0.088525
+  GS (Original): 0.187061
+  MRAF (Fixed): 0.096024
+  MRAF (Original): 0.137386
+Efficiency:
+  GS (Fixed): 0.852592
+  GS (Original): 0.829057
+  MRAF (Fixed): 0.899931
+  MRAF (Original): 0.800367
+
+
+Pattern: multiple_spots
+----------------------------------------
+Correlation:
+  GS (Fixed): 0.972992
+  GS (Original): 0.956782
+  MRAF (Fixed): 0.973385
+  MRAF (Original): 0.964258
+Nmse:
+  GS (Fixed): 0.200288
+  GS (Original): 0.307400
+  MRAF (Fixed): 0.195384
+  MRAF (Original): 0.315948
+Efficiency:
+  GS (Fixed): 0.922667
+  GS (Original): 0.897061
+  MRAF (Fixed): 0.921404
+  MRAF (Original): 0.862803
+
+
+Pattern: line
+----------------------------------------
+Correlation:
+  GS (Fixed): 0.966258
+  GS (Original): 0.948143
+  MRAF (Fixed): 0.966505
+  MRAF (Original): 0.954401
+Nmse:
+  GS (Fixed): 0.277234
+  GS (Original): 0.347955
+  MRAF (Fixed): 0.277779
+  MRAF (Original): 0.346820
+Efficiency:
+  GS (Fixed): 0.967295
+  GS (Original): 0.946697
+  MRAF (Fixed): 0.966867
+  MRAF (Original): 0.923220
+
+
+Pattern: single_spot
+----------------------------------------
+Correlation:
+  GS (Fixed): 0.981237
+  GS (Original): 0.958192
+  MRAF (Fixed): 0.981682
+  MRAF (Original): 0.963377
+Nmse:
+  GS (Fixed): 0.160520
+  GS (Original): 0.306049
+  MRAF (Fixed): 0.164766
+  MRAF (Original): 0.217267
+Efficiency:
+  GS (Fixed): 0.922268
+  GS (Original): 0.889031
+  MRAF (Fixed): 0.920133
+  MRAF (Original): 0.845320
+
