@@ -49,16 +49,14 @@ else:
 # Thorlabs USB identifiers
 THORLABS_VENDOR_ID = 0x1313  # Thorlabs Vendor ID
 
-# Known Thorlabs Power Meter Product IDs
 POWER_METER_PRODUCT_IDS = {
     0x8070: "PM100USB",
-    0x8071: "PM100D",
+    0x8071: "PM100D",  # Ensure this is correct
     0x8072: "PM100A",
-    0x8078: "PM400",
+    0x8078: "PM100D",  # Update this line to map PM100D correctly
     0x8079: "PM101",
     0x807A: "PM102",
     0x807B: "PM103"
-    # Add more product IDs as needed
 }
 
 class ThorlabsPowerMeter:
@@ -69,7 +67,7 @@ class ThorlabsPowerMeter:
         self.device = None
         self.tlpm = None
         self.connected = False
-        self.wavelength = 633.0  # Default wavelength in nm
+        self.wavelength = 650.0  # Default wavelength in nm
         self.measurement_thread = None
         self.running = False
         self.power_history = []
